@@ -5,8 +5,27 @@ import gpes.core.model.ImuSample
 import gpes.core.model.Measurement
 import gpes.core.model.OrientationKind
 import gpes.core.model.OrientationSample
+import kotlin.math.abs
 import kotlin.math.exp
+import kotlin.math.sign
 import kotlin.math.sqrt
+
+/** Small immutable 3-vector (phone frame unless stated otherwise). */
+data class Vec3(val x: Double, val y: Double, val z: Double) {
+    operator fun plus(o: Vec3) = Vec3(x + o.x, y + o.y, z + o.z)
+    operator fun minus(o: Vec3) = Vec3(x - o.x, y - o.y, z - o.z)
+    operator fun times(k: Double) = Vec3(x * k, y * k, z * k)
+    infix fun dot(o: Vec3) = x * o.x + y * o.y + z * o.z
+    infix fun cross(o: Vec3) = Vec3(y * o.z - z * o.y, z * o.x - x * o.z, x * o.y - y * o.x)
+    val norm: Double get() = sqrt(x * x + y * y + z * z)
+    fun unit(): Vec3? = norm.let { if (it < 1e-9) null else this * (1 / it) }
+    /** Component perpendicular to unit vector [u]. */
+    fun perp(u: Vec3) = this - u * (this dot u)
+
+    companion object {
+        val ZERO = Vec3(0.0, 0.0, 0.0)
+    }
+}
 
 /**
  * Derived vehicle motion at a fixed rate. The yaw rate is the gyro projected on the gravity
@@ -21,41 +40,66 @@ data class MotionUpdate(
     val stationaryForS: Double,
     val gyroNormMean: Double,
     val accelStd: Double,
+    /** World "up" in the phone frame (unit), or null before the first accelerometer sample. */
+    val up: Vec3? = null,
+    /** Vehicle forward axis in the phone frame (unit, horizontal), once learned from turns. */
+    val forward: Vec3? = null,
+    /** Increments whenever the phone is re-mounted (a large tilt). Mount-dependent calibrations reset on change. */
+    val mountEpoch: Int = 0,
 )
 
 data class MotionConfig(
     val updatePeriodNs: Long = 50_000_000,
     val windowNs: Long = 1_000_000_000,
-    val gravityTauS: Double = 1.0,
+    /** Low-pass for gravity. Long enough that centripetal/braking acceleration barely tilts it (the phone is mounted). */
+    val gravityTauS: Double = 5.0,
     val stationaryAccelStd: Double = 0.12,
     val stationaryGyroNorm: Double = 0.03,
     val historyNs: Long = 600_000_000_000,
     /** An orientation sample is used for gravity only if it is this fresh. */
     val orientationMaxAgeNs: Long = 500_000_000,
+    /** Forward-axis learning: minimum |yaw rate| (rad/s) and horizontal acceleration (m/s²) in a turn. */
+    val mountMinYawRate: Double = 0.08,
+    val mountMinLateralAccel: Double = 0.4,
+    /** Samples (gyro rate) and concentration needed before the forward axis is reported. */
+    /** About two 90° turns at 100 Hz gyro, so a single turn with braking cannot fix the axis. */
+    val mountMinSamples: Int = 1000,
+    val mountMinConcentration: Double = 0.6,
+    /** Net non-yaw rotation within [remountWindowNs] that counts as re-mounting the phone (rad). */
+    val remountTiltRad: Double = 0.35,
+    val remountWindowNs: Long = 3_000_000_000,
 )
 
 /**
- * Turns raw IMU samples into [MotionUpdate]s. It also keeps a cumulative-yaw history, so that trust
- * checks can ask "how much did the car turn between t1 and t2" independently of GNSS.
+ * Turns raw IMU samples into [MotionUpdate]s. It also:
+ *  - keeps a cumulative-yaw history, so that trust checks can ask "how much did the car turn between
+ *    t1 and t2" independently of GNSS;
+ *  - learns the vehicle forward axis in the phone frame from turns. The centripetal acceleration
+ *    points to the turn centre, so sign(yawRate)·a_horizontal is the vehicle's *left*, and
+ *    forward = left × up. This needs no speed and has no sign ambiguity;
+ *  - detects re-mounting (a large net rotation that is not about the up axis).
  */
 class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
 
     data class State(
-        val gx: Double, val gy: Double, val gz: Double, val gravityInit: Boolean,
-        val orientUp: DoubleArray?, val orientT: Long,
+        val g: Vec3, val gravityInit: Boolean,
+        val orientUp: Vec3?, val orientT: Long,
+        val lastAccel: Vec3?, val lastAccelT: Long,
         val lastGyroT: Long, val yawAccum: Double, val yawAccumDt: Double,
         val lastEmitT: Long, val cumYawBearing: Double,
         val stationarySinceNs: Long?, val seenCalibratedGyro: Boolean,
         val accWindow: List<Pair<Long, Double>>, val gyroWindow: List<Pair<Long, Double>>,
+        val leftSum: Vec3, val leftWeight: Double, val leftCount: Int,
+        val tiltWindow: List<Pair<Long, Vec3>>, val mountEpoch: Int, val remountAt: Long,
     )
 
     // Gravity (specific force at rest points up) in the phone frame, low-passed accelerometer.
-    private var gx = 0.0
-    private var gy = 0.0
-    private var gz = 0.0
+    private var g = Vec3.ZERO
     private var gravityInit = false
-    private var orientUp: DoubleArray? = null
+    private var orientUp: Vec3? = null
     private var orientT = Long.MIN_VALUE
+    private var lastAccel: Vec3? = null
+    private var lastAccelT = Long.MIN_VALUE
 
     private var lastGyroT = Long.MIN_VALUE
     private var yawAccum = 0.0
@@ -67,6 +111,15 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
 
     private val accWindow = ArrayDeque<Pair<Long, Double>>()
     private val gyroWindow = ArrayDeque<Pair<Long, Double>>()
+
+    // Mount learning.
+    private var leftSum = Vec3.ZERO
+    private var leftWeight = 0.0
+    private var leftCount = 0
+    private val tiltWindow = ArrayDeque<Pair<Long, Vec3>>()
+    private var tiltSum = Vec3.ZERO
+    private var mountEpoch = 0
+    private var remountAt = Long.MIN_VALUE
 
     // Cumulative bearing change history: parallel arrays, appended at each update.
     private var histT = LongArray(1024)
@@ -81,15 +134,15 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
     fun onMeasurement(m: Measurement): MotionUpdate? = when (m) {
         is ImuSample -> when (m.kind) {
             ImuKind.ACCEL -> { onAccel(m); null }
-            ImuKind.GYRO -> { seenCalibratedGyro = true; onGyro(m.tNs, m.x, m.y, m.z) }
-            ImuKind.GYRO_UNCAL -> if (seenCalibratedGyro) null else onGyro(m.tNs, m.x, m.y, m.z)
+            ImuKind.GYRO -> { seenCalibratedGyro = true; onGyro(m.tNs, Vec3(m.x, m.y, m.z)) }
+            ImuKind.GYRO_UNCAL -> if (seenCalibratedGyro) null else onGyro(m.tNs, Vec3(m.x, m.y, m.z))
             else -> null
         }
         is OrientationSample -> {
             if (m.kind == OrientationKind.GAME_ROTATION_VECTOR || m.kind == OrientationKind.ROTATION_VECTOR) {
                 // Third row of the phone→world rotation matrix = world "up" expressed in phone frame.
-                val (w, x, y, z) = listOf(m.qw, m.qx, m.qy, m.qz)
-                orientUp = doubleArrayOf(2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y))
+                val w = m.qw; val x = m.qx; val y = m.qy; val z = m.qz
+                orientUp = Vec3(2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y))
                 orientT = m.tNs
             }
             null
@@ -98,41 +151,78 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
     }
 
     private fun onAccel(m: ImuSample) {
+        val a = Vec3(m.x, m.y, m.z)
         if (!gravityInit) {
-            gx = m.x; gy = m.y; gz = m.z; gravityInit = true
+            g = a; gravityInit = true
         } else {
-            val dt = if (accWindow.isEmpty()) 0.01 else ((m.tNs - accWindow.last().first) / 1e9).coerceIn(0.0, 0.5)
-            val a = 1 - exp(-dt / cfg.gravityTauS)
-            gx += a * (m.x - gx); gy += a * (m.y - gy); gz += a * (m.z - gz)
+            val dt = if (lastAccelT == Long.MIN_VALUE) 0.01 else ((m.tNs - lastAccelT) / 1e9).coerceIn(0.0, 0.5)
+            g += (a - g) * (1 - exp(-dt / cfg.gravityTauS))
         }
-        accWindow.addLast(m.tNs to sqrt(m.x * m.x + m.y * m.y + m.z * m.z))
+        lastAccel = a
+        lastAccelT = m.tNs
+        accWindow.addLast(m.tNs to a.norm)
         while (accWindow.isNotEmpty() && accWindow.first().first < m.tNs - cfg.windowNs) accWindow.removeFirst()
     }
 
-    private fun upUnit(tNs: Long): DoubleArray? {
+    /** Current world-up in the phone frame. */
+    fun up(tNs: Long): Vec3? {
         val o = orientUp
         if (o != null && tNs - orientT <= cfg.orientationMaxAgeNs) return o
-        if (!gravityInit) return null
-        val n = sqrt(gx * gx + gy * gy + gz * gz)
-        if (n < 1e-3) return null
-        return doubleArrayOf(gx / n, gy / n, gz / n)
+        return if (gravityInit) g.unit() else null
     }
 
-    private fun onGyro(tNs: Long, x: Double, y: Double, z: Double): MotionUpdate? {
-        gyroWindow.addLast(tNs to sqrt(x * x + y * y + z * z))
+    private fun onGyro(tNs: Long, w: Vec3): MotionUpdate? {
+        gyroWindow.addLast(tNs to w.norm)
         while (gyroWindow.isNotEmpty() && gyroWindow.first().first < tNs - cfg.windowNs) gyroWindow.removeFirst()
 
-        val up = upUnit(tNs)
+        val up = up(tNs)
         if (lastGyroT != Long.MIN_VALUE && up != null) {
             val dt = ((tNs - lastGyroT) / 1e9).coerceIn(0.0, 0.2)
-            val wUp = x * up[0] + y * up[1] + z * up[2]
+            val wUp = w dot up
             yawAccum += wUp * dt
             yawAccumDt += dt
+            learnMount(tNs, w, wUp, up, dt)
         }
         lastGyroT = tNs
         if (lastEmitT == Long.MIN_VALUE) lastEmitT = tNs
         if (tNs - lastEmitT < cfg.updatePeriodNs) return null
         return emit(tNs)
+    }
+
+    private fun learnMount(tNs: Long, w: Vec3, wUp: Double, up: Vec3, dt: Double) {
+        // Re-mount detection: net rotation about horizontal axes over a few seconds.
+        val tilt = w.perp(up) * dt
+        tiltWindow.addLast(tNs to tilt)
+        tiltSum += tilt
+        while (tiltWindow.isNotEmpty() && tiltWindow.first().first < tNs - cfg.remountWindowNs) {
+            tiltSum -= tiltWindow.removeFirst().second
+        }
+        // One re-mount event per handling: ignore further tilt for one window after a detection.
+        if (tiltSum.norm > cfg.remountTiltRad && (remountAt == Long.MIN_VALUE || tNs - remountAt > cfg.remountWindowNs)) {
+            mountEpoch++
+            remountAt = tNs
+            leftSum = Vec3.ZERO; leftWeight = 0.0; leftCount = 0
+            tiltWindow.clear(); tiltSum = Vec3.ZERO
+            gravityInit = false // re-seed gravity from the next accelerometer sample
+            return
+        }
+        // Forward-axis learning from centripetal acceleration in turns.
+        val a = lastAccel ?: return
+        if (tNs - lastAccelT > 50_000_000 || abs(wUp) < cfg.mountMinYawRate) return
+        val ah = a.perp(up)
+        if (ah.norm < cfg.mountMinLateralAccel) return
+        leftSum += ah * sign(wUp)
+        leftWeight += ah.norm
+        leftCount++
+    }
+
+    /** Vehicle forward axis in the phone frame, or null until enough turns have been seen. */
+    fun forward(tNs: Long): Vec3? {
+        if (leftCount < cfg.mountMinSamples || leftWeight <= 0) return null
+        if (leftSum.norm / leftWeight < cfg.mountMinConcentration) return null
+        val up = up(tNs) ?: return null
+        val left = leftSum.perp(up).unit() ?: return null
+        return (left cross up).unit()
     }
 
     private fun emit(tNs: Long): MotionUpdate {
@@ -155,7 +245,7 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
         val u = MotionUpdate(
             tNs, dtS, rate, still,
             stationarySinceNs?.let { (tNs - it) / 1e9 } ?: 0.0,
-            gyroMean, accStd,
+            gyroMean, accStd, up(tNs), forward(tNs), mountEpoch,
         )
         latest = u
         return u
@@ -210,19 +300,25 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
     fun stationaryForS(): Double = latest?.stationaryForS ?: 0.0
 
     fun snapshot(): State = State(
-        gx, gy, gz, gravityInit, orientUp?.copyOf(), orientT, lastGyroT, yawAccum, yawAccumDt,
+        g, gravityInit, orientUp, orientT, lastAccel, lastAccelT, lastGyroT, yawAccum, yawAccumDt,
         lastEmitT, cumYawBearing, stationarySinceNs, seenCalibratedGyro, accWindow.toList(), gyroWindow.toList(),
+        leftSum, leftWeight, leftCount, tiltWindow.toList(), mountEpoch, remountAt,
     )
 
     /** Restore state; history entries newer than the snapshot are discarded (they will be regenerated). */
     fun restore(s: State) {
-        gx = s.gx; gy = s.gy; gz = s.gz; gravityInit = s.gravityInit
-        orientUp = s.orientUp?.copyOf(); orientT = s.orientT
+        g = s.g; gravityInit = s.gravityInit
+        orientUp = s.orientUp; orientT = s.orientT
+        lastAccel = s.lastAccel; lastAccelT = s.lastAccelT
         lastGyroT = s.lastGyroT; yawAccum = s.yawAccum; yawAccumDt = s.yawAccumDt
         lastEmitT = s.lastEmitT; cumYawBearing = s.cumYawBearing
         stationarySinceNs = s.stationarySinceNs; seenCalibratedGyro = s.seenCalibratedGyro
         accWindow.clear(); accWindow.addAll(s.accWindow)
         gyroWindow.clear(); gyroWindow.addAll(s.gyroWindow)
+        leftSum = s.leftSum; leftWeight = s.leftWeight; leftCount = s.leftCount
+        tiltWindow.clear(); tiltWindow.addAll(s.tiltWindow)
+        tiltSum = s.tiltWindow.fold(Vec3.ZERO) { acc, p -> acc + p.second }
+        mountEpoch = s.mountEpoch; remountAt = s.remountAt
         while (histEnd > histStart && histT[histEnd - 1] > s.lastEmitT) histEnd--
         latest = null
     }

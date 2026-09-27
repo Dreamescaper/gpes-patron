@@ -22,6 +22,7 @@ or use "Share .db" in the app.
 | `nmea` | sentence | |
 | `cell_scan` + `cell` | cell scan (about every 2 s, exact repeats skipped) / cell | serving and neighbour cells; `measured_ns` = modem measurement time (ms resolution) |
 | `wifi_scan` + `wifi_ap` | emission of newly seen APs / AP | about 4 app-requested scans per 2 min plus scans from the system/other apps; no SSID |
+| `geomag` | WMM reference | at the first real fix and every 50 km (added 2026-09-28) |
 | `vehicle_speed` | speed sample | empty until OBD exists |
 | `annotation` | user mark, timebase check | |
 | `trust` | assessment of each location fix | only in ESTIMATE/MOCK modes (replay recomputes) |

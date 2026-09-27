@@ -2,6 +2,7 @@ package gpes.core.replay
 
 import gpes.core.estimator.BaselineConfig
 import gpes.core.estimator.BaselineDrEstimator
+import gpes.core.estimator.CompassConfig
 import gpes.core.estimator.EstimatorFactory
 import gpes.core.estimator.GnssPassthroughEstimator
 import gpes.core.geo.Geo
@@ -63,29 +64,24 @@ data class Variant(
 
     companion object {
         /** The standard ablation ladder. OSM and route variants join here in later phases. */
-        fun standard(): List<Variant> = listOf(
-            Variant("hold-last-fix", estimator = "passthrough"),
-            Variant(
-                "phone-only",
-                extraSteps = listOf(ScenarioStep.DropSource(LocSource.NETWORK, dropRawGnss = false), ScenarioStep.DropSource(LocSource.FUSED, dropRawGnss = false)),
-            ),
-            Variant("phone+network", extraSteps = listOf(ScenarioStep.DropSource(LocSource.FUSED, dropRawGnss = false))),
-            Variant(
-                "phone+synthNetwork",
-                extraSteps = listOf(
-                    ScenarioStep.DropSource(LocSource.NETWORK, dropRawGnss = false), ScenarioStep.DropSource(LocSource.FUSED, dropRawGnss = false),
-                    ScenarioStep.SyntheticNetwork(sigmaM = 500.0, periodS = 20.0),
-                ),
-            ),
-            Variant(
-                "phone+synthNetwork+synthObd",
-                extraSteps = listOf(
-                    ScenarioStep.DropSource(LocSource.NETWORK, dropRawGnss = false), ScenarioStep.DropSource(LocSource.FUSED, dropRawGnss = false),
-                    ScenarioStep.SyntheticNetwork(sigmaM = 500.0, periodS = 20.0),
-                    ScenarioStep.SyntheticVehicleSpeed(sigmaMps = 0.3, scaleError = 0.01),
-                ),
-            ),
-        )
+        fun standard(): List<Variant> {
+            val noNetFused = listOf(
+                ScenarioStep.DropSource(LocSource.NETWORK, dropRawGnss = false),
+                ScenarioStep.DropSource(LocSource.FUSED, dropRawGnss = false),
+            )
+            val synthNet = ScenarioStep.SyntheticNetwork(sigmaM = 500.0, periodS = 20.0)
+            val synthObd = ScenarioStep.SyntheticVehicleSpeed(sigmaMps = 0.3, scaleError = 0.01)
+            val noCompass = BaselineConfig(compass = CompassConfig(enabled = false))
+            return listOf(
+                Variant("hold-last-fix", estimator = "passthrough"),
+                Variant("gyro-only", extraSteps = noNetFused, baseline = noCompass),
+                Variant("phone-only", extraSteps = noNetFused),
+                Variant("phone+network", extraSteps = listOf(ScenarioStep.DropSource(LocSource.FUSED, dropRawGnss = false))),
+                Variant("phone+synthNetwork", extraSteps = noNetFused + synthNet),
+                Variant("gyro+synthNetwork+synthObd", extraSteps = noNetFused + synthNet + synthObd, baseline = noCompass),
+                Variant("phone+synthNetwork+synthObd", extraSteps = noNetFused + synthNet + synthObd),
+            )
+        }
     }
 }
 

@@ -29,6 +29,7 @@ Code: `core/src/main/kotlin/gpes/core/model/`. All classes are `@Serializable` a
 | `nmea` | `NmeaSentence` | text |
 | `cell_scan` | `CellScan` | cells[]: rat (GSM/WCDMA/TDSCDMA/LTE/NR/CDMA), registered, mcc, mnc, area (LAC/TAC), cid (CID/ECI/NCI), pci (BSIC/PSC/PCI), arfcn, bandwidthKhz, rssi/rsrp/rsrq/sinr, timingAdvance (raw units), asuLevel, measuredNs (modem measurement time), connectionStatus |
 | `wifi_scan` | `WifiScan` | aps[]: bssid, rssiDbm, freqMhz, channelWidth, seenNs (ScanResult.timestamp), standard. **No SSID** (privacy) |
+| `geomag` | `GeomagneticReference` | lat, lon, declinationDeg (east +), inclinationDeg, fieldUt, source (WMM via Android `GeomagneticField`) |
 | `vehicle_speed` | `VehicleSpeedMeasurement` | speedMps, stdMps, source ("obd", "synthetic", …) |
 | `annotation` | `Annotation` | label, note (user marks, timebase check) |
 | `trust` | `TrustAssessment` | source, provider, state, confidence 0..1, reasons[], innovationNis, impliedSpeedMps |
@@ -39,7 +40,9 @@ Code: `core/src/main/kotlin/gpes/core/model/`. All classes are `@Serializable` a
 ## Derived (not recorded)
 
 - `MotionUpdate` (20 Hz): yawRateUp (rad/s, counter-clockwise positive), stationary,
-  stationaryForS, gyroNormMean, accelStd.
+  stationaryForS, gyroNormMean, accelStd, up (phone frame), forward (vehicle forward axis in the
+  phone frame, once learned), mountEpoch.
+- `CompassReading`: bearingRad, sigmaRad, mode (GNSS_ALIGNED / FORWARD_ALIGNED / UNCORRECTED).
 
 ## Phase 2 placeholders
 

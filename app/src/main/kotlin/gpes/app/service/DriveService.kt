@@ -190,8 +190,11 @@ private class Session(
     private var prevCountsT = 0L
     private val startNs = SystemClock.elapsedRealtimeNanos()
 
-    private val sink = MeasurementSink { m: Measurement ->
+    private var geomagAt: gpes.core.model.LocationMeasurement? = null
+
+    private val sink: MeasurementSink = MeasurementSink { m: Measurement ->
         writer.write(m)
+        if (m is gpes.core.model.LocationMeasurement && !m.isSynthetic) maybeGeomag(m)
         when (m) {
             is GnssStatusSnapshot -> lastStatus = m
             is CellScan -> lastCells = m
@@ -253,6 +256,22 @@ private class Session(
         LiveStatus.set(Status(running = true, mode = mode, mockTargets = targets, sessionId = id, startedElapsedNs = startNs))
         scheduler.scheduleWithFixedDelay({ runCatching { writer.flush() } }, 500, 500, TimeUnit.MILLISECONDS)
         scheduler.scheduleWithFixedDelay({ runCatching { publishStatus() } }, 1000, 1000, TimeUnit.MILLISECONDS)
+    }
+
+    /**
+     * Emit the WMM field model (declination, inclination, strength) for the current area: once at the first
+     * real fix of any provider (coarse is fine; declination varies slowly), and again after moving > 50 km.
+     */
+    private fun maybeGeomag(m: gpes.core.model.LocationMeasurement) {
+        val prev = geomagAt
+        if (prev != null && gpes.core.geo.Geo.haversineM(prev.lat, prev.lon, m.lat, m.lon) < 50_000) return
+        geomagAt = m
+        val f = android.hardware.GeomagneticField(m.lat.toFloat(), m.lon.toFloat(), (m.altM ?: 0.0).toFloat(), System.currentTimeMillis())
+        sink.emit(
+            gpes.core.model.GeomagneticReference(
+                SystemClock.elapsedRealtimeNanos(), m.lat, m.lon, f.declination.toDouble(), f.inclination.toDouble(), f.fieldStrength / 1000.0, "WMM (android GeomagneticField)",
+            ),
+        )
     }
 
     fun annotate(label: String) {

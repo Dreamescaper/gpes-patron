@@ -4,7 +4,9 @@ import gpes.core.geo.Geo
 import gpes.core.geo.LocalFrame
 import gpes.core.model.Cov2
 import gpes.core.model.EstimatorMode
+import gpes.core.model.GeomagneticReference
 import gpes.core.model.Hypothesis
+import gpes.core.model.ImuSample
 import gpes.core.model.LocSource
 import gpes.core.model.LocationMeasurement
 import gpes.core.model.Measurement
@@ -44,6 +46,13 @@ data class BaselineConfig(
     val networkInflation: Double = 1.5,
     /** Skip a coarse update unless our position sigma exceeds this fraction of the coarse sigma. */
     val networkUsefulFraction: Double = 0.5,
+    /**
+     * Also fuse a coarse fix when at least this long and this far (odometry) since the last fused one.
+     * Coarse errors are correlated in time and space; spacing them out lets many fixes average along a
+     * well-known path without pretending repeated fixes at one spot are independent.
+     */
+    val networkMinIntervalS: Double = 15.0,
+    val networkMinDistanceM: Double = 150.0,
     val networkResetNis: Double = 50.0,
     /** Use QUESTIONABLE GNSS with R inflated by this factor; null = don't use. */
     val questionableRScale: Double? = null,
@@ -53,6 +62,8 @@ data class BaselineConfig(
     val speedKnownStd: Double = 3.0,
     /** Initial speed std when starting without GNSS (m/s). */
     val unknownSpeedStd: Double = 10.0,
+    /** Magnetometer heading (deviation-card calibrated, gated). See [Compass]. */
+    val compass: CompassConfig = CompassConfig(),
 )
 
 /**
@@ -75,7 +86,8 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
     private data class Snap(
         val initialized: Boolean, val frame: LocalFrame?, val x: DoubleArray, val p: DoubleArray,
         val headingKnown: Boolean, val lastT: Long, val lastYawRate: Double, val stationary: Boolean,
-        val lastGnssT: Long, val dirlessDist: Double,
+        val lastGnssT: Long, val dirlessDist: Double, val compass: Compass, val nextCompassT: Long,
+        val odoM: Double, val lastNetT: Long, val lastNetOdo: Double,
     )
 
     private var initialized = false
@@ -88,6 +100,11 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
     private var stationary = false
     private var lastGnssT = Long.MIN_VALUE
     private var dirlessDist = 0.0
+    private var compass = Compass(cfg.compass)
+    private var nextCompassT = Long.MIN_VALUE
+    private var odoM = 0.0
+    private var lastNetT = Long.MIN_VALUE
+    private var lastNetOdo = 0.0
 
     // ------------------------------------------------------------------------------------------
 
@@ -107,11 +124,35 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
             update1(IDX_V, 0.0, 0.05 * 0.05)
             update1(IDX_B, u.yawRateUp, 0.003 * 0.003)
         }
+        compass.onMotion(u, x[IDX_B])
+        if (cfg.compass.enabled && u.tNs >= nextCompassT) {
+            nextCompassT = u.tNs + (cfg.compass.periodS * 1e9).toLong()
+            compass.heading(u.tNs)?.let(::applyCompass)
+        }
+    }
+
+    /** Compass heading: initializes an unknown heading, otherwise a weak, gated update (errors are time-correlated). */
+    private fun applyCompass(r: CompassReading) {
+        val r2 = r.sigmaRad * r.sigmaRad
+        if (!headingKnown) {
+            x[IDX_PSI] = Geo.wrapRad(r.bearingRad)
+            for (i in 0 until N) { p[IDX_PSI, i] = 0.0; p[i, IDX_PSI] = 0.0 }
+            p[IDX_PSI, IDX_PSI] = r2
+            headingKnown = true
+            dirlessDist = 0.0
+            return
+        }
+        if (sqrt(p[IDX_PSI, IDX_PSI]) < cfg.compass.usefulFraction * r.sigmaRad) return
+        val innov = Geo.wrapRad(r.bearingRad - x[IDX_PSI])
+        if (innov * innov / (p[IDX_PSI, IDX_PSI] + r2) > cfg.compass.gateNis) return
+        update1(IDX_PSI, r.bearingRad, r2, angular = true)
     }
 
     override fun onMeasurement(m: Measurement, trust: TrustAssessment?) {
         when (m) {
             is LocationMeasurement -> onLocation(m, trust)
+            is ImuSample -> compass.onMag(m)
+            is GeomagneticReference -> compass.onReference(m)
             is VehicleSpeedMeasurement -> {
                 propagateTo(m.tNs, lastYawRate)
                 update1(IDX_V, m.speedMps, max(m.stdMps, 0.05).let { it * it })
@@ -153,7 +194,10 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
         val z = frame!!.toEnu(m.lat, m.lon)
         if (isCoarse) {
             val posSigma = sqrt((p[0, 0] + p[1, 1]) / 2)
-            if (posSigma < cfg.networkUsefulFraction * sigma) return
+            val spaced = lastNetT == Long.MIN_VALUE ||
+                ((m.tNs - lastNetT) / 1e9 >= cfg.networkMinIntervalS && odoM - lastNetOdo >= cfg.networkMinDistanceM)
+            if (posSigma < cfg.networkUsefulFraction * sigma && !spaced) return
+            lastNetT = m.tNs; lastNetOdo = odoM
             val nis = nis2(z.e, z.n, r)
             if (nis > cfg.networkResetNis) resetPosition(m.lat, m.lon, r) else updatePos(z.e, z.n, r)
         } else {
@@ -175,6 +219,7 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
         if (speed < cfg.minCourseSpeedMps) return
         val bAcc = Math.toRadians(max(m.bearingAccDeg ?: 3.0, 1.0))
         val zPsi = Math.toRadians(bearing)
+        if (rScale == 1.0) compass.addCalibration(m.tNs, zPsi, speed, lastYawRate)
         if (!headingKnown || abs(Geo.wrapRad(zPsi - x[IDX_PSI])) > Math.toRadians(60.0)) {
             // (Re)initialize heading: decorrelate it from everything else.
             x[IDX_PSI] = zPsi
@@ -201,6 +246,7 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
     private fun propagate(dt: Double, yawRate: Double) {
         val psi = x[IDX_PSI]
         val v = x[IDX_V]
+        odoM += abs(v) * dt
         val f = Mat.identity(N)
         val q = Mat(N, N)
 
@@ -321,6 +367,7 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
 
     override fun snapshot(): Any = Snap(
         initialized, frame, x.copyOf(), p.a.copyOf(), headingKnown, lastT, lastYawRate, stationary, lastGnssT, dirlessDist,
+        compass.copy(), nextCompassT, odoM, lastNetT, lastNetOdo,
     )
 
     override fun restore(snapshot: Any) {
@@ -329,6 +376,8 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
         s.x.copyInto(x); p = Mat(N, N, s.p.copyOf())
         headingKnown = s.headingKnown; lastT = s.lastT; lastYawRate = s.lastYawRate
         stationary = s.stationary; lastGnssT = s.lastGnssT; dirlessDist = s.dirlessDist
+        compass = s.compass.copy(); nextCompassT = s.nextCompassT
+        odoM = s.odoM; lastNetT = s.lastNetT; lastNetOdo = s.lastNetOdo
     }
 
     private companion object {

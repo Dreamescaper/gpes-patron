@@ -4,6 +4,7 @@ import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import gpes.core.model.AgcInfo
 import gpes.core.model.Annotation
 import gpes.core.model.CellObs
+import gpes.core.model.GeomagneticReference
 import gpes.core.model.CellScan
 import gpes.core.model.WifiObs
 import gpes.core.model.WifiScan
@@ -55,6 +56,7 @@ class RoundTripTest {
                 CellObs("LTE", true, 255, 1, 12345, 123456789, 101, 1300, 20000, -60, -95, -10, 12, 7, 40, sim[250].tNs - 1000, 1),
                 CellObs("LTE", false, pci = 202, arfcn = 1300, rsrpDbm = -110),
             )),
+            GeomagneticReference(sim[270].tNs, 50.45, 30.52, 8.5, 66.0, 50.1),
             WifiScan(sim[260].tNs, listOf(WifiObs("aa:bb:cc:dd:ee:ff", -55, 2437, 0, sim[260].tNs - 5_000_000, 6))),
             Annotation(sim[300].tNs, "tunnel", "entering, with comma"),
             TrustAssessment(sim[400].tNs, LocSource.GNSS, "gps", TrustState.REJECTED, 0.05, setOf(TrustReason.IMPOSSIBLE_VELOCITY, TrustReason.INNOVATION_GATE), 99.0, 1000.0),

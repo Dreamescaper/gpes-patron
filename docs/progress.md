@@ -18,6 +18,7 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 | Android acquisition (gps/network/fused, raw GNSS, 11 sensors) | ✅ done | emulator API 37 |
 | Foreground service, RECORD/ESTIMATE/MOCK modes | ✅ done | emulator |
 | Mock output (fused), feedback guard | ✅ done | emulator: fused last location = our mock; our input rejected as SYNTHETIC_INPUT |
+| Compass (iron fit, alignment, gates) + mount forward axis + re-mount detection | ✅ done | sim tests (7 new), R-003/R-004; emulator: WMM reference recorded |
 | Raw cell + Wi-Fi recording | ✅ done (recorded only; not used yet) | emulator: NR serving cell with identity/signal, Wi-Fi AP scans; CSV export |
 | Real-device drive | ⏳ not yet | — |
 | Platform `gps` override keeps raw GNSS flowing | ⏳ unverified | needs a real device |
@@ -31,8 +32,8 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
   consistent spoofer without contradicting network evidence is accepted after 120 s (D-011).
 - Without GNSS or OBD, speed is a random walk. The 10-min outage p95 is about 1.4 km
   (phone-only, simulated).
-- Coarse-fix fusion under directed motion can be overconfident (`gnss_absent_from_start` +
-  synthObd: within95 = 0.81).
+- The compass is validated only in simulation. Real in-car distortion, magnetic holders and
+  EV/hybrid motor fields are unknown.
 - The emulator is only useful for plumbing: its GNSS is inconsistent with its static IMU
   (D-014).
 - `DriveReader` loads whole drives into memory. On-phone JSONL export of multi-hour drives may OOM
@@ -40,6 +41,24 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 - The GnssLogger export is a best-effort subset (no carrier-phase derived fields).
 
 ## Log
+
+### 2026-09-28 — Compass and mount estimation
+- `MotionTracker`: vehicle forward axis from centripetal acceleration in turns; re-mount detection;
+  gravity τ 5 s. `Compass`: ellipse/circle iron fit binned by bias-corrected gyro heading;
+  GNSS/forward/uncorrected alignment modes; vertical-component, radius and gyro gates. EKF
+  integration with the correlated-error rule (D-019, D-020).
+- Found and fixed on the way:
+  - the harmonic deviation-card model failed (p95 70°);
+  - gyro drift faked heading coverage;
+  - smoothing lag (τ 0.5 → 0.2 s);
+  - a single-turn circle fit gave confident 44° errors;
+  - repeated compass updates made heading overconfident;
+  - the network σ-rule blocked averaging of coarse fixes (D-021).
+- App: `GeomagneticReference` from `android.hardware.GeomagneticField` at the first real fix and
+  every 50 km. Emulator: declination 8.8°, inclination 67.7°, 51.1 µT for Kyiv.
+- Simulator: GRV, magnetometer model, optional gyro scale error and bias walk (D-022).
+- Not verified: any real car. Magnetic holders, EV/hybrid motors and dashboard placement may break
+  the constant-distortion assumption; the gates should then drop the compass rather than mislead.
 
 ### 2026-09-28 — Raw cellular and Wi-Fi recording
 - `CellSource` (GSM/WCDMA/TD-SCDMA/LTE/NR/CDMA → `CellObs`, TA, modem timestamp) and `WifiSource`
@@ -82,6 +101,39 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 - Research doc, core module, SQLDelight recording, replay CLI, 11 scenarios. 24 unit tests.
 
 ## Results log
+
+### R-004 (2026-09-28) — 1-hour simulated drive, realistic gyro (1% scale error, bias walk 2e-4)
+
+Setup: default city loop ×6 (3408 s, net +225° per loop), network σ 500 m every 20 s. The GNSS
+outage runs from 120 s to the end (~55 min).
+
+| variant | p50 m | p95 m | heading p95° | within95 |
+|---|---|---|---|---|
+| hold-last-fix | 1547 | 3311 | 176 | 1.00 |
+| gyro-only (no compass) | 1520 | 2927 | **105** | 1.00 |
+| phone-only (gyro + compass) | 1199 | 2685 | **7.6** | 0.95 |
+| phone+network | 367 | 747 | 6.5 | 0.93 |
+| phone+synthNetwork | 265 | 628 | 8.3 | 0.98 |
+| gyro+synthNetwork+synthObd | 192 | 480 | 23 | 1.00 |
+| **phone+synthNetwork+synthObd** | **89** | **158** | 8.0 | 1.00 |
+
+Start without GNSS (same drive): synthNetwork+synthObd gives p50 690 m without the compass and
+179 m with it (p95 999 → 528 m).
+
+Reading: over long outages the compass bounds heading (105° → 8°). Combined with coarse network
+and speed, error stays below about 160 m (p95) for an hour in simulation. Without speed, the
+position error is dominated by distance and not heading, so the compass alone helps little (p95
+2.9 → 2.7 km).
+
+### R-003 (2026-09-28) — 10-min drive after compass + network spacing (ideal gyro)
+
+Key changes vs R-001:
+- 10-min outage: synthNetwork+synthObd p95 252 → 117 m; synthNetwork p95 911 → 826 m.
+- 2-min outage: synthNetwork p95 165 → 109 m.
+- Start without GNSS + synthNetwork+synthObd: p95 735 m, and 1138 m without the compass.
+
+With an *ideal* constant-bias gyro and heading known from GNSS, the compass adds nothing (heading
+p95 1.8° gyro-only vs 4.2°). That result motivated D-022.
 
 ### R-002 (2026-09-28) — naive vs Doppler-consistent spoofing, simulated drive (same setup as R-001)
 

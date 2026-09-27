@@ -9,6 +9,7 @@ Code: `core/src/main/kotlin/gpes/core/replay/`, CLI `replay-cli/`.
 R=replay-cli/build/install/replay/bin/replay
 
 $R simulate --out sim/drive.db [--network-period 20] [--seed 1] [--config simconfig.json]
+      # SimConfig JSON can set legs, magnetometer distortions, gyroScaleError, gyroBiasWalk, …
       # also writes sim/drive.truth.json
 $R export  --drive x.db --format jsonl|csv|gnsslogger --out <file|dir>
 $R run     --drive x.db|x.jsonl [--scenario file|dir]... [--variant name]... [--variants v.json] [--truth t.json] --out dir
@@ -72,13 +73,15 @@ The plot has three panels: track (estimate vs truth), error vs reported r68/r95 
 `Variant(name, estimator, extraSteps, baseline: BaselineConfig, trust: TrustConfig)`. Default
 ladder (`Variant.standard()`):
 
-| name | estimator | extra steps |
-|---|---|---|
-| hold-last-fix | passthrough | – |
-| phone-only | baseline | drop NETWORK, drop FUSED |
-| phone+network | baseline | drop FUSED (uses recorded network) |
-| phone+synthNetwork | baseline | drop NETWORK/FUSED, synthetic network σ 500 m / 20 s |
-| phone+synthNetwork+synthObd | baseline | + synthetic speed σ 0.3 m/s, 1% scale error |
+| name | estimator | compass | extra steps |
+|---|---|---|---|
+| hold-last-fix | passthrough | – | – |
+| gyro-only | baseline | off | drop NETWORK, drop FUSED |
+| phone-only | baseline | on | drop NETWORK, drop FUSED |
+| phone+network | baseline | on | drop FUSED (uses recorded network) |
+| phone+synthNetwork | baseline | on | drop NETWORK/FUSED, synthetic network σ 500 m / 20 s |
+| gyro+synthNetwork+synthObd | baseline | off | + synthetic speed σ 0.3 m/s, 1% scale error |
+| phone+synthNetwork+synthObd | baseline | on | + synthetic speed σ 0.3 m/s, 1% scale error |
 
 Custom variants go in a JSON list passed with `--variants`. Future rungs: `+osm`, `+route`.
 

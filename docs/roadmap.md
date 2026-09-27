@@ -20,6 +20,12 @@ later or speculative.
   - Compare against Google `network` in replay (a new variant rung). Output is a
     `LocationMeasurement(source = NETWORK-like)` with an honest covariance, possibly a ring/sector
     rather than a disk (a Phase 2 road-candidate generator can use rings directly).
+- **P1 Validate the compass in real cars:** measure deviation-fit quality, anomaly gate hit rate,
+  and the magnetic-holder case (expect a huge hard iron; check that the ellipse still fits or that
+  the gates drop it). Compare against GNSS course.
+- **P2 Compass follow-ups:** persist the per-car calibration across sessions (keyed by mount
+  orientation); add a tilt-compensation check using GRV vs accelerometer; add a replay scenario that
+  drops or corrupts the magnetometer.
 - **P1 Calibrate trust on real data.** Measure false-rejection rates per check, and set C/N0 and
   AGC thresholds from recorded jamming, if any is observed.
 - **P2 Automatic rollback.** When a spoof is detected (for example by network disagreement), roll

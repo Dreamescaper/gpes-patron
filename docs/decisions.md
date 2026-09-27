@@ -142,3 +142,45 @@ old bundles.
 Context: JSONL export of real drives crashed, because `SensorInfo.type` collides with the `"type"`
 class discriminator. Simulated drives have no SensorInfo, so tests missed it.
 Decision: `@SerialName("sensorType")`. The JSONL round-trip test now includes every record kind.
+
+## D-019: Compass via ellipse (hard/soft iron) fit + alignment — Accepted (2026-09-28)
+Context: the plan listed the magnetometer as a "weak prior", but the code never used it. **The
+earlier statement was not implemented; this is a correction.** Without GNSS, absolute heading was
+otherwise unknowable: a network-only start stays heading-less, and gyro drift is unbounded over hours.
+Decision: an iron-distortion fit of the horizontal field (circle → ellipse), with coverage measured
+by bias-corrected gyro heading, then alignment ψ = θc + c: from trusted GNSS course, or, without
+GNSS, from the learned forward axis + WMM declination. Heavy gating (vertical component, radius,
+gyro consistency). See estimation-algorithm §3b.
+Alternatives:
+- *Ship-style deviation card* (ψ = θ + harmonics(θ) fitted on raw θ): **rejected after
+  measurement**. With realistic hard iron (≈ 15 µT vs a horizontal field of 20 µT in Kyiv) the
+  deviation is far from sinusoidal: p95 was 70°.
+- *Android's calibrated heading (ROTATION_VECTOR yaw) as-is*: rejected as the main path. Android's
+  calibration targets a handheld phone, not car iron. It is kept as the low-confidence
+  `UNCORRECTED` fallback.
+- *Ignore the compass entirely* (status quo): rejected, see R-004 (heading p95 over 55 min: 105°
+  gyro-only vs 7.6°).
+
+## D-020: Compass updates must not average down correlated errors — Accepted (2026-09-28)
+Context: 1 Hz compass updates with a persistent 40° error shrank heading σ to 7° (confidently wrong).
+Decision: update the heading only when σ_ψ > σ_compass (`usefulFraction = 1.0`). σ grows with
+coverage and fit quality (see §3b).
+
+## D-021: Coarse fixes fused when spaced in time and distance — Accepted, supersedes the σ-only rule (2026-09-28)
+Context: the "fuse only if our σ > 0.5·σ_net" rule meant that, once DR was good, later network
+fixes were never used, so the error of the *first* network fix persisted (~700 m) even with accurate
+heading and speed.
+Decision: also fuse when ≥ 15 s and ≥ 150 m of odometry have passed since the last fused coarse
+fix (keeping the ×1.5 inflation). Stationary repeats are still not fused.
+Result (sim, R-003 vs R-001): 10-min outage with synthObd p95 252 → 117 m; start without GNSS stays
+calibrated (within95 0.94–1.0).
+
+## D-022: Simulator realism: GAME_ROTATION_VECTOR, magnetometer, gyro scale error — Accepted (2026-09-28)
+Decision:
+- The sim emits GRV with a slowly wandering 0.5° tilt error (real phones provide GRV).
+- It emits MAG/MAG_UNCAL from the WMM-like field with car hard/soft iron, phone hard iron, noise
+  and random 20 µT anomalies, plus a `GeomagneticReference`.
+- It has optional gyro scale error and bias random walk (default off to keep old results
+  comparable; R-004 uses 1% and 2e-4).
+Why: with an ideal constant-bias gyro, the compass looked useless for outages (R-003). The
+realistic gyro shows its real value (R-004).

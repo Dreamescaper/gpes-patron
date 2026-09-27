@@ -3,11 +3,14 @@ package gpes.core.sim
 import gpes.core.geo.LocalFrame
 import gpes.core.model.Cov2
 import gpes.core.model.DriveRecord
+import gpes.core.model.GeomagneticReference
 import gpes.core.model.GnssStatusSnapshot
 import gpes.core.model.ImuKind
 import gpes.core.model.ImuSample
 import gpes.core.model.LocSource
 import gpes.core.model.LocationMeasurement
+import gpes.core.model.OrientationKind
+import gpes.core.model.OrientationSample
 import gpes.core.model.RecordOrder
 import gpes.core.model.SatInfo
 import gpes.core.model.SessionInfo
@@ -51,6 +54,9 @@ data class SimConfig(
     val networkSigmaM: Double = 500.0,
     val gyroNoise: Double = 0.003,
     val gyroBiasZ: Double = 0.004,
+    /** Gyro scale-factor error (fraction) and bias random walk (rad/s per √s): real MEMS gyros are not ideal. */
+    val gyroScaleError: Double = 0.0,
+    val gyroBiasWalk: Double = 0.0,
     val accelNoise: Double = 0.05,
     /** Engine / road vibration added to the accelerometer while moving (m/s² one-sigma). */
     val vibration: Double = 0.3,
@@ -59,6 +65,26 @@ data class SimConfig(
     val mountRollDeg: Double = 10.0,
     val mountPitchDeg: Double = -60.0,
     val mountYawDeg: Double = 15.0,
+    /** Earth field (Kyiv-like) and in-car distortions. */
+    val magFieldUt: Double = 50.0,
+    val magInclinationDeg: Double = 66.0,
+    val magDeclinationDeg: Double = 8.5,
+    /** Car hard iron (vehicle frame, µT) and soft iron (diagonal scale + xy coupling). */
+    val carHardIronUt: List<Double> = listOf(12.0, -8.0, 5.0),
+    val carSoftIronDiag: List<Double> = listOf(1.08, 0.94, 1.0),
+    val carSoftIronXy: Double = 0.05,
+    /** Phone hard iron (phone frame, µT). Android's calibrated MAG removes it; MAG_UNCAL includes it. */
+    val phoneHardIronUt: List<Double> = listOf(6.0, -4.0, 10.0),
+    val magNoiseUt: Double = 0.4,
+    /** Transient disturbances (trams, trucks, bridges): mean interval (s), duration (s), strength (µT). 0 = none. */
+    val magAnomalyEveryS: Double = 90.0,
+    val magAnomalyDurationS: Double = 5.0,
+    val magAnomalyUt: Double = 20.0,
+    /** Emit GAME_ROTATION_VECTOR (gyro-stabilized attitude, as on real phones) with slowly wandering tilt error (deg). */
+    val emitGameRotationVector: Boolean = true,
+    val grvTiltErrorDeg: Double = 0.5,
+    /** Emit a GeomagneticReference (declination, field) at start, like the app does from WMM. */
+    val emitGeomagReference: Boolean = true,
     val seed: Long = 1,
     val startElapsedNs: Long = 1_000_000_000_000,
 ) {
@@ -117,6 +143,19 @@ object DriveSimulator {
         var v = 0.0
         var nextGnss = t
         var nextNet = if (cfg.networkPeriodS > 0) t else Long.MAX_VALUE
+        if (cfg.emitGeomagReference) {
+            records += GeomagneticReference(t, cfg.startLat, cfg.startLon, cfg.magDeclinationDeg, cfg.magInclinationDeg, cfg.magFieldUt, "sim")
+        }
+        val inc = Math.toRadians(cfg.magInclinationDeg)
+        val dec = Math.toRadians(cfg.magDeclinationDeg)
+        val bEnu = doubleArrayOf(cfg.magFieldUt * cos(inc) * sin(dec), cfg.magFieldUt * cos(inc) * cos(dec), -cfg.magFieldUt * sin(inc))
+        var stepIdx = 0L
+        var anomalyUntil = Long.MIN_VALUE
+        var anomaly = doubleArrayOf(0.0, 0.0, 0.0)
+        var biasZ = cfg.gyroBiasZ
+        var tiltErrX = 0.0
+        var tiltErrY = 0.0
+        val rotT = Array(3) { i -> DoubleArray(3) { j -> rot[j][i] } } // phone → vehicle
         val gnssPeriod = (1e9 / cfg.gnssHz).toLong()
 
         fun step(targetSpeed: Double, bearingRate: Double) {
@@ -140,10 +179,49 @@ object DriveSimulator {
             // Yaw rate about up (CCW positive) = −bearing rate.
             val wVeh = doubleArrayOf(0.0, 0.0, -bearingRate)
             val fPh = mul(rot, fVeh)
-            val wPh = mul(rot, wVeh)
-            val biasPh = mul(rot, doubleArrayOf(0.0, 0.0, cfg.gyroBiasZ))
+            biasZ += rnd.gauss() * cfg.gyroBiasWalk * kotlin.math.sqrt(dt)
+            val wPh = mul(rot, wVeh).let { w -> DoubleArray(3) { w[it] * (1 + cfg.gyroScaleError) } }
+            val biasPh = mul(rot, doubleArrayOf(0.0, 0.0, biasZ))
             records += ImuSample(t, ImuKind.ACCEL, fPh[0] + rnd.gauss() * cfg.accelNoise, fPh[1] + rnd.gauss() * cfg.accelNoise, fPh[2] + rnd.gauss() * cfg.accelNoise)
             records += ImuSample(t, ImuKind.GYRO, wPh[0] + biasPh[0] + rnd.gauss() * cfg.gyroNoise, wPh[1] + biasPh[1] + rnd.gauss() * cfg.gyroNoise, wPh[2] + biasPh[2] + rnd.gauss() * cfg.gyroNoise)
+
+            if (stepIdx++ % 2 == 0L) {
+                // World field (+ anomaly, world frame) → vehicle frame → car soft/hard iron → phone frame + phone hard iron.
+                if (cfg.magAnomalyEveryS > 0 && t > anomalyUntil && rnd.nextDouble() < dt * 2 / cfg.magAnomalyEveryS) {
+                    anomalyUntil = t + (cfg.magAnomalyDurationS * 1e9).toLong()
+                    anomaly = doubleArrayOf(rnd.gauss(), rnd.gauss(), rnd.gauss()).let { a ->
+                        val k = cfg.magAnomalyUt / kotlin.math.sqrt(a.sumOf { it * it }); DoubleArray(3) { a[it] * k }
+                    }
+                }
+                val w = if (t <= anomalyUntil) DoubleArray(3) { bEnu[it] + anomaly[it] } else bEnu
+                val vx = w[0] * cos(psi) - w[1] * sin(psi)
+                val vy = w[0] * sin(psi) + w[1] * cos(psi)
+                val d = cfg.carSoftIronDiag
+                val bv = doubleArrayOf(
+                    d[0] * vx + cfg.carSoftIronXy * vy + cfg.carHardIronUt[0],
+                    cfg.carSoftIronXy * vx + d[1] * vy + cfg.carHardIronUt[1],
+                    d[2] * w[2] + cfg.carHardIronUt[2],
+                )
+                val bp = mul(rot, bv)
+                val h = cfg.phoneHardIronUt
+                val nz = DoubleArray(3) { rnd.gauss() * cfg.magNoiseUt }
+                records += ImuSample(t, ImuKind.MAG_UNCAL, bp[0] + h[0] + nz[0], bp[1] + h[1] + nz[1], bp[2] + h[2] + nz[2], h[0], h[1], h[2], 3)
+                records += ImuSample(t, ImuKind.MAG, bp[0] + nz[0], bp[1] + nz[1], bp[2] + nz[2], accuracy = 3)
+
+                if (cfg.emitGameRotationVector) {
+                    // Phone → world = (vehicle → world) · (phone → vehicle), with a slowly wandering tilt error.
+                    val k = Math.toRadians(cfg.grvTiltErrorDeg)
+                    tiltErrX += (-tiltErrX / 30.0) * 0.02 + rnd.gauss() * k * kotlin.math.sqrt(2 * 0.02 / 30.0)
+                    tiltErrY += (-tiltErrY / 30.0) * 0.02 + rnd.gauss() * k * kotlin.math.sqrt(2 * 0.02 / 30.0)
+                    val rvw = arrayOf(doubleArrayOf(cos(psi), sin(psi), 0.0), doubleArrayOf(-sin(psi), cos(psi), 0.0), doubleArrayOf(0.0, 0.0, 1.0))
+                    val tilt = mm(
+                        arrayOf(doubleArrayOf(1.0, 0.0, 0.0), doubleArrayOf(0.0, cos(tiltErrX), -sin(tiltErrX)), doubleArrayOf(0.0, sin(tiltErrX), cos(tiltErrX))),
+                        arrayOf(doubleArrayOf(cos(tiltErrY), 0.0, sin(tiltErrY)), doubleArrayOf(0.0, 1.0, 0.0), doubleArrayOf(-sin(tiltErrY), 0.0, cos(tiltErrY))),
+                    )
+                    val q = quat(mm(tilt, mm(rvw, rotT)))
+                    records += OrientationSample(t, OrientationKind.GAME_ROTATION_VECTOR, q[0], q[1], q[2], q[3])
+                }
+            }
 
             val ll = frame.toLatLon(e, n)
             val bearingDeg = (Math.toDegrees(psi) % 360 + 360) % 360
@@ -195,7 +273,8 @@ object DriveSimulator {
         return kotlin.math.sqrt(-2 * kotlin.math.ln(u1)) * cos(2 * PI * u2)
     }
 
-    private fun mountRotation(cfg: SimConfig): Array<DoubleArray> {
+    /** Vehicle→phone rotation used by the simulator (v_phone = R · v_vehicle). */
+    fun mountRotation(cfg: SimConfig): Array<DoubleArray> {
         val r = Math.toRadians(cfg.mountRollDeg)
         val p = Math.toRadians(cfg.mountPitchDeg)
         val y = Math.toRadians(cfg.mountYawDeg)
@@ -203,6 +282,24 @@ object DriveSimulator {
         val ry = arrayOf(doubleArrayOf(cos(r), 0.0, sin(r)), doubleArrayOf(0.0, 1.0, 0.0), doubleArrayOf(-sin(r), 0.0, cos(r)))
         val rz = arrayOf(doubleArrayOf(cos(y), -sin(y), 0.0), doubleArrayOf(sin(y), cos(y), 0.0), doubleArrayOf(0.0, 0.0, 1.0))
         return mm(rx, mm(ry, rz))
+    }
+
+    /** Rotation matrix → unit quaternion (w, x, y, z). */
+    private fun quat(m: Array<DoubleArray>): DoubleArray {
+        val tr = m[0][0] + m[1][1] + m[2][2]
+        return if (tr > 0) {
+            val s = kotlin.math.sqrt(tr + 1.0) * 2
+            doubleArrayOf(0.25 * s, (m[2][1] - m[1][2]) / s, (m[0][2] - m[2][0]) / s, (m[1][0] - m[0][1]) / s)
+        } else if (m[0][0] > m[1][1] && m[0][0] > m[2][2]) {
+            val s = kotlin.math.sqrt(1.0 + m[0][0] - m[1][1] - m[2][2]) * 2
+            doubleArrayOf((m[2][1] - m[1][2]) / s, 0.25 * s, (m[0][1] + m[1][0]) / s, (m[0][2] + m[2][0]) / s)
+        } else if (m[1][1] > m[2][2]) {
+            val s = kotlin.math.sqrt(1.0 + m[1][1] - m[0][0] - m[2][2]) * 2
+            doubleArrayOf((m[0][2] - m[2][0]) / s, (m[0][1] + m[1][0]) / s, 0.25 * s, (m[1][2] + m[2][1]) / s)
+        } else {
+            val s = kotlin.math.sqrt(1.0 + m[2][2] - m[0][0] - m[1][1]) * 2
+            doubleArrayOf((m[1][0] - m[0][1]) / s, (m[0][2] + m[2][0]) / s, (m[1][2] + m[2][1]) / s, 0.25 * s)
+        }
     }
 
     private fun mm(a: Array<DoubleArray>, b: Array<DoubleArray>) =

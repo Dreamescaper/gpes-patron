@@ -3,6 +3,8 @@ package gpes.recording
 import gpes.core.io.DriveJson
 import gpes.core.model.Annotation
 import gpes.core.model.CellScan
+import gpes.core.model.GeomagneticReference
+import gpes.recording.db.Geomag
 import gpes.core.model.WifiScan
 import gpes.recording.db.Cell
 import gpes.recording.db.Cell_scan
@@ -119,6 +121,7 @@ class DriveWriter(private val db: DriveDatabase) {
                 for (a in r.agc) q.insertGnssAgc(Gnss_agc(r.tNs, a.constellation.toLong(), a.carrierHz, a.levelDb))
             }
             is NmeaSentence -> q.insertNmea(Nmea(r.tNs, r.text))
+            is GeomagneticReference -> q.insertGeomag(Geomag(r.tNs, r.lat, r.lon, r.declinationDeg, r.inclinationDeg, r.fieldUt, r.source))
             is CellScan -> {
                 q.insertCellScan(Cell_scan(r.tNs, r.cells.size.toLong()))
                 for (c in r.cells) q.insertCell(

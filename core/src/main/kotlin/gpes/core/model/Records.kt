@@ -264,6 +264,23 @@ data class WifiScan(
     val aps: List<WifiObs>,
 ) : Measurement
 
+/**
+ * Earth's magnetic field model at a place (for example from `android.hardware.GeomagneticField`,
+ * i.e. WMM). It gives true-vs-magnetic north (declination, east positive) and the expected field
+ * strength, used to gate magnetometer disturbances.
+ */
+@Serializable
+@SerialName("geomag")
+data class GeomagneticReference(
+    override val tNs: Long,
+    val lat: Double,
+    val lon: Double,
+    val declinationDeg: Double,
+    val inclinationDeg: Double,
+    val fieldUt: Double,
+    val source: String = "WMM",
+) : Measurement
+
 // ---------------------------------------------------------------------------------------------
 // Future / synthetic inputs
 // ---------------------------------------------------------------------------------------------
@@ -349,10 +366,11 @@ object RecordOrder {
         is NmeaSentence -> 7
         is CellScan -> 8
         is WifiScan -> 9
-        is VehicleSpeedMeasurement -> 10
-        is LocationMeasurement -> 11
-        is Annotation -> 12
-        else -> 13
+        is GeomagneticReference -> 10
+        is VehicleSpeedMeasurement -> 11
+        is LocationMeasurement -> 12
+        is Annotation -> 13
+        else -> 14
     }
 
     val comparator: Comparator<DriveRecord> = compareBy<DriveRecord> { it.tNs }.thenBy { rank(it) }

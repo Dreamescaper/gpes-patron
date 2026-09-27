@@ -24,17 +24,24 @@ Output: a `MotionUpdate` at 20 Hz.
 
 1. **Up direction in the phone frame.** Use GAME_ROTATION_VECTOR / ROTATION_VECTOR when fresh
    (≤ 0.5 s): world-up = the third row of the rotation matrix. Otherwise use a low-passed
-   accelerometer (τ = 1 s; specific force at rest points up).
+   accelerometer (τ = 5 s, so braking and turns barely tilt it; the phone is mounted).
 2. **Yaw rate** ω_up = gyro · û. This does not depend on how the phone is mounted, so no
    phone-to-car calibration is needed for heading *changes*. It is averaged over each 50 ms update.
 3. **Stationary detection** over a 1 s window: std(|accel|) < 0.12 m/s² and mean |gyro| < 0.03 rad/s.
    It reports `stationaryForS`.
 4. **Cumulative bearing history** (10 min) answers `bearingChange(t1, t2)` for trust checks,
    independently of GNSS.
+5. **Vehicle forward axis in the phone frame (mount yaw)**, learned from turns. In a turn the
+   centripetal acceleration points to the turn centre, so `sign(ω_up)·a_horizontal` is the vehicle's
+   *left*, and forward = left × up. This needs no speed and has no sign ambiguity. It is used when
+   |ω_up| > 0.08 rad/s and |a_h| > 0.4 m/s², and reported after ≥ 1000 gyro samples (about two 90°
+   turns) with concentration ≥ 0.6. In simulation it is within 8° for a strongly tilted mount.
+6. **Re-mount detection:** a net rotation about horizontal axes > 20° within 3 s (one event per
+   window). This increments `mountEpoch`, resets the forward axis and gravity, and resets the compass.
 
-Known weaknesses: sustained centripetal acceleration tilts the low-pass gravity estimate (it is
-mitigated when a rotation vector is available). Stationary thresholds are not yet tuned on real
-car vibration.
+Known weaknesses: sustained longitudinal acceleration still tilts the accelerometer-based up
+(mitigated by GAME_ROTATION_VECTOR, which real phones provide). Stationary thresholds are not yet
+tuned on real car vibration.
 
 ## 2. GNSS trust evaluator (`DefaultTrustEvaluator`)
 
@@ -121,7 +128,8 @@ b ← b                       (random walk σ = 2e−4 rad/s/√s)
 | GNSS position | TRUSTED (QUESTIONABLE only if `questionableRScale` is set, R × scale) | H = [I₂ 0], R = σ²I, σ = hAcc/1.51; NIS > 25 on a TRUSTED fix → reset position |
 | GNSS speed | with the position update | R = max(sAcc, 0.2)² |
 | GNSS course | speed ≥ 5 m/s | wrapped innovation, R = max(bAcc, 1°)²; the first course, or a jump > 60°, re-initializes ψ |
-| Network fix | TRUSTED/QUESTIONABLE, and only if our σ > 0.5·σ_net | σ_net = 1.5·hAcc/1.51; NIS > 50 → reset to the network fix |
+| Network fix | TRUSTED/QUESTIONABLE, if our σ > 0.5·σ_net **or** ≥ 15 s and ≥ 150 m of odometry since the last fused one (D-021) | σ_net = 1.5·hAcc/1.51; NIS > 50 → reset to the network fix |
+| Compass heading | 1 Hz, gated (see §3b), only if σ_ψ > σ_compass (correlated errors must not average down) | wrapped innovation, R = σ_compass²; NIS > 9 → skip; initializes ψ when heading is unknown |
 | Vehicle speed (OBD/synthetic) | always | R = max(std, 0.05)² |
 | ZUPT | IMU stationary | v = 0 (R = 0.05²), b = ω_up (R = 0.003²) |
 
@@ -146,14 +154,54 @@ then `DEAD_RECKONING` if heading is known and σ_v < 3 m/s, otherwise `COARSE_ON
 `GnssPassthroughEstimator` ("hold-last-fix") holds the last TRUSTED GNSS fix, with r68 growing at
 20 m/s. Every estimator must beat it.
 
+## 3b. Compass (`Compass`, used by the baseline)
+
+In a car the magnetometer is badly distorted: the steel body, engine and wiring, and sometimes a
+magnetic phone holder. With a **fixed mount**, though, all of these distortions are constant in the
+phone frame. As the car turns, the horizontal field seen in a phone-fixed horizontal frame traces
+an **ellipse**: soft iron gives the shape, hard iron the offset.
+
+1. **Iron fit, no GNSS needed.**
+   - Horizontal field points (a 0.2 s EMA of MAG_UNCAL, or MAG if absent) are binned by the
+     **bias-corrected gyro heading** (36 bins). Coverage is therefore measured without trusting the
+     distorted compass, and gyro drift cannot fake it.
+   - A circle fit (Kåsa) is used with ≥ 4 octants covered, and an algebraic ellipse fit with ≥ 6
+     octants in both gyro and field angle (axis ratio ≤ 2:1).
+   - The corrected angle θc then rotates 1:1 with the vehicle.
+2. **Alignment ψ = θc + c.**
+   - `GNSS_ALIGNED`: c = circular mean of (trusted course − θc), taken while driving straight
+     (≥ 7 m/s, |ω| ≤ 0.05). σ = max(5°, 1.5·rms). Add +5° for circle-only, +10° with ≤ 4 octants,
+     and +5° when the heading is > 45° from every alignment sample.
+   - `FORWARD_ALIGNED`, no GNSS: the azimuth of the learned forward axis against the corrected
+     field, plus WMM declination (`GeomagneticReference`). σ = 15° (+5° circle-only; +25° with 4
+     octants, +10° with 5).
+   - `UNCORRECTED`, no iron fit: Android-calibrated MAG + forward axis + declination, gated by
+     |B| ≈ WMM field ±30%. σ = 35°. Add +10° to any forward-aligned mode when the declination is
+     unknown.
+3. **Anomaly gates** (trams, bridges, trucks):
+   - The field component along *up* is constant for a fixed mount whatever the heading. A jump
+     > 3 µT from its running median marks the next 3 s as dirty. No readings, fit samples or
+     alignment samples are taken while dirty.
+   - The corrected radius must be within ±10% of the fitted radius.
+   - The compass heading change over 2 s must agree with the bias-corrected gyro within 10°.
+4. **Correlated errors.** The residual compass error is the same for minutes, so the EKF only takes
+   a compass update when σ_ψ > σ_compass (D-020). The compass *bounds* heading drift; it does not
+   pretend to beat its own accuracy by repetition.
+
+Simulation, measured:
+- Full heading coverage with anomalies: p95 7.9°; without anomalies: 4.1°.
+- Short drive with partial coverage: GNSS-aligned p95 < 12°, with > 90% of errors within 2σ.
+- Uncalibrated p50 < 20°.
+- Real cars and holders may be much worse, so this needs validation (see progress).
+
 ## 4. What the baseline cannot do (by design)
 
-- It cannot determine absolute heading without GNSS. The magnetometer is recorded but unused,
-  because the in-car magnetic field is disturbed. See the roadmap for EKF-GSF yaw.
+- Absolute heading without GNSS relies on the compass (§3b), which is untested on real cars yet.
+  Magnetic holders and local anomalies may defeat it; the gates make it drop out rather than lie.
+  EKF-GSF yaw remains a roadmap item.
 - Distance without GNSS or OBD is poorly constrained, because speed is a random walk. That is why
   `synthObd` improves the 10-min outage p95 from about 1.4 km to about 250 m in simulation.
 - No map: errors grow without bound during hours-long outages. Phase 2 road-state estimation is
   the intended fix.
-- A random-walk model fused with repeated coarse fixes under directed motion becomes somewhat
-  overconfident (`gnss_absent_from_start` with synthetic OBD: within95 ≈ 0.81). See progress
-  limitations.
+- Coarse fixes are fused at most every 15 s / 150 m and inflated ×1.5. Real network errors may be
+  more correlated than that (same towers for kilometres); check within95 on real drives.
