@@ -40,8 +40,9 @@ jobs:
           DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
         if: env.DEBUG_KEYSTORE_B64 != ''
         run: |
-          mkdir -p ~/.android
-          echo "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+          echo "$DEBUG_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/debug.keystore"
+          echo "GPES_DEBUG_KEYSTORE=$RUNNER_TEMP/debug.keystore" >> "$GITHUB_ENV"
+          keytool -list -v -keystore "$RUNNER_TEMP/debug.keystore" -storepass android | grep SHA256: | head -1
 
       - name: Test, lint, build
         run: >
@@ -58,6 +59,9 @@ jobs:
           name="gpes-patron-${GITHUB_REF_NAME//\//-}-${{ github.run_number }}-${short}.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$name"
           echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Show signing certificate
+        run: $ANDROID_HOME/build-tools/37.0.0/apksigner verify --print-certs "${{ steps.apk.outputs.name }}" | grep SHA-256
 
       - uses: actions/upload-artifact@v4
         with:

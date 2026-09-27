@@ -16,6 +16,19 @@ android {
         versionName = "0.1.0" + (providers.gradleProperty("versionCode").orNull?.let { "-ci$it" } ?: "")
     }
 
+    signingConfigs {
+        // CI (and anyone who wants stable signatures) points GPES_DEBUG_KEYSTORE at a shared debug
+        // keystore, so APKs from different machines install over each other.
+        getByName("debug") {
+            System.getenv("GPES_DEBUG_KEYSTORE")?.takeIf { it.isNotBlank() }?.let {
+                storeFile = file(it)
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
