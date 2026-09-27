@@ -7,6 +7,7 @@ import gpes.core.model.EstimatorMode
 import gpes.core.model.GeomagneticReference
 import gpes.core.model.Hypothesis
 import gpes.core.model.ImuSample
+import gpes.core.model.PowerState
 import gpes.core.model.LocSource
 import gpes.core.model.LocationMeasurement
 import gpes.core.model.Measurement
@@ -23,6 +24,8 @@ import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.sin
 import kotlin.math.sqrt
+
+data class CompassStatus(val tNs: Long, val quality: CompassQuality, val reading: CompassReading?)
 
 @Serializable
 data class BaselineConfig(
@@ -102,6 +105,10 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
     private var dirlessDist = 0.0
     private var compass = Compass(cfg.compass)
     private var nextCompassT = Long.MIN_VALUE
+    /** Latest compass state for UI/diagnostics (published at 1 Hz; safe to read from another thread). */
+    @Volatile var compassStatus: CompassStatus? = null
+        private set
+
     private var odoM = 0.0
     private var lastNetT = Long.MIN_VALUE
     private var lastNetOdo = 0.0
@@ -127,7 +134,9 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
         compass.onMotion(u, x[IDX_B])
         if (cfg.compass.enabled && u.tNs >= nextCompassT) {
             nextCompassT = u.tNs + (cfg.compass.periodS * 1e9).toLong()
-            compass.heading(u.tNs)?.let(::applyCompass)
+            val r = compass.heading(u.tNs)
+            r?.let(::applyCompass)
+            compassStatus = CompassStatus(u.tNs, compass.quality(), r)
         }
     }
 
@@ -153,6 +162,7 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
             is LocationMeasurement -> onLocation(m, trust)
             is ImuSample -> compass.onMag(m)
             is GeomagneticReference -> compass.onReference(m)
+            is PowerState -> compass.onPower(m)
             is VehicleSpeedMeasurement -> {
                 propagateTo(m.tNs, lastYawRate)
                 update1(IDX_V, m.speedMps, max(m.stdMps, 0.05).let { it * it })

@@ -11,6 +11,7 @@ import gpes.core.model.LocSource
 import gpes.core.model.LocationMeasurement
 import gpes.core.model.OrientationKind
 import gpes.core.model.OrientationSample
+import gpes.core.model.PowerState
 import gpes.core.model.RecordOrder
 import gpes.core.model.SatInfo
 import gpes.core.model.SessionInfo
@@ -80,6 +81,16 @@ data class SimConfig(
     val magAnomalyEveryS: Double = 90.0,
     val magAnomalyDurationS: Double = 5.0,
     val magAnomalyUt: Double = 20.0,
+    /** Magnetometer full-scale (µT): raw components clip here (saturation by a strong holder magnet). null = none. */
+    val magClipUt: Double? = null,
+    /** Holder wobble: the phone oscillates about its own x axis relative to the car (degrees, Hz). 0 = rigid. */
+    val mountWobbleDeg: Double = 0.0,
+    val mountWobbleHz: Double = 4.0,
+    /** Wobble in bursts (rough road): on for [mountWobbleOnS], off for [mountWobbleOffS]. 0 = continuous. */
+    val mountWobbleOnS: Double = 0.0,
+    val mountWobbleOffS: Double = 0.0,
+    /** Wireless-charging holder: coil field in the phone frame scaled by a varying charge current (µT at full current). 0 = none. */
+    val wirelessChargingUt: Double = 0.0,
     /** Emit GAME_ROTATION_VECTOR (gyro-stabilized attitude, as on real phones) with slowly wandering tilt error (deg). */
     val emitGameRotationVector: Boolean = true,
     val grvTiltErrorDeg: Double = 0.5,
@@ -155,7 +166,10 @@ object DriveSimulator {
         var biasZ = cfg.gyroBiasZ
         var tiltErrX = 0.0
         var tiltErrY = 0.0
-        val rotT = Array(3) { i -> DoubleArray(3) { j -> rot[j][i] } } // phone → vehicle
+        var chargeCurrent = 0.0
+        var chargePhaseUntil = Long.MIN_VALUE
+        var chargingOn = false
+        var nextPower = cfg.startElapsedNs
         val gnssPeriod = (1e9 / cfg.gnssHz).toLong()
 
         fun step(targetSpeed: Double, bearingRate: Double) {
@@ -178,10 +192,18 @@ object DriveSimulator {
             )
             // Yaw rate about up (CCW positive) = −bearing rate.
             val wVeh = doubleArrayOf(0.0, 0.0, -bearingRate)
-            val fPh = mul(rot, fVeh)
+            // Holder wobble: v_phone = Rx(θw) · rot · v_vehicle, so the phone turns by −θw' about its x axis.
+            val relS = (t - cfg.startElapsedNs) / 1e9
+            val wobbleOn = cfg.mountWobbleOnS <= 0 || (relS % (cfg.mountWobbleOnS + cfg.mountWobbleOffS)) < cfg.mountWobbleOnS
+            val amp = if (wobbleOn) Math.toRadians(cfg.mountWobbleDeg) else 0.0
+            val thW = amp * sin(2 * PI * cfg.mountWobbleHz * relS)
+            val thWDot = amp * 2 * PI * cfg.mountWobbleHz * cos(2 * PI * cfg.mountWobbleHz * relS)
+            val rotNow = if (cfg.mountWobbleDeg == 0.0) rot else mm(arrayOf(doubleArrayOf(1.0, 0.0, 0.0), doubleArrayOf(0.0, cos(thW), -sin(thW)), doubleArrayOf(0.0, sin(thW), cos(thW))), rot)
+            val rotT = Array(3) { i -> DoubleArray(3) { j -> rotNow[j][i] } } // phone → vehicle
+            val fPh = mul(rotNow, fVeh)
             if (cfg.gyroBiasWalk > 0) biasZ += rnd.gauss() * cfg.gyroBiasWalk * kotlin.math.sqrt(dt)
-            val wPh = mul(rot, wVeh).let { w -> DoubleArray(3) { w[it] * (1 + cfg.gyroScaleError) } }
-            val biasPh = mul(rot, doubleArrayOf(0.0, 0.0, biasZ))
+            val wPh = mul(rotNow, wVeh).let { w -> DoubleArray(3) { w[it] * (1 + cfg.gyroScaleError) } }.also { it[0] -= thWDot }
+            val biasPh = mul(rotNow, doubleArrayOf(0.0, 0.0, biasZ))
             records += ImuSample(t, ImuKind.ACCEL, fPh[0] + rnd.gauss() * cfg.accelNoise, fPh[1] + rnd.gauss() * cfg.accelNoise, fPh[2] + rnd.gauss() * cfg.accelNoise)
             records += ImuSample(t, ImuKind.GYRO, wPh[0] + biasPh[0] + rnd.gauss() * cfg.gyroNoise, wPh[1] + biasPh[1] + rnd.gauss() * cfg.gyroNoise, wPh[2] + biasPh[2] + rnd.gauss() * cfg.gyroNoise)
 
@@ -202,11 +224,26 @@ object DriveSimulator {
                     cfg.carSoftIronXy * vx + d[1] * vy + cfg.carHardIronUt[1],
                     d[2] * w[2] + cfg.carHardIronUt[2],
                 )
-                val bp = mul(rot, bv)
+                val bp = mul(rotNow, bv)
                 val h = cfg.phoneHardIronUt
-                val nz = DoubleArray(3) { rnd.gauss() * cfg.magNoiseUt }
-                records += ImuSample(t, ImuKind.MAG_UNCAL, bp[0] + h[0] + nz[0], bp[1] + h[1] + nz[1], bp[2] + h[2] + nz[2], h[0], h[1], h[2], 3)
-                records += ImuSample(t, ImuKind.MAG, bp[0] + nz[0], bp[1] + nz[1], bp[2] + nz[2], accuracy = 3)
+                if (cfg.wirelessChargingUt > 0) {
+                    // Charging phases of 60–120 s with a wandering current, then 30 s off.
+                    if (t > chargePhaseUntil) {
+                        chargingOn = !chargingOn
+                        chargePhaseUntil = t + ((if (chargingOn) 60 + 60 * rnd.nextDouble() else 30.0) * 1e9).toLong()
+                    }
+                    val target = if (chargingOn) 0.8 else 0.0
+                    chargeCurrent = (chargeCurrent + (target - chargeCurrent) * 0.02 + rnd.gauss() * 0.01 * (if (chargingOn) 1 else 0)).coerceIn(0.0, 1.0)
+                }
+                val coil = cfg.wirelessChargingUt * chargeCurrent
+                val raw = DoubleArray(3) { bp[it] + h[it] + rnd.gauss() * cfg.magNoiseUt + coil * doubleArrayOf(0.3, -0.2, 0.93)[it] }
+                cfg.magClipUt?.let { c -> for (i in 0..2) raw[i] = raw[i].coerceIn(-c, c) }
+                records += ImuSample(t, ImuKind.MAG_UNCAL, raw[0], raw[1], raw[2], h[0], h[1], h[2], 3)
+                records += ImuSample(t, ImuKind.MAG, raw[0] - h[0], raw[1] - h[1], raw[2] - h[2], accuracy = 3)
+                if (cfg.wirelessChargingUt > 0 && t >= nextPower) {
+                    nextPower = t + 1_000_000_000
+                    records += PowerState(t, "WIRELESS", chargeCurrent > 0.05, (chargeCurrent * 1_500_000).toLong())
+                }
 
                 if (cfg.emitGameRotationVector) {
                     // Phone → world = (vehicle → world) · (phone → vehicle), with a slowly wandering tilt error.

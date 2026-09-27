@@ -25,6 +25,7 @@ import gpes.app.mock.MockTarget
 import gpes.app.source.AndroidLocationSource
 import gpes.app.source.GnssRawSource
 import gpes.app.source.CellSource
+import gpes.app.source.PowerSource
 import gpes.app.source.SensorSource
 import gpes.app.source.WifiSource
 import android.telephony.TelephonyManager
@@ -171,12 +172,13 @@ private class Session(
     private lateinit var driver: AndroidSqliteDriver
     private lateinit var writer: DriveWriter
     private var pipeline: MeasurementPipeline? = null
+    private var estimator: BaselineDrEstimator? = null
     private var publisher: MockLocationPublisher? = null
     private val sensorSource = SensorSource(ctx.getSystemService(SensorManager::class.java), handler)
     private val gnssRaw = GnssRawSource(ctx, handler)
     private val wifi = WifiSource(ctx, handler)
     private val sources: List<MeasurementSource> = buildList {
-        add(AndroidLocationSource(ctx, handler)); add(gnssRaw); add(sensorSource); add(wifi)
+        add(AndroidLocationSource(ctx, handler)); add(gnssRaw); add(sensorSource); add(wifi); add(PowerSource(ctx, handler))
         ctx.getSystemService(TelephonyManager::class.java)?.let { add(CellSource(it, handler)) }
     }
 
@@ -227,7 +229,8 @@ private class Session(
         sensorSource.sensorInfo().forEach(writer::write)
 
         if (mode.estimate) {
-            pipeline = MeasurementPipeline(PipelineConfig(), DefaultTrustEvaluator(), BaselineDrEstimator(baselineConfig)).also {
+            estimator = BaselineDrEstimator(baselineConfig)
+            pipeline = MeasurementPipeline(PipelineConfig(), DefaultTrustEvaluator(), estimator).also {
                 it.listener = object : PipelineListener {
                     override fun onTrust(a: TrustAssessment) {
                         writer.write(a)
@@ -300,6 +303,7 @@ private class Session(
                 cells = lastCells?.let { c -> c.cells.size to c.cells.firstOrNull { x -> x.registered }?.let(::describeCell) },
                 wifiAps = lastWifi?.let { w -> w.aps.size to ((now - w.tNs) / 1_000_000_000) },
                 wifiScans = wifi.scansRequested to wifi.scansThrottled,
+                compass = estimator?.compassStatus,
             )
         }
     }

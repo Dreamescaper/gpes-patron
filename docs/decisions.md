@@ -192,3 +192,35 @@ annotation labels are stable English codes (the button text is translated), and 
 and record names stay English enum codes. This keeps drives from different phones and languages
 comparable in replay and analysis. On-screen reason codes stay as codes (they are technical and map
 1:1 to docs/estimation-algorithm.md).
+
+## D-024: Compass self-assessment with a verdict and reason codes — Accepted (2026-09-28)
+Context: the question "can we tell from recordings that the magnetometer on this holder is
+useless?" The compass only inflated σ for poor coverage; it never checked the field itself.
+Decision: `CompassQuality` has metrics (radius vs WMM horizontal field, scatter, centre drift, hard
+iron, disturbed/shaky time fractions, saturation, wireless charging, GNSS alignment residual), a
+verdict and stable reason codes (thresholds in estimation-algorithm §3b). UNUSABLE silences the
+compass; MARGINAL adds 10° to σ. It is shown live in the app and offline via `replay compass-report`
+(cross-validated: align on the first half of trusted GNSS, evaluate on the second).
+Alternatives: a single continuous quality score (harder to explain and act on); offline-only analysis
+(the app would keep using a bad compass).
+Consequences: the thresholds are simulation-based guesses. Tune them on real mounts (roadmap).
+
+## D-025: Shake gate depends on where "up" comes from — Accepted (2026-09-28)
+Context: the natural idea is "don't calibrate while the phone shakes". Measured in simulation
+(wobble bursts at 3 Hz):
+- With GAME_ROTATION_VECTOR, 3° wobble (≈ 0.7 rad/s RMS) did **not** hurt (p95 1.9° gated vs 1.9°
+  ungated), while a naive 0.15 rad/s gate threw away 35% of readings and silenced the compass
+  entirely under continuous wobble.
+- 8° wobble (≈ 1.9 rad/s) did hurt: p95 3.7° → 1.9° with the gate.
+- Without a rotation vector (accelerometer "up"), 3° wobble hurt the heading (p95 12.1° → 10.7°
+  with the gate), and the fit scatter dropped 4.3° → 0.8°.
+Decision: threshold 1.2 rad/s with a rotation vector and 0.15 rad/s without, plus the
+horizontal-accel gate only without one. The gate covers fit samples, alignment and readings.
+Alternatives: always gate at a low threshold (rejected: loses the compass on rough roads with no
+benefit when GRV is present); no gate (rejected: strong wobble and accel-only phones suffer).
+
+## D-026: Record power/charging state — Accepted (2026-09-28)
+Why: a wireless-charging holder is a time-varying magnetic field (its coil current changes), and
+temperature shifts magnetometer offsets. `PowerState` (plug type, charging, battery current, voltage,
+level, temperature) is polled every 1 s and recorded on change or every 5 s. The compass flags
+`WIRELESS_CHARGING`.

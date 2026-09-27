@@ -9,11 +9,15 @@ Code: `core/src/main/kotlin/gpes/core/replay/`, CLI `replay-cli/`.
 R=replay-cli/build/install/replay/bin/replay
 
 $R simulate --out sim/drive.db [--network-period 20] [--seed 1] [--config simconfig.json]
-      # SimConfig JSON can set legs, magnetometer distortions, gyroScaleError, gyroBiasWalk, …
+      # SimConfig JSON can set legs, magnetometer distortions (car/phone hard & soft iron, anomalies,
+      # magClipUt saturation, wirelessChargingUt), holder wobble (mountWobbleDeg/Hz/OnS/OffS),
+      # gyroScaleError, gyroBiasWalk, GRV on/off, …
       # also writes sim/drive.truth.json
 $R export  --drive x.db --format jsonl|csv|gnsslogger --out <file|dir>
 $R run     --drive x.db|x.jsonl [--scenario file|dir]... [--variant name]... [--variants v.json] [--truth t.json] --out dir
 $R matrix  --drive a.db --drive b.db --scenario scenarios [--variants v.json] [--truth t.json] --out dir
+$R compass-report --drive x.db [--truth t.json] --out dir
+      # verdict + reasons, fit metrics, held-out heading error per mode, compass_timeline.csv
 ```
 
 Outputs per run (`<out>/<drive>/<scenario>__<variant>/`):

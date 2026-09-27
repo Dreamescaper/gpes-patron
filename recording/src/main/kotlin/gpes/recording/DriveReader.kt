@@ -7,6 +7,7 @@ import gpes.core.model.CellObs
 import gpes.core.model.CellScan
 import gpes.core.model.Cov2
 import gpes.core.model.GeomagneticReference
+import gpes.core.model.PowerState
 import gpes.core.model.WifiObs
 import gpes.core.model.WifiScan
 import gpes.core.model.DriveRecord
@@ -115,6 +116,10 @@ class DriveReader(db: DriveDatabase) {
         q.selectGeomag { t, lat, lon, d, i, f, src -> GeomagneticReference(t, lat, lon, d, i, f, src) }.executeAsList()
     }
 
+    fun power(): List<PowerState> = tolerant {
+        q.selectPower { t, plug, ch, cur, v, lvl, temp -> PowerState(t, plug, ch != 0L, cur, v?.toInt(), lvl?.toInt(), temp) }.executeAsList()
+    }
+
     private fun <T> tolerant(block: () -> List<T>): List<T> = try {
         block()
     } catch (e: Exception) {
@@ -139,7 +144,7 @@ class DriveReader(db: DriveDatabase) {
     /** All pipeline inputs, merged and sorted by time (stable within equal timestamps). */
     fun measurements(): List<Measurement> {
         val all = ArrayList<Measurement>()
-        all += imu(); all += orientation(); all += locations(); all += gnssStatus(); all += gnssMeasurements(); all += cellScans(); all += wifiScans(); all += geomag()
+        all += imu(); all += orientation(); all += locations(); all += gnssStatus(); all += gnssMeasurements(); all += cellScans(); all += wifiScans(); all += geomag(); all += power()
         all += q.selectProviderEvent { t, p, e -> ProviderEvent(t, p, ProviderEvent.Kind.valueOf(e)) }.executeAsList()
         all += q.selectNmea { t, text -> NmeaSentence(t, text) }.executeAsList()
         all += q.selectVehicleSpeed { t, s, std, src -> VehicleSpeedMeasurement(t, s, std, src) }.executeAsList()

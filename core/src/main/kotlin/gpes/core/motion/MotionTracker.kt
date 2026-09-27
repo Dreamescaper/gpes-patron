@@ -46,6 +46,12 @@ data class MotionUpdate(
     val forward: Vec3? = null,
     /** Increments whenever the phone is re-mounted (a large tilt). Mount-dependent calibrations reset on change. */
     val mountEpoch: Int = 0,
+    /** RMS angular rate about horizontal axes over the last ~0.5 s (rad/s): phone shaking / holder wobble. */
+    val tiltRateRms: Double = 0.0,
+    /** Current horizontal specific force (m/s²): accelerating, braking, cornering or bumps. */
+    val horizontalAccel: Double = 0.0,
+    /** True when [up] comes from a gyro-stabilized rotation vector (robust to acceleration), false for low-passed accel. */
+    val upFromOrientation: Boolean = false,
 )
 
 data class MotionConfig(
@@ -91,6 +97,7 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
         val accWindow: List<Pair<Long, Double>>, val gyroWindow: List<Pair<Long, Double>>,
         val leftSum: Vec3, val leftWeight: Double, val leftCount: Int,
         val tiltWindow: List<Pair<Long, Vec3>>, val mountEpoch: Int, val remountAt: Long,
+        val tiltRateWindow: List<Pair<Long, Double>>,
     )
 
     // Gravity (specific force at rest points up) in the phone frame, low-passed accelerometer.
@@ -120,6 +127,7 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
     private var tiltSum = Vec3.ZERO
     private var mountEpoch = 0
     private var remountAt = Long.MIN_VALUE
+    private val tiltRateWindow = ArrayDeque<Pair<Long, Double>>()
 
     // Cumulative bearing change history: parallel arrays, appended at each update.
     private var histT = LongArray(1024)
@@ -190,6 +198,10 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
     }
 
     private fun learnMount(tNs: Long, w: Vec3, wUp: Double, up: Vec3, dt: Double) {
+        // Shake / wobble metric: RMS of the non-yaw angular rate over 0.5 s.
+        val perpRate = w.perp(up).norm
+        tiltRateWindow.addLast(tNs to perpRate * perpRate)
+        while (tiltRateWindow.isNotEmpty() && tiltRateWindow.first().first < tNs - 500_000_000L) tiltRateWindow.removeFirst()
         // Re-mount detection: net rotation about horizontal axes over a few seconds.
         val tilt = w.perp(up) * dt
         tiltWindow.addLast(tNs to tilt)
@@ -242,10 +254,14 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
             stationarySinceNs = null
         }
         appendHistory(tNs, cumYawBearing)
+        val up = up(tNs)
+        val ah = if (up != null) lastAccel?.perp(up)?.norm ?: 0.0 else 0.0
+        val tiltRms = if (tiltRateWindow.isEmpty()) 0.0 else sqrt(tiltRateWindow.sumOf { it.second } / tiltRateWindow.size)
+        val fromOrientation = orientUp != null && tNs - orientT <= cfg.orientationMaxAgeNs
         val u = MotionUpdate(
             tNs, dtS, rate, still,
             stationarySinceNs?.let { (tNs - it) / 1e9 } ?: 0.0,
-            gyroMean, accStd, up(tNs), forward(tNs), mountEpoch,
+            gyroMean, accStd, up, forward(tNs), mountEpoch, tiltRms, ah, fromOrientation,
         )
         latest = u
         return u
@@ -302,7 +318,7 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
     fun snapshot(): State = State(
         g, gravityInit, orientUp, orientT, lastAccel, lastAccelT, lastGyroT, yawAccum, yawAccumDt,
         lastEmitT, cumYawBearing, stationarySinceNs, seenCalibratedGyro, accWindow.toList(), gyroWindow.toList(),
-        leftSum, leftWeight, leftCount, tiltWindow.toList(), mountEpoch, remountAt,
+        leftSum, leftWeight, leftCount, tiltWindow.toList(), mountEpoch, remountAt, tiltRateWindow.toList(),
     )
 
     /** Restore state; history entries newer than the snapshot are discarded (they will be regenerated). */
@@ -319,6 +335,7 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
         tiltWindow.clear(); tiltWindow.addAll(s.tiltWindow)
         tiltSum = s.tiltWindow.fold(Vec3.ZERO) { acc, p -> acc + p.second }
         mountEpoch = s.mountEpoch; remountAt = s.remountAt
+        tiltRateWindow.clear(); tiltRateWindow.addAll(s.tiltRateWindow)
         while (histEnd > histStart && histT[histEnd - 1] > s.lastEmitT) histEnd--
         latest = null
     }

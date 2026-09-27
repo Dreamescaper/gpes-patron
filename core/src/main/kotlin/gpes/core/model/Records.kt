@@ -281,6 +281,26 @@ data class GeomagneticReference(
     val source: String = "WMM",
 ) : Measurement
 
+/**
+ * Battery / charging state. Relevant to the magnetometer: a wireless-charging holder puts a coil
+ * with a varying current next to it (a time-varying hard iron). Temperature also shifts magnetometer
+ * offsets.
+ */
+@Serializable
+@SerialName("power")
+data class PowerState(
+    override val tNs: Long,
+    /** NONE, AC, USB, WIRELESS, DOCK, OTHER */
+    val plug: String,
+    val charging: Boolean,
+    val currentUa: Long? = null,
+    val voltageMv: Int? = null,
+    val levelPct: Int? = null,
+    val temperatureC: Double? = null,
+) : Measurement {
+    val wireless: Boolean get() = plug == "WIRELESS"
+}
+
 // ---------------------------------------------------------------------------------------------
 // Future / synthetic inputs
 // ---------------------------------------------------------------------------------------------
@@ -367,10 +387,11 @@ object RecordOrder {
         is CellScan -> 8
         is WifiScan -> 9
         is GeomagneticReference -> 10
-        is VehicleSpeedMeasurement -> 11
-        is LocationMeasurement -> 12
-        is Annotation -> 13
-        else -> 14
+        is PowerState -> 11
+        is VehicleSpeedMeasurement -> 12
+        is LocationMeasurement -> 13
+        is Annotation -> 14
+        else -> 15
     }
 
     val comparator: Comparator<DriveRecord> = compareBy<DriveRecord> { it.tNs }.thenBy { rank(it) }

@@ -23,6 +23,9 @@ later or speculative.
 - **P1 Validate the compass in real cars:** measure deviation-fit quality, anomaly gate hit rate,
   and the magnetic-holder case (expect a huge hard iron; check that the ellipse still fits or that
   the gates drop it). Compare against GNSS course.
+- **P1 Tune compass verdict thresholds on real mounts**: run `replay compass-report` on real drives
+  with different holders (vent clip, dashboard suction, magnetic, wireless charging) and compare
+  the verdicts with the held-out GNSS error.
 - **P2 Compass follow-ups:** persist the per-car calibration across sessions (keyed by mount
   orientation); add a tilt-compensation check using GRV vs accelerometer; add a replay scenario that
   drops or corrupts the magnetometer.

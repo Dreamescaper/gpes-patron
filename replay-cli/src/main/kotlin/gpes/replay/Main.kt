@@ -27,7 +27,7 @@ import gpes.recording.Exporters
 import kotlinx.serialization.builtins.ListSerializer
 import java.io.File
 
-fun main(args: Array<String>) = Replay().subcommands(Simulate(), Export(), Run(), Matrix()).main(args)
+fun main(args: Array<String>) = Replay().subcommands(Simulate(), Export(), Run(), Matrix(), CompassReportCmd()).main(args)
 
 class Replay : CliktCommand(name = "replay") {
     override fun help(context: Context) =
@@ -187,4 +187,35 @@ private fun writeComparison(summaries: List<ReplaySummary>, out: File) {
         },
     )
     File(out, "summaries.json").writeText(pretty.encodeToString(ListSerializer(ReplaySummary.serializer()), summaries))
+}
+
+class CompassReportCmd : CliktCommand(name = "compass-report") {
+    override fun help(context: Context) =
+        "Assess the magnetometer on this mount: usable / marginal / unusable, why, and held-out heading accuracy vs trusted GNSS course."
+    private val drive by option("--drive").file(mustExist = true).required()
+    private val truthFile by option("--truth", help = "optional truth JSON (simulated drives)").file(mustExist = true)
+    private val out by option("--out").file().default(File("replay-out/compass"))
+
+    override fun run() {
+        val records = DriveIo.load(drive)
+        val ms = records.filterIsInstance<Measurement>()
+        val truth = truthOrNull(truthFile) ?: ReplayRunner().truthFrom(ms)
+        val (summary, rows) = gpes.core.replay.CompassReport.analyze(ms, truth, records.filterIsInstance<gpes.core.model.SensorInfo>())
+        out.mkdirs()
+        File(out, "compass_report.json").writeText(pretty.encodeToString(gpes.core.replay.CompassReportSummary.serializer(), summary))
+        File(out, "compass_timeline.csv").bufferedWriter().use { w ->
+            w.write("t_s,verdict,mode,bearing_deg,sigma_deg,truth_course_deg,err_deg,tilt_rate_rms,horizontal_accel,raw_norm_ut,plug\n")
+            for (r in rows) w.write(
+                listOf(r.tS, r.verdict, r.mode, r.bearingDeg, r.sigmaDeg, r.truthCourseDeg, r.errDeg, r.tiltRateRms, r.horizontalAccel, r.rawNormUt, r.plug)
+                    .joinToString(",") { it?.toString() ?: "" } + "\n",
+            )
+        }
+        val q = summary.quality
+        echo("verdict: ${q.verdict} ${q.reasons}")
+        echo("fit: ${q.fit}, octants ${q.octants}, radius/expected ${fmt(q.radiusRatio, 2)}, scatter ${fmt(q.scatterDeg)}°, hard iron ${fmt(q.hardIronUt)} µT, centre drift ${fmt(q.centerDriftRatio, 2)}")
+        echo("disturbed ${fmt(q.dirtyFraction, 2)}, shaky ${fmt(q.shakyFraction, 2)}, tilt-rate RMS ${fmt(q.tiltRateRmsMean, 3)} rad/s, saturated ${q.saturated}, near full scale ${summary.nearFullScale}, wireless charging ${fmt(summary.wirelessChargingSeconds, 0)} s")
+        echo("held-out heading error: p50 ${fmt(summary.heldOutAll.p50Deg)}°, p95 ${fmt(summary.heldOutAll.p95Deg)}°, within 2σ ${fmt(summary.heldOutAll.within2SigmaFraction, 2)}, availability ${fmt(summary.availability, 2)}")
+        for ((mode, st) in summary.heldOutByMode) echo("  $mode: n=${st.n} p50 ${fmt(st.p50Deg)}° p95 ${fmt(st.p95Deg)}° within 2σ ${fmt(st.within2SigmaFraction, 2)}")
+        echo("wrote ${File(out, "compass_report.json")} and compass_timeline.csv")
+    }
 }

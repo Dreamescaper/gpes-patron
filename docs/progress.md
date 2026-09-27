@@ -19,6 +19,7 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 | Foreground service, RECORD/ESTIMATE/MOCK modes | ✅ done | emulator |
 | Mock output (fused), feedback guard | ✅ done | emulator: fused last location = our mock; our input rejected as SYNTHETIC_INPUT |
 | Compass (iron fit, alignment, gates) + mount forward axis + re-mount detection | ✅ done | sim tests (7 new), R-003/R-004; emulator: WMM reference recorded |
+| Compass self-assessment (verdict + reasons), shake gate, power recording, `replay compass-report` | ✅ done | 6 new sim tests (holder magnet, saturation, shielding, wireless, wobble); emulator: power table + UI line |
 | Raw cell + Wi-Fi recording | ✅ done (recorded only; not used yet) | emulator: NR serving cell with identity/signal, Wi-Fi AP scans; CSV export |
 | Ukrainian localization (UI, notification, errors; per-app language on Android 13+) | ✅ done | emulator with the app locale set to `uk`; lint: no missing translations |
 | Real-device drive | ⏳ not yet | — |
@@ -42,6 +43,17 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 - The GnssLogger export is a best-effort subset (no carrier-phase derived fields).
 
 ## Log
+
+### 2026-09-28 — Is the magnetometer on this holder useful? (self-assessment, shake gate, power)
+- `Compass.quality()` gives a verdict and reason codes (D-024); UNUSABLE silences it, MARGINAL
+  inflates σ. The shake gate depends on the rotation vector (D-025).
+- `PowerState` is recorded (D-026). The simulator gained saturation, holder wobble (continuous or
+  bursts) and a wireless-charging coil.
+- `replay compass-report` gives the verdict, metrics, held-out heading accuracy per mode, and a
+  timeline CSV. Live compass line in the app (en/uk).
+- Measured verdicts: see R-005. The shake-gate numbers are in D-025.
+- Not verified: thresholds on real mounts. The emulator's magnetometer is static, so its verdict
+  there stays UNKNOWN.
 
 ### 2026-09-28 — Ukrainian localization
 - All UI text now lives in `res/values/strings.xml` (English) and `res/values-uk/strings.xml`, with
@@ -113,6 +125,17 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 - Research doc, core module, SQLDelight recording, replay CLI, 11 scenarios. 24 unit tests.
 
 ## Results log
+
+### R-005 (2026-09-28) — compass verdicts for simulated holders (`replay compass-report`, 10-min drive)
+
+| Mount | Verdict | Reasons | Key metric | Held-out p95 (GNSS-aligned) |
+|---|---|---|---|---|
+| clean | USABLE | – | radius/expected 1.03 | 3.2° |
+| magnet in holder (≈ 440 µT offset) | MARGINAL | LARGE_HARD_IRON | calibrated out | similar to clean |
+| wireless charger (60 µT coil) | MARGINAL | OFTEN_DISTURBED, WIRELESS_CHARGING | 50% of time disturbed | 7.3° (28% availability) |
+| steel shielding plate (×0.2) | UNUSABLE | WEAK_FIELD | radius/expected 0.19 | silenced |
+| clipped sensor (saturation) | UNUSABLE | SATURATED | – | silenced (0 readings) |
+| continuous 3° wobble (with GRV) | USABLE | – | tilt-rate 0.69 rad/s | still works |
 
 ### R-004 (2026-09-28) — 1-hour simulated drive, realistic gyro (1% scale error, bias walk 2e-4)
 

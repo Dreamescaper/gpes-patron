@@ -3,6 +3,7 @@ package gpes.app.service
 import androidx.annotation.StringRes
 import gpes.app.R
 import gpes.app.mock.MockTarget
+import gpes.core.estimator.CompassStatus
 import gpes.core.model.LocSource
 import gpes.core.model.PositionEstimate
 import gpes.core.model.TrustAssessment
@@ -41,6 +42,7 @@ data class Status(
     val wifiAps: Pair<Int, Long>? = null,
     /** (scans requested OK, requests throttled). */
     val wifiScans: Pair<Int, Int> = 0 to 0,
+    val compass: CompassStatus? = null,
     val notes: List<String> = emptyList(),
 )
 

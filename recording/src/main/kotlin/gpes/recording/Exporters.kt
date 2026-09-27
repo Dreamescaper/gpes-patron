@@ -3,6 +3,7 @@ package gpes.recording
 import gpes.core.io.DriveJson
 import gpes.core.model.Annotation
 import gpes.core.model.CellScan
+import gpes.core.model.PowerState
 import gpes.core.model.WifiScan
 import gpes.core.model.DriveRecord
 import gpes.core.model.GnssMeasurementBatch
@@ -81,6 +82,9 @@ object Exporters {
                 }
             }
             files += f
+        }
+        table("power", "t_ns,plug,charging,current_ua,voltage_mv,level_pct,temperature_c", records.filterIsInstance<PowerState>()) {
+            listOf(it.tNs, it.plug, it.charging, it.currentUa, it.voltageMv, it.levelPct, it.temperatureC)
         }
         table("vehicle_speed", "t_ns,speed_mps,std_mps,source", records.filterIsInstance<VehicleSpeedMeasurement>()) { listOf(it.tNs, it.speedMps, it.stdMps, it.source) }
         table("annotation", "t_ns,label,note", records.filterIsInstance<Annotation>()) { listOf(it.tNs, it.label, it.note) }

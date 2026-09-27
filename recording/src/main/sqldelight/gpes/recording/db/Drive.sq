@@ -89,6 +89,11 @@ CREATE TABLE IF NOT EXISTS geomag (
   inclination_deg REAL NOT NULL, field_ut REAL NOT NULL, source TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS power (
+  t_ns INTEGER NOT NULL, plug TEXT NOT NULL, charging INTEGER NOT NULL, current_ua INTEGER,
+  voltage_mv INTEGER, level_pct INTEGER, temperature_c REAL
+);
+
 CREATE TABLE nmea (t_ns INTEGER NOT NULL, text TEXT NOT NULL);
 
 CREATE TABLE vehicle_speed (t_ns INTEGER NOT NULL, speed_mps REAL NOT NULL, std_mps REAL NOT NULL, source TEXT NOT NULL);
@@ -123,6 +128,7 @@ insertGnssMeas: INSERT INTO gnss_meas VALUES ?;
 insertGnssAgc: INSERT INTO gnss_agc VALUES ?;
 insertNmea: INSERT INTO nmea VALUES ?;
 insertGeomag: INSERT INTO geomag VALUES ?;
+insertPower: INSERT INTO power VALUES ?;
 insertCellScan: INSERT OR REPLACE INTO cell_scan VALUES ?;
 insertCell: INSERT INTO cell VALUES ?;
 insertWifiScan: INSERT OR REPLACE INTO wifi_scan VALUES ?;
@@ -148,6 +154,7 @@ selectGnssMeas: SELECT * FROM gnss_meas ORDER BY t_ns, rowid;
 selectGnssAgc: SELECT * FROM gnss_agc ORDER BY t_ns, rowid;
 selectNmea: SELECT * FROM nmea ORDER BY t_ns, rowid;
 selectGeomag: SELECT * FROM geomag ORDER BY t_ns, rowid;
+selectPower: SELECT * FROM power ORDER BY t_ns, rowid;
 selectCellScan: SELECT * FROM cell_scan ORDER BY t_ns;
 selectCell: SELECT * FROM cell ORDER BY t_ns, rowid;
 selectWifiScan: SELECT * FROM wifi_scan ORDER BY t_ns;

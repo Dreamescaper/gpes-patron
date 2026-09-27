@@ -57,6 +57,8 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import gpes.app.R
 import gpes.app.mock.MockTarget
+import gpes.core.estimator.CompassMode
+import gpes.core.estimator.CompassVerdict
 import gpes.core.model.EstimatorMode
 import gpes.app.service.DriveService
 import gpes.app.service.DriveStorage
@@ -247,6 +249,32 @@ private fun LivePanel(s: Status) {
                     ),
                 fontSize = 12.sp,
             )
+            s.compass?.let { c ->
+                val verdict = when (c.quality.verdict) {
+                    CompassVerdict.UNKNOWN -> R.string.compass_verdict_unknown
+                    CompassVerdict.USABLE -> R.string.compass_verdict_usable
+                    CompassVerdict.MARGINAL -> R.string.compass_verdict_marginal
+                    CompassVerdict.UNUSABLE -> R.string.compass_verdict_unusable
+                }
+                val reading = c.reading?.let { r ->
+                    val mode = when (r.mode) {
+                        CompassMode.GNSS_ALIGNED -> R.string.compass_mode_gnss
+                        CompassMode.FORWARD_ALIGNED -> R.string.compass_mode_forward
+                        CompassMode.UNCORRECTED -> R.string.compass_mode_uncorrected
+                    }
+                    stringResource(R.string.compass_reading, Math.toDegrees(r.bearingRad), Math.toDegrees(r.sigmaRad), stringResource(mode))
+                } ?: stringResource(R.string.compass_no_reading)
+                Text(
+                    stringResource(R.string.compass_line, stringResource(verdict), reading, c.quality.reasons.joinToString(",")),
+                    color = when (c.quality.verdict) {
+                        CompassVerdict.USABLE -> Color(0xFF2E7D32)
+                        CompassVerdict.MARGINAL -> Color(0xFFF9A825)
+                        CompassVerdict.UNUSABLE -> Color(0xFFC62828)
+                        else -> Color.Gray
+                    },
+                    fontSize = 12.sp,
+                )
+            }
             HorizontalDivider()
             val e = s.estimate
             if (s.mode.estimate) {

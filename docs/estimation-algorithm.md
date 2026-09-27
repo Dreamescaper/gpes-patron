@@ -184,7 +184,28 @@ an **ellipse**: soft iron gives the shape, hard iron the offset.
      alignment samples are taken while dirty.
    - The corrected radius must be within ±10% of the fitted radius.
    - The compass heading change over 2 s must agree with the bias-corrected gyro within 10°.
-4. **Correlated errors.** The residual compass error is the same for minutes, so the EKF only takes
+4. **Shake gate.** "Shaky" means the RMS non-yaw angular rate over 0.5 s is > 1.2 rad/s (with a
+   rotation vector) or > 0.15 rad/s (accelerometer-only up), or, without a rotation vector, the
+   horizontal accel is > 1 m/s². While shaky, the compass takes no fit samples, no alignment
+   samples and gives no readings (D-025).
+5. **Self-assessment** (`Compass.quality()`), recomputed every update. Verdict
+   UNKNOWN / USABLE / MARGINAL / UNUSABLE, with reason codes:
+
+   | Code | UNUSABLE if | MARGINAL if |
+   |---|---|---|
+   | SATURATED | an axis repeats an identical value > 200 µT 20× (clipping) | – |
+   | WEAK_FIELD / STRONG_FIELD | fitted radius / WMM horizontal field < 0.3 / > 3 | < 0.6 / > 1.7 |
+   | NOISY_FIT | radial scatter > 20° | > 8° |
+   | UNSTABLE_DISTORTION | fitted centre moved > 0.5·radius within 5 min | > 0.2 |
+   | LARGE_HARD_IRON | – | horizontal offset > 200 µT (holder magnet: calibratable, but fragile) |
+   | OFTEN_DISTURBED | anomaly-gated > 60% of moving time (after 60 s moving) | > 30% |
+   | SHAKY_MOUNT | shaky > 70% of moving time | > 30% |
+   | WIRELESS_CHARGING | – | a wireless charger was active (`PowerState`) |
+   | GNSS_DISAGREES | alignment residual RMS > 25° | > 10° |
+
+   UNUSABLE → no readings at all. MARGINAL → σ + 10°. The estimator publishes `compassStatus`
+   (quality + last reading) for the UI.
+6. **Correlated errors.** The residual compass error is the same for minutes, so the EKF only takes
    a compass update when σ_ψ > σ_compass (D-020). The compass *bounds* heading drift; it does not
    pretend to beat its own accuracy by repetition.
 

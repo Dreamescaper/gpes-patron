@@ -45,6 +45,16 @@
     <string name="heading_value">%1$.0f°±%2$.0f</string>
     <string name="speed_value">%1$.1f±%2$.1f м/с</string>
     <string name="unknown">невідомо</string>
+    <string name="compass_line">Компас: %1$s  %2$s  %3$s</string>
+    <string name="compass_reading">%1$.0f°±%2$.0f (%3$s)</string>
+    <string name="compass_verdict_unknown">ще не відкалібровано</string>
+    <string name="compass_verdict_usable">придатний</string>
+    <string name="compass_verdict_marginal">сумнівний</string>
+    <string name="compass_verdict_unusable">непридатний</string>
+    <string name="compass_mode_gnss">за GNSS</string>
+    <string name="compass_mode_forward">за віссю руху</string>
+    <string name="compass_mode_uncorrected">без корекції</string>
+    <string name="compass_no_reading">немає показань</string>
     <string name="mock_published">Фіктивна локація: опубліковано %1$d у %2$s</string>
     <string name="recorded_rates">Записано (частота, Гц)</string>
     <string name="late_measurements">Запізнілих вимірювань: %1$d</string>

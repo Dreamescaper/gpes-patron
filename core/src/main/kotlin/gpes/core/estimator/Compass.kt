@@ -4,6 +4,7 @@ import gpes.core.geo.Geo
 import gpes.core.model.GeomagneticReference
 import gpes.core.model.ImuKind
 import gpes.core.model.ImuSample
+import gpes.core.model.PowerState
 import gpes.core.motion.MotionUpdate
 import gpes.core.motion.Vec3
 import kotlinx.serialization.Serializable
@@ -67,6 +68,49 @@ data class CompassConfig(
     val coverage5SigmaDeg: Double = 10.0,
     val gateNis: Double = 9.0,
     val periodS: Double = 1.0,
+    /**
+     * Shake gate: RMS angular rate about horizontal axes (rad/s) above which the phone is "shaking".
+     * With a gyro-stabilized rotation vector the up-vector follows the shaking, so only strong wobble
+     * hurts (sim at 3 Hz: 3° ≈ 0.7 rad/s RMS harmless, 8° ≈ 1.9 rad/s doubles p95). With accelerometer-only up, even moderate shaking
+     * leaks the vertical field into the heading.
+     */
+    val maxTiltRateRms: Double = 0.15,
+    val maxTiltRateRmsWithOrientation: Double = 1.2,
+    /** Shake gate when "up" comes from the accelerometer (no rotation vector): horizontal accel (m/s²) that tilts it. */
+    val maxHorizontalAccel: Double = 1.0,
+    /** Additional sigma when the quality verdict is MARGINAL (degrees). */
+    val marginalSigmaDeg: Double = 10.0,
+    /** Minimum moving time before time-fraction quality checks apply (s). */
+    val qualityMinMovingS: Double = 60.0,
+)
+
+enum class CompassVerdict { UNKNOWN, USABLE, MARGINAL, UNUSABLE }
+
+/**
+ * Self-assessment of the magnetometer for this mount, for the UI, logs and the offline report.
+ * [reasons] are stable codes (not localized); see docs/estimation-algorithm.md §3b.
+ */
+@Serializable
+data class CompassQuality(
+    val verdict: CompassVerdict,
+    val reasons: Set<String>,
+    val fit: String,
+    val octants: Int,
+    /** Fitted horizontal-field radius / expected (WMM F·cos I). ≈ 1 for a clean mount. */
+    val radiusRatio: Double?,
+    /** Radial scatter of the binned field around the fit, as an angle (degrees). */
+    val scatterDeg: Double?,
+    /** Largest movement of the fitted centre in the last 5 min, relative to the radius. */
+    val centerDriftRatio: Double?,
+    /** Horizontal hard-iron offset (µT): the fitted centre's distance from zero. A holder magnet shows up here. */
+    val hardIronUt: Double?,
+    val dirtyFraction: Double?,
+    val shakyFraction: Double?,
+    val tiltRateRmsMean: Double?,
+    val alignRmsDeg: Double?,
+    val saturated: Boolean,
+    val wirelessCharging: Boolean,
+    val mountEpoch: Int,
 )
 
 enum class CompassMode { GNSS_ALIGNED, FORWARD_ALIGNED, UNCORRECTED }
@@ -125,16 +169,38 @@ class Compass(private val cfg: CompassConfig = CompassConfig()) {
     private val align = ArrayDeque<Triple<Double, Double, Double>>()
     private var lastDirtyT = Long.MIN_VALUE
 
+    // Quality bookkeeping.
+    private var shaky = false
+    private var movingN = 0
+    private var dirtyN = 0
+    private var shakyN = 0
+    private var tiltSum = 0.0
+    private var saturated = false
+    private val satRun = IntArray(3)
+    private val satLast = DoubleArray(3)
+    private var wirelessCharging = false
+    private val centers = ArrayDeque<Triple<Long, Double, Double>>()
+    private var lastAlignRms: Double? = null
+    private var lastT = 0L
+    private var qualityCache: CompassQuality? = null
+
     fun copy(): Compass = Compass(cfg).also { c ->
         c.raw = raw.copy(); c.cal = cal.copy(); c.reference = reference; c.up = up; c.forward = forward
         c.epoch = epoch; c.r1 = r1; c.cumGyroBearing = cumGyroBearing; c.hist.addAll(hist)
         binX.copyInto(c.binX); binY.copyInto(c.binY); binN.copyInto(c.binN)
         c.iron = iron; c.ironDirty = ironDirty; c.align.addAll(align); c.lastDirtyT = lastDirtyT; c.fitStreamRaw = fitStreamRaw
+        c.shaky = shaky; c.movingN = movingN; c.dirtyN = dirtyN; c.shakyN = shakyN; c.tiltSum = tiltSum
+        c.saturated = saturated; satRun.copyInto(c.satRun); satLast.copyInto(c.satLast); c.wirelessCharging = wirelessCharging
+        c.centers.addAll(centers); c.lastAlignRms = lastAlignRms; c.lastT = lastT; c.qualityCache = qualityCache
     }
 
     val alignmentSamples: Int get() = align.size
 
     fun onReference(r: GeomagneticReference) { reference = r }
+
+    fun onPower(p: PowerState) {
+        if (p.wireless && p.charging) wirelessCharging = true
+    }
 
     fun onMag(m: ImuSample) {
         val s = when (m.kind) {
@@ -143,9 +209,20 @@ class Compass(private val cfg: CompassConfig = CompassConfig()) {
             else -> return
         }
         val v = Vec3(m.x, m.y, m.z)
+        if (s === raw) detectSaturation(v)
         val prev = s.ema
         s.ema = if (prev == null) v else prev + (v - prev) * (1 - exp(-((m.tNs - s.t) / 1e9).coerceIn(0.0, 1.0) / cfg.tauS))
         s.t = m.tNs
+    }
+
+    /** A clipped axis repeats exactly the same large value; real noise never does. */
+    private fun detectSaturation(v: Vec3) {
+        val a = doubleArrayOf(v.x, v.y, v.z)
+        for (i in 0..2) {
+            satRun[i] = if (abs(a[i]) > 200.0 && a[i] == satLast[i]) satRun[i] + 1 else 0
+            satLast[i] = a[i]
+            if (satRun[i] >= 20) saturated = true
+        }
     }
 
     private fun fresh(s: Stream, tNs: Long) = s.ema != null && tNs - s.t <= 300_000_000L
@@ -181,9 +258,22 @@ class Compass(private val cfg: CompassConfig = CompassConfig()) {
         up = u.up ?: up
         forward = u.forward
         cumGyroBearing -= (u.yawRateUp - gyroBias) * u.dtS
+        lastT = u.tNs
+        qualityCache = null // time-fraction metrics change every update
+        // Shake gate: a shaking or wobbling phone mixes the large vertical field into the horizontal
+        // projection (≈ 2.3° heading error per 1° tilt error in Kyiv); without a rotation vector,
+        // acceleration tilts the accelerometer-based "up" the same way.
+        val tiltLimit = if (u.upFromOrientation) cfg.maxTiltRateRmsWithOrientation else cfg.maxTiltRateRms
+        shaky = u.tiltRateRms > tiltLimit || (!u.upFromOrientation && u.horizontalAccel > cfg.maxHorizontalAccel)
         val s = fitStream(u.tNs)
         if (s != null) checkVertical(s, u.tNs)
-        if (s != null && clean(u.tNs)) horizontal(s)?.let { (px, py) ->
+        if (!u.stationary) {
+            movingN++
+            tiltSum += u.tiltRateRms
+            if (shaky) shakyN++
+            if (s != null && !clean(u.tNs)) dirtyN++
+        }
+        if (s != null && clean(u.tNs) && !shaky) horizontal(s)?.let { (px, py) ->
             // Bin by gyro heading: coverage is known without trusting the distorted compass.
             val b = bin(cumGyroBearing)
             if (binN[b] >= BIN_CAP) { val k = (BIN_CAP - 1) / BIN_CAP; binX[b] *= k; binY[b] *= k; binN[b] *= k }
@@ -213,6 +303,8 @@ class Compass(private val cfg: CompassConfig = CompassConfig()) {
     private fun reset(newEpoch: Int) {
         epoch = newEpoch
         lastDirtyT = Long.MIN_VALUE
+        movingN = 0; dirtyN = 0; shakyN = 0; tiltSum = 0.0
+        centers.clear(); lastAlignRms = null; qualityCache = null
         raw.vN = 0; cal.vN = 0
         r1 = null; fitStreamRaw = null; hist.clear(); align.clear()
         binX.fill(0.0); binY.fill(0.0); binN.fill(0.0)
@@ -231,6 +323,68 @@ class Compass(private val cfg: CompassConfig = CompassConfig()) {
         // The ellipse needs real angular spread of the *field* around the circle centre too (not just gyro bins).
         val fieldOct = circle?.let { c -> pts.map { (x, y) -> (((atan2(y - c.cy, x - c.cx) + PI) / (2 * PI) * 8).toInt()).coerceIn(0, 7) }.toSet().size } ?: 0
         iron = if (oct >= cfg.ellipseMinOctants && fieldOct >= cfg.ellipseMinOctants) fitEllipse(pts) ?: circle else circle
+        qualityCache = null
+        iron?.let { f ->
+            if (oct >= 5 && (centers.isEmpty() || lastT - centers.last().first >= 10_000_000_000L)) {
+                centers.addLast(Triple(lastT, f.cx, f.cy))
+                while (centers.isNotEmpty() && centers.first().first < lastT - 300_000_000_000L) centers.removeFirst()
+            }
+        }
+    }
+
+    /** Current self-assessment. Cheap; cached within one motion update. */
+    fun quality(): CompassQuality {
+        qualityCache?.let { return it }
+        if (ironDirty) refitIron()
+        val f = iron
+        val reasons = LinkedHashSet<String>()
+        var hard = false
+        var marginal = false
+        fun bad(code: String) { reasons += code; hard = true }
+        fun meh(code: String) { reasons += code; marginal = true }
+
+        if (saturated) bad("SATURATED")
+        val expectedH = reference?.let { it.fieldUt * cos(Math.toRadians(it.inclinationDeg)) }
+        val radiusRatio = if (f != null && expectedH != null && expectedH > 0) f.radius / expectedH else null
+        radiusRatio?.let {
+            if (it < 0.3) bad("WEAK_FIELD") else if (it < 0.6) meh("WEAK_FIELD")
+            if (it > 3.0) bad("STRONG_FIELD") else if (it > 1.7) meh("STRONG_FIELD")
+        }
+        val scatterDeg = f?.let { fit ->
+            val rs = (0 until BINS).filter { binN[it] >= 10 }.map { b ->
+                val (qx, qy) = corrected(fit, binX[b] / binN[b], binY[b] / binN[b]); sqrt(qx * qx + qy * qy)
+            }
+            if (rs.size < 3) null else Math.toDegrees(sqrt(rs.sumOf { (it - fit.radius) * (it - fit.radius) } / rs.size) / fit.radius)
+        }
+        scatterDeg?.let { if (it > 20) bad("NOISY_FIT") else if (it > 8) meh("NOISY_FIT") }
+        val drift = if (f != null && centers.size >= 3) {
+            var mx = 0.0
+            for (a in centers) for (b in centers) mx = max(mx, sqrt((a.second - b.second).let { it * it } + (a.third - b.third).let { it * it }))
+            mx / f.radius
+        } else null
+        drift?.let { if (it > 0.5) bad("UNSTABLE_DISTORTION") else if (it > 0.2) meh("UNSTABLE_DISTORTION") }
+        val hardIron = f?.let { sqrt(it.cx * it.cx + it.cy * it.cy) }
+        if (hardIron != null && hardIron > 200) meh("LARGE_HARD_IRON")
+        val enough = movingN * 0.05 >= cfg.qualityMinMovingS
+        val dirtyF = if (enough) dirtyN.toDouble() / movingN else null
+        val shakyF = if (enough) shakyN.toDouble() / movingN else null
+        val tiltMean = if (movingN > 0) tiltSum / movingN else null
+        dirtyF?.let { if (it > 0.6) bad("OFTEN_DISTURBED") else if (it > 0.3) meh("OFTEN_DISTURBED") }
+        shakyF?.let { if (it > 0.7) bad("SHAKY_MOUNT") else if (it > 0.3) meh("SHAKY_MOUNT") }
+        if (wirelessCharging) meh("WIRELESS_CHARGING")
+        lastAlignRms?.let { val d = Math.toDegrees(it); if (d > 25) bad("GNSS_DISAGREES") else if (d > 10) meh("GNSS_DISAGREES") }
+
+        val verdict = when {
+            hard -> CompassVerdict.UNUSABLE
+            f == null -> CompassVerdict.UNKNOWN
+            marginal -> CompassVerdict.MARGINAL
+            else -> CompassVerdict.USABLE
+        }
+        return CompassQuality(
+            verdict, reasons, if (f == null) "none" else if (f.ellipse) "ellipse" else "circle", octants(),
+            radiusRatio, scatterDeg, drift, hardIron, dirtyF, shakyF, tiltMean, lastAlignRms?.let { Math.toDegrees(it) },
+            saturated, wirelessCharging, epoch,
+        ).also { qualityCache = it }
     }
 
     /** Kåsa circle fit: x² + y² = 2a·x + 2b·y + c. */
@@ -303,7 +457,7 @@ class Compass(private val cfg: CompassConfig = CompassConfig()) {
     /** Add a GNSS alignment pair: trusted course while driving straight. */
     fun addCalibration(tNs: Long, courseRad: Double, speedMps: Double, yawRate: Double) {
         if (speedMps < cfg.alignMinSpeedMps || abs(yawRate) > cfg.alignMaxYawRate) return
-        if (!clean(tNs)) return
+        if (!clean(tNs) || shaky) return
         val s = fitStream(tNs) ?: return
         iron?.let { f ->
             val (px, py) = horizontal(s) ?: return
@@ -337,6 +491,7 @@ class Compass(private val cfg: CompassConfig = CompassConfig()) {
                 }
                 val c = atan2(sn, cs)
                 val rms = sqrt(res.sumOf { Geo.wrapRad(it - c).let { e -> e * e } } / res.size)
+                if (lastAlignRms == null || abs(lastAlignRms!! - rms) > 0.01) { lastAlignRms = rms; qualityCache = null }
                 var sigma = max(Math.toRadians(cfg.minSigmaDeg), 1.5 * rms)
                 if (!fit.ellipse) sigma += Math.toRadians(cfg.circleOnlySigmaDeg)
                 if (octants() <= 4) sigma += Math.toRadians(cfg.coverage5SigmaDeg)
@@ -387,9 +542,12 @@ class Compass(private val cfg: CompassConfig = CompassConfig()) {
 
     /** Current compass heading (true bearing) with honest sigma, or null if unusable right now. */
     fun heading(tNs: Long): CompassReading? {
-        if (!cfg.enabled || !gyroConsistent()) return null
+        if (!cfg.enabled || shaky || !gyroConsistent()) return null
         if (fitStream(tNs) != null && !clean(tNs)) return null
-        return candidate(tNs)
+        val q = quality()
+        if (q.verdict == CompassVerdict.UNUSABLE) return null
+        val r = candidate(tNs) ?: return null
+        return if (q.verdict == CompassVerdict.MARGINAL) r.copy(sigmaRad = r.sigmaRad + Math.toRadians(cfg.marginalSigmaDeg)) else r
     }
 
     private companion object {

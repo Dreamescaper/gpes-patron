@@ -44,6 +44,16 @@
     <string name="heading_value">%1$.0f°±%2$.0f</string>
     <string name="speed_value">%1$.1f±%2$.1f m/s</string>
     <string name="unknown">unknown</string>
+    <string name="compass_line">Compass: %1$s  %2$s  %3$s</string>
+    <string name="compass_reading">%1$.0f°±%2$.0f (%3$s)</string>
+    <string name="compass_verdict_unknown">not calibrated yet</string>
+    <string name="compass_verdict_usable">usable</string>
+    <string name="compass_verdict_marginal">marginal</string>
+    <string name="compass_verdict_unusable">unusable</string>
+    <string name="compass_mode_gnss">GNSS-aligned</string>
+    <string name="compass_mode_forward">forward-aligned</string>
+    <string name="compass_mode_uncorrected">uncorrected</string>
+    <string name="compass_no_reading">no reading</string>
     <string name="mock_published">Mock: published %1$d to %2$s</string>
     <string name="recorded_rates">Recorded (rate, Hz)</string>
     <string name="late_measurements">Late measurements: %1$d</string>
