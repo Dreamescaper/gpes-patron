@@ -46,6 +46,10 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 
 ## Log
 
+### 2026-09-28 — CI
+- GitHub Actions: tests + lint + debug APK + replay CLI on push/PR; APK artifact; Release on `v*`
+  tags; stable debug signing via a repo secret; the run number is the versionCode.
+
 ### 2026-09-28 — OBD vehicle speed
 - `Elm327` client (core) with a scripted fake in tests; `ObdSource` (Bluetooth Classic SPP, clone
   fallbacks, reconnect); OBD card in the UI (pick a paired adapter) and a status line (state,

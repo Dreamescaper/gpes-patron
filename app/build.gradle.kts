@@ -11,8 +11,9 @@ android {
         applicationId = "gpes.patron"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // CI passes -PversionCode=<run number> so installed builds always upgrade.
+        versionCode = providers.gradleProperty("versionCode").orNull?.toInt() ?: 1
+        versionName = "0.1.0" + (providers.gradleProperty("versionCode").orNull?.let { "-ci$it" } ?: "")
     }
 
     buildTypes {

@@ -1,5 +1,9 @@
 # gpes-patron: GNSS-resilient location provider (research PoC)
 
+[![Android build](https://github.com/Dreamescaper/gpes-patron/actions/workflows/android.yml/badge.svg)](https://github.com/Dreamescaper/gpes-patron/actions/workflows/android.yml)
+
+Download the latest APK: Actions → latest green run → artifact **apk**, or a tagged Release.
+
 This is an Android proof of concept for keeping useful vehicle localization while GNSS is jammed,
 spoofed, or unavailable for hours. It is designed for urban driving under persistent interference.
 It publishes its estimate as Android mock location, so existing navigation apps (Google Maps, Waze)
