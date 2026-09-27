@@ -19,6 +19,7 @@ import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import gpes.app.BuildConfig
+import gpes.app.R
 import gpes.app.mock.MockLocationPublisher
 import gpes.app.mock.MockTarget
 import gpes.app.source.AndroidLocationSource
@@ -139,11 +140,11 @@ class DriveService : Service() {
 
     private fun goForeground(mode: RunMode) {
         val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel(CHANNEL, "Drive recording", NotificationManager.IMPORTANCE_LOW))
+        nm.createNotificationChannel(NotificationChannel(CHANNEL, getString(R.string.channel_drive), NotificationManager.IMPORTANCE_LOW))
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val n: Notification = NotificationCompat.Builder(this, CHANNEL)
-            .setContentTitle("GPES: ${mode.label}")
-            .setContentText("Recording drive")
+            .setContentTitle(getString(R.string.notif_title, getString(mode.labelRes)))
+            .setContentText(getString(R.string.notif_text))
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setOngoing(true)
             .setContentIntent(open)

@@ -1,4 +1,80 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">GPES Patron</string>
+    <string name="app_name" translatable="false">GPES Patron</string>
+    <string name="tagline">GNSS-resilient location research. GNSS is treated as untrusted evidence.</string>
+
+    <!-- Modes -->
+    <string name="mode_title">Mode</string>
+    <string name="mode_record_only">Record only</string>
+    <string name="mode_estimate_only">Estimate only</string>
+    <string name="mode_mock_output">Mock location output</string>
+    <string name="use_questionable">Also fuse QUESTIONABLE GNSS (noise ×4; for emulators/quirky devices)</string>
+    <string name="mock_targets">Mock targets</string>
+    <string name="target_fused">Fused (Google Maps; keeps real GPS input)</string>
+    <string name="target_gps">Platform GPS (overrides real GNSS Location input!)</string>
+    <string name="target_network">Platform network</string>
+    <string name="mock_app_not_selected">This app is not the selected mock location app. Developer options → Select mock location app, or:\nadb shell appops set %1$s android:mock_location allow</string>
+    <string name="start">Start</string>
+    <string name="stop">Stop</string>
+
+    <!-- Annotations (the recorded label stays in English) -->
+    <string name="ann_mark">mark</string>
+    <string name="ann_tunnel">tunnel</string>
+    <string name="ann_jamming">jamming?</string>
+    <string name="ann_spoofing">spoofing?</string>
+    <string name="annotated">Annotated: %1$s</string>
+
+    <!-- Live panel -->
+    <string name="session_header">Session %1$s · %2$s · %3$dm%4$02ds</string>
+    <string name="sources">Sources</string>
+    <string name="sats_line">Satellites used/visible %1$d/%2$d  mean C/N0 %3$s dB-Hz  raw: %4$s</string>
+    <string name="cells_line">Cells: %1$d  serving: %2$s</string>
+    <string name="wifi_line">Wi-Fi: %1$s  scans OK/throttled %2$d/%3$d</string>
+    <plurals name="wifi_aps">
+        <item quantity="one">%1$d AP, %2$d s ago</item>
+        <item quantity="other">%1$d APs, %2$d s ago</item>
+    </plurals>
+    <string name="raw_ready">ready</string>
+    <string name="raw_not_supported">not supported</string>
+    <string name="raw_location_disabled">location disabled</string>
+    <string name="raw_not_allowed">not allowed</string>
+    <string name="estimate">Estimate</string>
+    <string name="estimate_uninitialized">Uninitialized (no usable position evidence yet)</string>
+    <string name="estimate_line">%1$s  %2$.6f, %3$.6f  ±%4$.0f m\nheading %5$s  speed %6$s</string>
+    <string name="heading_value">%1$.0f°±%2$.0f</string>
+    <string name="speed_value">%1$.1f±%2$.1f m/s</string>
+    <string name="unknown">unknown</string>
+    <string name="mock_published">Mock: published %1$d to %2$s</string>
+    <string name="recorded_rates">Recorded (rate, Hz)</string>
+    <string name="late_measurements">Late measurements: %1$d</string>
+
+    <!-- Trust states and estimator modes -->
+    <string name="trust_trusted">TRUSTED</string>
+    <string name="trust_questionable">QUESTIONABLE</string>
+    <string name="trust_rejected">REJECTED</string>
+    <string name="trust_unavailable">UNAVAILABLE</string>
+    <string name="est_uninitialized">UNINITIALIZED</string>
+    <string name="est_coarse_only">COARSE ONLY</string>
+    <string name="est_gnss_tracking">GNSS TRACKING</string>
+    <string name="est_dead_reckoning">DEAD RECKONING</string>
+    <string name="est_stationary">STATIONARY</string>
+
+    <!-- Drives -->
+    <string name="recorded_drives">Recorded drives (%1$d)</string>
+    <string name="stored_in">Stored in %1$s</string>
+    <string name="drive_size">%1$s  %2$.1f MB</string>
+    <string name="drive_recording">(recording)</string>
+    <string name="share_db">Share .db</string>
+    <string name="export_jsonl">Export JSONL + GnssLogger</string>
+    <string name="exporting">Exporting %1$s…</string>
+    <string name="export_failed">Export failed: %1$s</string>
+    <string name="share_drive">Share drive</string>
+
+    <!-- Service / mock -->
+    <string name="channel_drive">Drive recording</string>
+    <string name="notif_title">GPES: %1$s</string>
+    <string name="notif_text">Recording drive</string>
+    <string name="mock_err_not_selected">Not the selected mock location app (%1$s)</string>
+    <string name="mock_err_failed">Mock %1$s failed: %2$s</string>
+    <string name="mock_err_publish">Publishing %1$s: %2$s</string>
 </resources>

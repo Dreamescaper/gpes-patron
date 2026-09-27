@@ -20,6 +20,7 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 | Mock output (fused), feedback guard | ✅ done | emulator: fused last location = our mock; our input rejected as SYNTHETIC_INPUT |
 | Compass (iron fit, alignment, gates) + mount forward axis + re-mount detection | ✅ done | sim tests (7 new), R-003/R-004; emulator: WMM reference recorded |
 | Raw cell + Wi-Fi recording | ✅ done (recorded only; not used yet) | emulator: NR serving cell with identity/signal, Wi-Fi AP scans; CSV export |
+| Ukrainian localization (UI, notification, errors; per-app language on Android 13+) | ✅ done | emulator with the app locale set to `uk`; lint: no missing translations |
 | Real-device drive | ⏳ not yet | — |
 | Platform `gps` override keeps raw GNSS flowing | ⏳ unverified | needs a real device |
 
@@ -41,6 +42,14 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 - The GnssLogger export is a best-effort subset (no carrier-phase derived fields).
 
 ## Log
+
+### 2026-09-28 — Ukrainian localization
+- All UI text now lives in `res/values/strings.xml` (English) and `res/values-uk/strings.xml`, with
+  Ukrainian plurals. `locales_config.xml` enables per-app language selection on Android 13+.
+- Localized: modes, trust states, estimator modes, annotation buttons, notification, mock errors
+  and raw GNSS status.
+- Deliberately *not* localized: trust reason codes (`IMPOSSIBLE_VELOCITY`, …), source names, record
+  type names, and the annotation labels written to recordings (D-023).
 
 ### 2026-09-28 — Compass and mount estimation
 - `MotionTracker`: vehicle forward axis from centripetal acceleration in turns; re-mount detection;

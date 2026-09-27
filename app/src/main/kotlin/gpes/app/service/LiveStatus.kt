@@ -1,5 +1,7 @@
 package gpes.app.service
 
+import androidx.annotation.StringRes
+import gpes.app.R
 import gpes.app.mock.MockTarget
 import gpes.core.model.LocSource
 import gpes.core.model.PositionEstimate
@@ -9,10 +11,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 
-enum class RunMode(val label: String, val estimate: Boolean, val mock: Boolean) {
-    RECORD_ONLY("Record only", false, false),
-    ESTIMATE_ONLY("Estimate only", true, false),
-    MOCK_OUTPUT("Mock location output", true, true),
+enum class RunMode(@StringRes val labelRes: Int, val estimate: Boolean, val mock: Boolean) {
+    RECORD_ONLY(R.string.mode_record_only, false, false),
+    ESTIMATE_ONLY(R.string.mode_estimate_only, true, false),
+    MOCK_OUTPUT(R.string.mode_mock_output, true, true),
 }
 
 data class Status(

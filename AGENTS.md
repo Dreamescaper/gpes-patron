@@ -48,6 +48,10 @@ These are part of "done". A change is not finished until the docs reflect it.
 8. Before committing, run the tests and check the **exit code** (don't pipe Gradle through
    `grep`/`head` in a way that hides failures).
 
+9. **UI text** goes in `app/src/main/res/values/strings.xml` *and* `values-uk/strings.xml`
+   (with Ukrainian plural forms for counts). Never hardcode user-visible strings in Kotlin. Never
+   localize values that are written to recordings.
+
 ## Invariants — do not break
 
 - **GNSS is untrusted evidence.** Never treat it as ground truth inside the estimator.

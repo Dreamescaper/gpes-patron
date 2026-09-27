@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tagline">Дослідження локації, стійкої до РЕБ. GNSS вважається недовіреним джерелом.</string>
+
+    <!-- Режими -->
+    <string name="mode_title">Режим</string>
+    <string name="mode_record_only">Лише запис</string>
+    <string name="mode_estimate_only">Лише оцінка</string>
+    <string name="mode_mock_output">Вивід фіктивної локації</string>
+    <string name="use_questionable">Також використовувати СУМНІВНИЙ GNSS (шум ×4; для емуляторів і проблемних пристроїв)</string>
+    <string name="mock_targets">Куди публікувати</string>
+    <string name="target_fused">Fused (Google Maps; справжній GPS лишається на вході)</string>
+    <string name="target_gps">Системний GPS (замінює справжні GNSS-локації на вході!)</string>
+    <string name="target_network">Системний network</string>
+    <string name="mock_app_not_selected">Цей застосунок не обрано для фіктивних локацій. Параметри розробника → Вибрати застосунок для фіктивних місцезнаходжень, або:\nadb shell appops set %1$s android:mock_location allow</string>
+    <string name="start">Старт</string>
+    <string name="stop">Стоп</string>
+
+    <!-- Позначки (у дані пишеться англійська мітка) -->
+    <string name="ann_mark">позначка</string>
+    <string name="ann_tunnel">тунель</string>
+    <string name="ann_jamming">глушіння?</string>
+    <string name="ann_spoofing">спуфінг?</string>
+    <string name="annotated">Позначено: %1$s</string>
+
+    <!-- Жива панель -->
+    <string name="session_header">Сесія %1$s · %2$s · %3$dхв%4$02dс</string>
+    <string name="sources">Джерела</string>
+    <string name="sats_line">Супутники використано/видно %1$d/%2$d  сер. C/N0 %3$s дБ-Гц  сирі: %4$s</string>
+    <string name="cells_line">Вишки: %1$d  обслуговуюча: %2$s</string>
+    <string name="wifi_line">Wi-Fi: %1$s  скани ок/обмежено %2$d/%3$d</string>
+    <plurals name="wifi_aps">
+        <item quantity="one">%1$d точка, %2$d с тому</item>
+        <item quantity="few">%1$d точки, %2$d с тому</item>
+        <item quantity="many">%1$d точок, %2$d с тому</item>
+        <item quantity="other">%1$d точки, %2$d с тому</item>
+    </plurals>
+    <string name="raw_ready">готові</string>
+    <string name="raw_not_supported">не підтримуються</string>
+    <string name="raw_location_disabled">локацію вимкнено</string>
+    <string name="raw_not_allowed">не дозволено</string>
+    <string name="estimate">Оцінка</string>
+    <string name="estimate_uninitialized">Не ініціалізовано (ще немає придатних даних про позицію)</string>
+    <string name="estimate_line">%1$s  %2$.6f, %3$.6f  ±%4$.0f м\nкурс %5$s  швидкість %6$s</string>
+    <string name="heading_value">%1$.0f°±%2$.0f</string>
+    <string name="speed_value">%1$.1f±%2$.1f м/с</string>
+    <string name="unknown">невідомо</string>
+    <string name="mock_published">Фіктивна локація: опубліковано %1$d у %2$s</string>
+    <string name="recorded_rates">Записано (частота, Гц)</string>
+    <string name="late_measurements">Запізнілих вимірювань: %1$d</string>
+
+    <!-- Стани довіри та режими оцінювача -->
+    <string name="trust_trusted">ДОВІРЕНИЙ</string>
+    <string name="trust_questionable">СУМНІВНИЙ</string>
+    <string name="trust_rejected">ВІДХИЛЕНО</string>
+    <string name="trust_unavailable">НЕДОСТУПНИЙ</string>
+    <string name="est_uninitialized">НЕ ІНІЦІАЛІЗОВАНО</string>
+    <string name="est_coarse_only">ЛИШЕ ГРУБА</string>
+    <string name="est_gnss_tracking">СТЕЖЕННЯ ЗА GNSS</string>
+    <string name="est_dead_reckoning">ЧИСЛЕННЯ ШЛЯХУ</string>
+    <string name="est_stationary">НЕРУХОМО</string>
+
+    <!-- Поїздки -->
+    <string name="recorded_drives">Записані поїздки (%1$d)</string>
+    <string name="stored_in">Зберігаються в %1$s</string>
+    <string name="drive_size">%1$s  %2$.1f МБ</string>
+    <string name="drive_recording">(йде запис)</string>
+    <string name="share_db">Поділитися .db</string>
+    <string name="export_jsonl">Експорт JSONL + GnssLogger</string>
+    <string name="exporting">Експорт %1$s…</string>
+    <string name="export_failed">Помилка експорту: %1$s</string>
+    <string name="share_drive">Поділитися поїздкою</string>
+
+    <!-- Сервіс / фіктивна локація -->
+    <string name="channel_drive">Запис поїздки</string>
+    <string name="notif_title">GPES: %1$s</string>
+    <string name="notif_text">Йде запис поїздки</string>
+    <string name="mock_err_not_selected">Застосунок не обрано для фіктивних локацій (%1$s)</string>
+    <string name="mock_err_failed">Не вдалося увімкнути %1$s: %2$s</string>
+    <string name="mock_err_publish">Публікація %1$s: %2$s</string>
+</resources>

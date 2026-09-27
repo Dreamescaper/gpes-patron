@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import com.google.android.gms.location.LocationServices
+import gpes.app.R
 import gpes.core.model.LocationMeasurement
 import gpes.core.model.PositionEstimate
 import gpes.core.model.ProviderEvent
@@ -33,7 +34,7 @@ enum class MockTarget {
  * `adb shell appops set gpes.patron android:mock_location allow`).
  */
 class MockLocationPublisher(
-    context: Context,
+    private val context: Context,
     private val targets: Set<MockTarget>,
     /** Called with provider override events, so they can be recorded and fed to the trust evaluator. */
     private val onProviderEvent: (ProviderEvent) -> Unit,
@@ -69,9 +70,9 @@ class MockLocationPublisher(
                 }
                 active += t
             } catch (e: SecurityException) {
-                lastError = "Not the selected mock location app (${e.message})"
+                lastError = context.getString(R.string.mock_err_not_selected, e.message)
             } catch (e: Exception) {
-                lastError = "Mock ${t.name} failed: ${e.message}"
+                lastError = context.getString(R.string.mock_err_failed, t.name, e.message)
             }
         }
         return lastError == null
@@ -111,7 +112,7 @@ class MockLocationPublisher(
                 if (t == MockTarget.FUSED) fused.setMockLocation(loc) else lm.setTestProviderLocation(platformName(t), loc)
                 published++
             } catch (ex: Exception) {
-                lastError = "publish ${t.name}: ${ex.message}"
+                lastError = context.getString(R.string.mock_err_publish, t.name, ex.message)
             }
         }
     }

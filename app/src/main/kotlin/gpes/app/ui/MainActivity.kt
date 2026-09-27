@@ -53,7 +53,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import gpes.app.R
 import gpes.app.mock.MockTarget
+import gpes.core.model.EstimatorMode
 import gpes.app.service.DriveService
 import gpes.app.service.DriveStorage
 import gpes.app.service.LiveStatus
@@ -109,32 +113,31 @@ private fun Screen() {
         Modifier.safeDrawingPadding().padding(12.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("GPES Patron", style = MaterialTheme.typography.headlineSmall)
-        Text("GNSS-resilient location research. GNSS is treated as untrusted evidence.", style = MaterialTheme.typography.bodySmall)
+        Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineSmall)
+        Text(stringResource(R.string.tagline), style = MaterialTheme.typography.bodySmall)
 
         Card {
             Column(Modifier.padding(12.dp)) {
-                Text("Mode", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.mode_title), fontWeight = FontWeight.Bold)
                 RunMode.entries.forEach { m ->
                     Row(Modifier.fillMaxWidth().selectable(selected = mode == m, enabled = !status.running) { mode = m }) {
                         RadioButton(selected = mode == m, onClick = null, enabled = !status.running)
-                        Text(m.label, Modifier.padding(start = 8.dp))
+                        Text(stringResource(m.labelRes), Modifier.padding(start = 8.dp))
                     }
                 }
                 if (mode.estimate) {
-                    CheckRow("Also fuse QUESTIONABLE GNSS (noise ×4; for emulators/quirky devices)", useQuestionable, !status.running) { useQuestionable = it }
+                    CheckRow(stringResource(R.string.use_questionable), useQuestionable, !status.running) { useQuestionable = it }
                 }
                 if (mode == RunMode.MOCK_OUTPUT) {
                     Spacer(Modifier.height(4.dp))
-                    Text("Mock targets", fontWeight = FontWeight.Bold)
-                    CheckRow("Fused (Google Maps; keeps real GPS input)", fused, !status.running) { fused = it }
-                    CheckRow("Platform GPS (overrides real GNSS Location input!)", gps, !status.running) { gps = it }
-                    CheckRow("Platform network", network, !status.running) { network = it }
+                    Text(stringResource(R.string.mock_targets), fontWeight = FontWeight.Bold)
+                    CheckRow(stringResource(R.string.target_fused), fused, !status.running) { fused = it }
+                    CheckRow(stringResource(R.string.target_gps), gps, !status.running) { gps = it }
+                    CheckRow(stringResource(R.string.target_network), network, !status.running) { network = it }
                     val selected = remember(refresh, status.running) { isMockAppSelected(ctx) }
                     if (!selected) {
                         Text(
-                            "This app is not the selected mock location app. Developer options → Select mock location app, or:\n" +
-                                "adb shell appops set ${ctx.packageName} android:mock_location allow",
+                            stringResource(R.string.mock_app_not_selected, ctx.packageName),
                             color = Color(0xFFB00020), fontSize = 12.sp,
                         )
                     }
@@ -148,9 +151,9 @@ private fun Screen() {
                             if (network) add(MockTarget.NETWORK)
                         }
                         DriveService.start(ctx, mode, targets, useQuestionable)
-                    }) { Text("Start") }
+                    }) { Text(stringResource(R.string.start)) }
                 } else {
-                    Button(onClick = { DriveService.stop(ctx); refresh++ }) { Text("Stop") }
+                    Button(onClick = { DriveService.stop(ctx); refresh++ }) { Text(stringResource(R.string.stop)) }
                 }
             }
         }
@@ -158,11 +161,17 @@ private fun Screen() {
         if (status.running) {
             LivePanel(status)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("mark", "tunnel", "jamming?", "spoofing?").forEach { label ->
+                // The recorded label is a stable English code; only the button text is localized.
+                listOf(
+                    "mark" to R.string.ann_mark, "tunnel" to R.string.ann_tunnel,
+                    "jamming?" to R.string.ann_jamming, "spoofing?" to R.string.ann_spoofing,
+                ).forEach { (code, res) ->
+                    val text = stringResource(res)
+                    val done = stringResource(R.string.annotated, text)
                     OutlinedButton(onClick = {
-                        DriveService.annotate(ctx, label)
-                        Toast.makeText(ctx, "annotated: $label", Toast.LENGTH_SHORT).show()
-                    }) { Text(label, fontSize = 12.sp) }
+                        DriveService.annotate(ctx, code)
+                        Toast.makeText(ctx, done, Toast.LENGTH_SHORT).show()
+                    }) { Text(text, fontSize = 12.sp) }
                 }
             }
         }
@@ -174,6 +183,32 @@ private fun Screen() {
 @Composable
 private fun CheckRow(label: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
     Row { Checkbox(checked, onChange, enabled = enabled); Text(label, Modifier.padding(top = 12.dp), fontSize = 13.sp) }
+}
+
+/** GnssRawSource reports English status codes; show them localized. */
+@Composable
+private fun rawStatusLabel(code: String): String = when (code) {
+    "ready" -> stringResource(R.string.raw_ready)
+    "not supported" -> stringResource(R.string.raw_not_supported)
+    "location disabled" -> stringResource(R.string.raw_location_disabled)
+    "not allowed" -> stringResource(R.string.raw_not_allowed)
+    "unknown" -> stringResource(R.string.unknown)
+    else -> code
+}
+
+private fun trustLabel(s: TrustState) = when (s) {
+    TrustState.TRUSTED -> R.string.trust_trusted
+    TrustState.QUESTIONABLE -> R.string.trust_questionable
+    TrustState.REJECTED -> R.string.trust_rejected
+    TrustState.UNAVAILABLE -> R.string.trust_unavailable
+}
+
+private fun modeLabel(m: EstimatorMode) = when (m) {
+    EstimatorMode.UNINITIALIZED -> R.string.est_uninitialized
+    EstimatorMode.COARSE_ONLY -> R.string.est_coarse_only
+    EstimatorMode.GNSS_TRACKING -> R.string.est_gnss_tracking
+    EstimatorMode.DEAD_RECKONING -> R.string.est_dead_reckoning
+    EstimatorMode.STATIONARY -> R.string.est_stationary
 }
 
 private fun stateColor(s: TrustState?) = when (s) {
@@ -188,51 +223,57 @@ private fun LivePanel(s: Status) {
     Card {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             val elapsed = (SystemClock.elapsedRealtimeNanos() - s.startedElapsedNs) / 1_000_000_000
-            Text("Session ${s.sessionId} · ${s.mode.label} · ${elapsed / 60}m${elapsed % 60}s", fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.session_header, s.sessionId.orEmpty(), stringResource(s.mode.labelRes), elapsed / 60, elapsed % 60), fontWeight = FontWeight.Bold)
             HorizontalDivider()
-            Text("Sources", fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.sources), fontWeight = FontWeight.Bold)
             for (src in listOf(LocSource.GNSS, LocSource.FUSED, LocSource.NETWORK)) {
                 val st = s.sourceStates[src]
                 val a = s.lastTrust[src]
                 Text(
-                    "${src.name.padEnd(8)} ${st?.name ?: "–"}  ${a?.reasons?.joinToString(",").orEmpty()}",
+                    "${src.name.padEnd(8)} ${st?.let { stringResource(trustLabel(it)) } ?: "–"}  ${a?.reasons?.joinToString(",").orEmpty()}",
                     color = stateColor(st), fontFamily = FontFamily.Monospace, fontSize = 12.sp,
                 )
             }
             Text(
-                "Sats used/visible ${s.satsUsed}/${s.satsVisible}  mean C/N0 ${s.meanCn0?.let { "%.1f".format(it) } ?: "–"} dB-Hz  raw: ${s.gnssMeasurements}",
+                stringResource(R.string.sats_line, s.satsUsed, s.satsVisible, s.meanCn0?.let { "%.1f".format(it) } ?: "–", rawStatusLabel(s.gnssMeasurements)),
                 fontSize = 12.sp,
             )
             Text(
-                "Cells: ${s.cells?.first ?: 0}  serving: ${s.cells?.second ?: "–"}\n" +
-                    "Wi-Fi: ${s.wifiAps?.let { "${it.first} APs, ${it.second}s ago" } ?: "–"}  scans ok/throttled ${s.wifiScans.first}/${s.wifiScans.second}",
+                stringResource(R.string.cells_line, s.cells?.first ?: 0, s.cells?.second ?: "–") + "\n" +
+                    stringResource(
+                        R.string.wifi_line,
+                        s.wifiAps?.let { pluralStringResource(R.plurals.wifi_aps, it.first, it.first, it.second.toInt()) } ?: "–",
+                        s.wifiScans.first, s.wifiScans.second,
+                    ),
                 fontSize = 12.sp,
             )
             HorizontalDivider()
             val e = s.estimate
             if (s.mode.estimate) {
-                Text("Estimate", fontWeight = FontWeight.Bold)
-                if (e == null) Text("uninitialized (no usable position evidence yet)", fontSize = 12.sp)
+                Text(stringResource(R.string.estimate), fontWeight = FontWeight.Bold)
+                if (e == null) Text(stringResource(R.string.estimate_uninitialized), fontSize = 12.sp)
                 else Text(
-                    "%s  %.6f, %.6f  ±%.0f m\nheading %s  speed %s".format(
-                        e.mode, e.lat, e.lon, e.accuracyM,
-                        e.headingRad?.let { "%.0f°±%.0f".format(Math.toDegrees(it), Math.toDegrees(e.headingStdRad ?: 0.0)) } ?: "unknown",
-                        e.speedMps?.let { "%.1f±%.1f m/s".format(it, e.speedStdMps ?: 0.0) } ?: "unknown",
+                    stringResource(
+                        R.string.estimate_line,
+                        stringResource(modeLabel(e.mode)), e.lat, e.lon, e.accuracyM,
+                        e.headingRad?.let { stringResource(R.string.heading_value, Math.toDegrees(it), Math.toDegrees(e.headingStdRad ?: 0.0)) }
+                            ?: stringResource(R.string.unknown),
+                        e.speedMps?.let { stringResource(R.string.speed_value, it, e.speedStdMps ?: 0.0) } ?: stringResource(R.string.unknown),
                     ),
                     fontFamily = FontFamily.Monospace, fontSize = 12.sp,
                 )
             }
             if (s.mode.mock) {
-                Text("Mock: published ${s.mockPublished} to ${s.mockTargets.joinToString()}", fontSize = 12.sp)
+                Text(stringResource(R.string.mock_published, s.mockPublished.toInt(), s.mockTargets.joinToString()), fontSize = 12.sp)
                 s.mockError?.let { Text(it, color = Color(0xFFC62828), fontSize = 12.sp) }
             }
             HorizontalDivider()
-            Text("Recorded (rate Hz)", fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.recorded_rates), fontWeight = FontWeight.Bold)
             Text(
                 s.counts.entries.sortedBy { it.key }.joinToString("\n") { (k, v) -> "%-24s %8d  %6.1f".format(k, v, s.ratesHz[k] ?: 0.0) },
                 fontFamily = FontFamily.Monospace, fontSize = 11.sp,
             )
-            if (s.lateMeasurements > 0) Text("late measurements: ${s.lateMeasurements}", fontSize = 11.sp)
+            if (s.lateMeasurements > 0) Text(stringResource(R.string.late_measurements, s.lateMeasurements.toInt()), fontSize = 11.sp)
         }
     }
 }
@@ -241,26 +282,30 @@ private fun LivePanel(s: Status) {
 private fun Sessions(refresh: Int, running: Boolean) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    var busy by remember { mutableStateOf<String?>(null) }
+    // (message resource, argument), rendered with stringResource so it follows configuration changes.
+    var busy by remember { mutableStateOf<Pair<Int, String>?>(null) }
     val files = remember(refresh, running) { DriveStorage.list(ctx) }
     Card {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Recorded drives (${files.size})", fontWeight = FontWeight.Bold)
-            Text("Stored in ${DriveStorage.dir(ctx)}", fontSize = 11.sp)
-            busy?.let { Text(it, fontSize = 12.sp) }
+            Text(stringResource(R.string.recorded_drives, files.size), fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.stored_in, DriveStorage.dir(ctx).toString()), fontSize = 11.sp)
+            busy?.let { (res, arg) -> Text(stringResource(res, arg), fontSize = 12.sp) }
             files.forEachIndexed { i, f ->
                 val isCurrent = running && i == 0
-                Text("${f.name}  ${"%.1f".format(f.length() / 1e6)} MB${if (isCurrent) " (recording)" else ""}", fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                Text(
+                    stringResource(R.string.drive_size, f.name, f.length() / 1e6) + if (isCurrent) " " + stringResource(R.string.drive_recording) else "",
+                    fontFamily = FontFamily.Monospace, fontSize = 12.sp,
+                )
                 if (!isCurrent) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    OutlinedButton(onClick = { share(ctx, listOf(f)) }) { Text("Share .db", fontSize = 12.sp) }
+                    OutlinedButton(onClick = { share(ctx, listOf(f)) }) { Text(stringResource(R.string.share_db), fontSize = 12.sp) }
                     OutlinedButton(onClick = {
                         scope.launch {
-                            busy = "Exporting ${f.name}…"
+                            busy = R.string.exporting to f.name
                             val out = runCatching { withContext(Dispatchers.IO) { DriveStorage.export(ctx, f) } }
-                            busy = out.exceptionOrNull()?.let { "Export failed: ${it.message}" }
+                            busy = out.exceptionOrNull()?.let { R.string.export_failed to it.message.orEmpty() }
                             out.getOrNull()?.let { share(ctx, it) }
                         }
-                    }) { Text("Export JSONL + GnssLogger", fontSize = 12.sp) }
+                    }) { Text(stringResource(R.string.export_jsonl), fontSize = 12.sp) }
                 }
             }
         }
@@ -274,5 +319,5 @@ private fun share(ctx: Context, files: List<File>) {
         if (uris.size == 1) putExtra(Intent.EXTRA_STREAM, uris[0]) else putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    ctx.startActivity(Intent.createChooser(intent, "Share drive"))
+    ctx.startActivity(Intent.createChooser(intent, ctx.getString(R.string.share_drive)))
 }

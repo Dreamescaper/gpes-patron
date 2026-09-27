@@ -184,3 +184,11 @@ Decision:
   comparable; R-004 uses 1% and 2e-4).
 Why: with an ideal constant-bias gyro, the compass looked useless for outages (R-003). The
 realistic gyro shows its real value (R-004).
+
+## D-023: Localize the UI, not the data — Accepted (2026-09-28)
+Decision: English is the default resource locale and Ukrainian (`uk`) is a full translation,
+selectable per app on Android 13+. Everything written to recordings stays locale-independent:
+annotation labels are stable English codes (the button text is translated), and trust reasons, modes
+and record names stay English enum codes. This keeps drives from different phones and languages
+comparable in replay and analysis. On-screen reason codes stay as codes (they are technical and map
+1:1 to docs/estimation-algorithm.md).
