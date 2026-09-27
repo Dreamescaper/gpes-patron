@@ -38,7 +38,9 @@ and core outputs back into platform calls.
  AndroidLocationSource (gps, network, fused) ─┐
  GnssRawSource (status, raw meas, AGC, NMEA) ─┤
  CellSource (serving/neighbour cells, TA)   ──┤
- WifiSource (BSSID/RSSI scans)              ──┼─► MeasurementSink ──► DriveWriter (records everything, incl. rejected/mock)
+ WifiSource (BSSID/RSSI scans)              ──┤
+ PowerSource (charging, battery current)    ──┤
+ ObdSource (ELM327 over Bluetooth SPP)      ──┼─► MeasurementSink ──► DriveWriter (records everything, incl. rejected/mock)
  SensorSource (IMU, mag, rotation vectors)  ──┤         │
  [future] VehicleSpeedSource (OBD)          ──┘         ▼
                                                 MeasurementPipeline

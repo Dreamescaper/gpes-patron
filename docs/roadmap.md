@@ -65,8 +65,13 @@ Goal: estimate *which road segment and where along it*, with multiple hypotheses
 
 ## Phase 3 — more evidence
 
-- **OBD vehicle speed** (Bluetooth ELM327 or similar) → `VehicleSpeedSource`. The replay already
-  quantifies the expected gain via `SyntheticVehicleSpeed`.
+- **OBD follow-ups:**
+  - **P1** real-car test with the user's ELM327 clone: rate, latency, protocol, and the scale
+    estimate vs GNSS.
+  - **P2** BLE adapters (GATT transport).
+  - **P2** persist the per-car speed scale across sessions.
+  - **P3** CAN wheel speeds (model-specific, 50–100 Hz; also gives yaw from wheel-speed
+    difference).
 - **Planned route prior**: align the observed turn sequence with the planned manoeuvres (DTW/HMM),
   as a prior on particle weights. Deviation must stay possible.
 - **EKF-GSF yaw estimator** (from PX4) for absolute heading without a magnetometer, from any GNSS

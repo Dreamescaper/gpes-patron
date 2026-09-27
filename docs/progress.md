@@ -20,6 +20,7 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 | Mock output (fused), feedback guard | ✅ done | emulator: fused last location = our mock; our input rejected as SYNTHETIC_INPUT |
 | Compass (iron fit, alignment, gates) + mount forward axis + re-mount detection | ✅ done | sim tests (7 new), R-003/R-004; emulator: WMM reference recorded |
 | Compass self-assessment (verdict + reasons), shake gate, power recording, `replay compass-report` | ✅ done | 6 new sim tests (holder magnet, saturation, shielding, wireless, wobble); emulator: power table + UI line |
+| OBD (ELM327 Bluetooth) source, speed-scale state, OBD spoof check, obd_raw recording | ✅ code + tests (fake adapter) | **not yet tested with a real adapter/car** |
 | Raw cell + Wi-Fi recording | ✅ done (recorded only; not used yet) | emulator: NR serving cell with identity/signal, Wi-Fi AP scans; CSV export |
 | Ukrainian localization (UI, notification, errors; per-app language on Android 13+) | ✅ done | emulator with the app locale set to `uk`; lint: no missing translations |
 | Real-device drive | ⏳ not yet | — |
@@ -34,6 +35,7 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
   consistent spoofer without contradicting network evidence is accepted after 120 s (D-011).
 - Without GNSS or OBD, speed is a random walk. The 10-min outage p95 is about 1.4 km
   (phone-only, simulated).
+- OBD is validated only against a scripted fake adapter and synthetic speed.
 - The compass is validated only in simulation. Real in-car distortion, magnetic holders and
   EV/hybrid motor fields are unknown.
 - The emulator is only useful for plumbing: its GNSS is inconsistent with its static IMU
@@ -43,6 +45,18 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 - The GnssLogger export is a best-effort subset (no carrier-phase derived fields).
 
 ## Log
+
+### 2026-09-28 — OBD vehicle speed
+- `Elm327` client (core) with a scripted fake in tests; `ObdSource` (Bluetooth Classic SPP, clone
+  fallbacks, reconnect); OBD card in the UI (pick a paired adapter) and a status line (state,
+  version, protocol, km/h, samples, speedometer scale), en/uk (D-027).
+- EKF speed-scale state (D-029); GNSS-vs-OBD trust check (D-030); a realistic synthetic OBD in the
+  replay ladder (integer km/h, 0.15 s delay, +3%).
+- **Bug found and fixed:** the ZUPT position "teleport" after long outages (D-028).
+- Also fixed: checkbox rows were only clickable on the box itself; the whole row now toggles.
+- Emulator: UI only (no Bluetooth). Real adapter: pending the user's test drive.
+- Process slip: docs landed in two follow-up commits after the code commit (89be853), because a
+  docs script failed on a text mismatch. Docs scripts now validate every pattern before writing.
 
 ### 2026-09-28 — Is the magnetometer on this holder useful? (self-assessment, shake gate, power)
 - `Compass.quality()` gives a verdict and reason codes (D-024); UNUSABLE silences it, MARGINAL
@@ -125,6 +139,17 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 - Research doc, core module, SQLDelight recording, replay CLI, 11 scenarios. 24 unit tests.
 
 ## Results log
+
+### R-006 (2026-09-28) — 1-hour simulated drive after D-028/D-029, realistic synthetic OBD
+
+| scenario | variant | p50 m | p95 m | heading p95° | within95 | missed det. |
+|---|---|---|---|---|---|---|
+| drop 1 h | phone-only | 582 | 1396 | 6.3 | 0.99 | – |
+| drop 1 h | phone+synthNetwork | 227 | 501 | 7.0 | 0.99 | – |
+| drop 1 h | gyro+synthNetwork+synthObd | 180 | 426 | 21 | 1.00 | – |
+| drop 1 h | **phone+synthNetwork+synthObd** | **88** | **152** | 7.3 | 1.00 | – |
+| absent from start | phone+synthNetwork+synthObd | 191 | 490 | 16 | 1.00 | – |
+| Doppler-consistent drift | +synthObd | 1.4 | 289 | 7.2 | 0.90 | 0.80 (vs 0.996 without OBD) |
 
 ### R-005 (2026-09-28) — compass verdicts for simulated holders (`replay compass-report`, 10-min drive)
 

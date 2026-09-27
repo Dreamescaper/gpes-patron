@@ -224,3 +224,38 @@ Why: a wireless-charging holder is a time-varying magnetic field (its coil curre
 temperature shifts magnetometer offsets. `PowerState` (plug type, charging, battery current, voltage,
 level, temperature) is polled every 1 s and recorded on change or every 5 s. The compass flags
 `WIRELESS_CHARGING`.
+
+## D-027: OBD via ELM327 over Bluetooth Classic SPP — Accepted (2026-09-28)
+Context: the user's adapter is a cheap "Mini Bluetooth ELM327 v1.5/v2.1" clone (Bluetooth Classic).
+Decision: `Elm327` protocol client in `:core` (JVM-testable with a scripted fake), and `ObdSource` in
+the app. It uses paired devices only (no scanning; `BLUETOOTH_CONNECT`), SPP with fallbacks
+(insecure socket, then RFCOMM channel 1 via reflection, which clones often need), auto-reconnect
+with backoff, and polls PID 0D at ≤ 10 Hz. The response-count suffix (`010D1`) is probed and dropped
+if unsupported. Unknown AT commands are tolerated. Samples are stamped at the request/response
+midpoint. Every raw exchange is recorded (`obd_raw`) for debugging real adapters. Read-only: no
+Mode 04 or writes.
+Alternatives: Wi-Fi ELM327 (rejected: it occupies the phone's Wi-Fi, which hurts network location
+and Wi-Fi scans); BLE adapters (deferred: needs a GATT transport, and the user's adapter is Classic);
+CAN sniffing for wheel speeds (deferred: model-specific).
+
+## D-028: ZUPT updates are local (Schmidt-style) — Accepted (2026-09-28)
+Context: found while testing OBD: after a 5-min outage, the first stop moved the position by
+**178 m** (error 2 → 178 m). A single noisy bias sample (R = 0.003²) was propagated through the
+P(bias, position) correlation, whose lever grows as v·t²/2. That is formally correct EKF behaviour,
+but it is dominated by noise and model mismatch.
+Decision: ZUPT updates change only v and b (Joseph form for the suboptimal gain keeps P
+consistent). Result: max error in that outage 178 → 8 m. On the 1-hour drive, phone-only p95 went
+2685 → 1396 m (R-006 vs R-004).
+
+## D-029: Speedometer scale error as an EKF state — Accepted (2026-09-28)
+Context: OBD speed is typically 1–5% high (tyre wear and size, OEM over-reading). Over an hour
+without GNSS, 3% is kilometres.
+Decision: state s with z_obd = v·(1+s), learned whenever trusted GNSS speed and OBD coexist, frozen
+(tiny random walk) otherwise. Simulation (4% scale, integer km/h, 0.15 s delay, 5-min outage): max
+error 8 m with learning vs 65 m without, and within95 0.99 vs 0.63.
+
+## D-030: GNSS vs OBD speed as a spoofing check — Accepted (2026-09-28)
+Decision: QUESTIONABLE when |v_gnss − v_obd| > 1.5 m/s + 8%. A spoofer can fake a consistent GNSS
+track, including Doppler, but not the car's speedometer. Simulated Doppler-consistent 2 m/s drift:
+missed detection 99% → 36% (10-min drive) and 99.6% → 80% (1-hour drive, where the drift direction
+varies relative to motion). Clean data: 0 false rejections.

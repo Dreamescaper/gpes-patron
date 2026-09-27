@@ -24,7 +24,8 @@ or use "Share .db" in the app.
 | `wifi_scan` + `wifi_ap` | emission of newly seen APs / AP | about 4 app-requested scans per 2 min plus scans from the system/other apps; no SSID |
 | `geomag` | WMM reference | at the first real fix and every 50 km (added 2026-09-28) |
 | `power` | charging state | on change or every 5 s (added 2026-09-28) |
-| `vehicle_speed` | speed sample | empty until OBD exists |
+| `vehicle_speed` | speed sample | OBD PID 0D at ≤ 10 Hz when an adapter is selected |
+| `obd_raw` | adapter exchange | raw ELM327 request/response/latency (added 2026-09-28) |
 | `annotation` | user mark, timebase check | |
 | `trust` | assessment of each location fix | only in ESTIMATE/MOCK modes (replay recomputes) |
 | `estimate` | 1 Hz tick | only in ESTIMATE/MOCK modes |

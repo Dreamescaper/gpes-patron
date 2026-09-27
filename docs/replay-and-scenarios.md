@@ -57,7 +57,7 @@ Times are seconds from the first measurement; omit `durationS` for "until the en
 | `inflate_noise` | source, sigmaM, reportHonestly | Extra noise, by default with unchanged (overconfident) accuracy |
 | `drop_sensor` | kind (null = all IMU), orientation | Removes IMU or orientation samples |
 | `synthetic_network` | sigmaM, periodS | Coarse fixes from truth + noise |
-| `synthetic_vehicle_speed` | sigmaMps, periodS, scaleError | OBD-like speed from truth |
+| `synthetic_vehicle_speed` | sigmaMps, periodS, scaleError, quantizeKmh, latencyS | OBD-like speed from truth (the ladder uses ELM327-like: integer km/h, 0.15 s delay, +3%) |
 
 Standard set (`scenarios/`): clean, gnss_drop_30s / 2min / 10min / 1h, gnss_absent_from_start,
 gnss_jump_5km, gnss_drift_gradual, gnss_drift_doppler_consistent, gnss_ramp_capture,

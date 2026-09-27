@@ -31,6 +31,9 @@ adb install -r -g app/build/outputs/apk/debug/app-debug.apk
 adb shell appops set gpes.patron android:mock_location allow   # or Developer options → Select mock location app
 ```
 
+For OBD vehicle speed, pair an ELM327 Bluetooth adapter in Android settings (PIN usually 1234 or
+0000), then enable "Use OBD vehicle speed" in the app and select it.
+
 In the app, pick **Record only** for data collection drives, **Estimate only** to see the
 estimator live, or **Mock location output** to feed other apps. Then share the `.db` and run
 `replay run --drive <file>.db --scenario scenarios`.
