@@ -113,3 +113,11 @@ Alternatives: weaken checks on emulators (rejected: hides real behaviour).
 
 ## D-015: AGP 9 built-in Kotlin, compileSdk 37 / targetSdk 36 — Accepted (2026-09-27)
 Why: current Compose BOM (2026.09) requires compileSdk 37. targetSdk stays 36 as agreed.
+
+## D-016: Model competent spoofers in replay (Doppler-consistent) — Accepted (2026-09-28)
+Context: offset/drift transforms left the reported velocity untouched, so the velocity–position
+check caught them easily. That overstated spoof detection.
+Decision: add `consistentVelocity` to `offset`/`drift`, plus two standard scenarios. Both variants
+are kept, because naive spoofers (and some jammers) exist too.
+Consequences: R-002 shows slow consistent spoofing passes the Phase 1 trust evaluator. This
+motivates prioritising OBD speed and road-state estimation (roadmap).

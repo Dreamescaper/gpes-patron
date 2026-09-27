@@ -16,10 +16,10 @@ later or speculative.
 - **P2 Automatic rollback.** When a spoof is detected (for example by network disagreement), roll
   back to the last trustworthy snapshot and re-process without the suspect GNSS
   (`rollbackAndReplay` already exists).
-- **P2 Doppler-consistent spoof scenario** in replay: shift positions *and* rewrite speed/bearing
-  consistently, so the simulator can model a competent spoofer.
 - **P2 Trust metrics per reason** in replay (a confusion matrix per check).
-- **P2 Plotting script** `tools/plot/plot_replay.py` (error vs time, trust timeline, track map).
+- **P2 Spoof detection against consistent spoofers**: compare GNSS speed with OBD speed; compare
+  GNSS track curvature with gyro over long windows (minutes, not seconds); use raw-measurement
+  consistency (AGC/C/N0 patterns and clock drift jumps) once real data is available.
 - **P2 Mock output forward-prediction** to "now" at publish time (it currently republishes the
   last tick with the current timestamp).
 - **P3 Streaming reader** for multi-hour drives (the current reader loads everything into memory).

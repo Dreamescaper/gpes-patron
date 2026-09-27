@@ -1,0 +1,1 @@
+{"name":"gnss_drift_doppler_consistent","description":"Competent spoofer: drift north at 2 m/s for 5 min with reported velocity rewritten to match.","steps":[{"type":"drift","startS":120,"durationS":300,"rateMps":2.0,"bearingDeg":0,"consistentVelocity":true}]}

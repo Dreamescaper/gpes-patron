@@ -58,6 +58,8 @@ sealed interface ScenarioStep {
         val dNorthM: Double,
         val rampS: Double = 0.0,
         val sources: Set<LocSource> = setOf(LocSource.GNSS, LocSource.FUSED),
+        /** Also rewrite reported speed/bearing so Doppler velocity matches the displaced track (competent spoofer). */
+        val consistentVelocity: Boolean = false,
     ) : ScenarioStep
 
     /** Offset growing linearly with time along [bearingDeg]. */
@@ -68,6 +70,8 @@ sealed interface ScenarioStep {
         val rateMps: Double,
         val bearingDeg: Double,
         val sources: Set<LocSource> = setOf(LocSource.GNSS, LocSource.FUSED),
+        /** Also rewrite reported speed/bearing so Doppler velocity matches the drifting track (competent spoofer). */
+        val consistentVelocity: Boolean = false,
     ) : ScenarioStep
 
     /**
@@ -144,13 +148,16 @@ class ScenarioApplier(private val scenario: Scenario, private val t0Ns: Long) {
                     else -> cur
                 }
                 is ScenarioStep.Offset -> shift(cur, step.sources) { lm ->
+                    val ramping = step.rampS > 0 && relS - step.startS < step.rampS
                     val f = if (step.rampS > 0) ((relS - step.startS) / step.rampS).coerceIn(0.0, 1.0) else 1.0
-                    offsetBy(lm, step.dEastM * f, step.dNorthM * f)
+                    val o = offsetBy(lm, step.dEastM * f, step.dNorthM * f)
+                    if (step.consistentVelocity && ramping) addVelocity(o, step.dEastM / step.rampS, step.dNorthM / step.rampS) else o
                 }
                 is ScenarioStep.Drift -> shift(cur, step.sources) { lm ->
                     val d = step.rateMps * (relS - step.startS)
                     val b = Math.toRadians(step.bearingDeg)
-                    offsetBy(lm, d * kotlin.math.sin(b), d * cos(b))
+                    val o = offsetBy(lm, d * kotlin.math.sin(b), d * cos(b))
+                    if (step.consistentVelocity) addVelocity(o, step.rateMps * kotlin.math.sin(b), step.rateMps * cos(b)) else o
                 }
                 is ScenarioStep.Teleport -> shift(cur, step.sources) { lm ->
                     val anchor = teleportAnchor.getOrPut(idx) { lm.lat to lm.lon }
@@ -234,6 +241,17 @@ class ScenarioApplier(private val scenario: Scenario, private val t0Ns: Long) {
     private fun offsetBy(lm: LocationMeasurement, de: Double, dn: Double): LocationMeasurement {
         val ll = LocalFrame(lm.lat, lm.lon).toLatLon(de, dn)
         return lm.copy(lat = ll.lat, lon = ll.lon)
+    }
+
+    /** Add a velocity vector (m/s, east/north) to the reported speed and bearing. */
+    private fun addVelocity(lm: LocationMeasurement, ve: Double, vn: Double): LocationMeasurement {
+        val speed = lm.speedMps ?: return lm
+        val b = Math.toRadians(lm.bearingDeg ?: 0.0)
+        val e = speed * kotlin.math.sin(b) + ve
+        val n = speed * cos(b) + vn
+        val newSpeed = kotlin.math.hypot(e, n)
+        val newBearing = (Math.toDegrees(kotlin.math.atan2(e, n)) + 360) % 360
+        return lm.copy(speedMps = newSpeed, bearingDeg = if (newSpeed > 0.5) newBearing else lm.bearingDeg)
     }
 
     private fun gauss(): Double {

@@ -46,8 +46,8 @@ Times are seconds from the first measurement; omit `durationS` for "until the en
 | `type` | Parameters | Effect |
 |---|---|---|
 | `drop_source` | source, dropRawGnss (true) | Removes location fixes from a source. For GNSS it also removes status, raw measurements and NMEA (jamming). |
-| `offset` | dEastM, dNorthM, rampS, sources | A jump, or a ramped capture. Velocity is **not** rewritten. |
-| `drift` | rateMps, bearingDeg, sources | An offset growing linearly |
+| `offset` | dEastM, dNorthM, rampS, sources, consistentVelocity | A jump, or a ramped capture. With `consistentVelocity`, reported speed and bearing are rewritten to match (a competent spoofer); otherwise velocity is left untouched. |
+| `drift` | rateMps, bearingDeg, sources, consistentVelocity | An offset growing linearly (velocity optionally consistent) |
 | `teleport` | lat, lon, frozen, sources | Translates the track to another place (consistent motion), or freezes it there |
 | `inflate_noise` | source, sigmaM, reportHonestly | Extra noise, by default with unchanged (overconfident) accuracy |
 | `drop_sensor` | kind (null = all IMU), orientation | Removes IMU or orientation samples |
@@ -55,8 +55,17 @@ Times are seconds from the first measurement; omit `durationS` for "until the en
 | `synthetic_vehicle_speed` | sigmaMps, periodS, scaleError | OBD-like speed from truth |
 
 Standard set (`scenarios/`): clean, gnss_drop_30s / 2min / 10min / 1h, gnss_absent_from_start,
-gnss_jump_5km, gnss_drift_gradual, gnss_ramp_capture, gnss_teleport_country,
-gnss_noise_overconfident.
+gnss_jump_5km, gnss_drift_gradual, gnss_drift_doppler_consistent, gnss_ramp_capture,
+gnss_ramp_capture_doppler_consistent, gnss_teleport_country, gnss_noise_overconfident.
+
+## Plots
+
+```bash
+pip install -r tools/plot/requirements.txt
+python3 tools/plot/plot_replay.py <out>/<drive>/<scenario>__<variant>   # writes plot.png
+```
+
+The plot has three panels: track (estimate vs truth), error vs reported r68/r95 with the degraded windows shaded, and the GNSS trust timeline with the injected offset.
 
 ## Variants (ablation ladder)
 

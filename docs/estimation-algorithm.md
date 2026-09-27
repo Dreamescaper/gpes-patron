@@ -81,8 +81,11 @@ Network fixes: synthetic → R, missing accuracy or > 5 km → R, latency > 30 s
 
 - Slow drift or ramp capture (≤ 2 m/s offset growth) is detected late or not at all while GNSS
   velocity looks consistent. See `gnss_drift_gradual` and `gnss_ramp_capture` in the results log.
-- A spoofer that keeps Doppler velocity consistent defeats the velocity–position check. The
-  simulator's offset transforms do *not* adjust velocity, so replay results are optimistic here.
+- A spoofer that keeps Doppler velocity consistent defeats the velocity–position check. Measured
+  with `*_doppler_consistent` scenarios (R-002): 96–99% of manipulated fixes are accepted without
+  OBD, and 75% with synthetic OBD. **With phone sensors alone, slow consistent spoofing is
+  essentially undetectable.** Independent speed (OBD) and road topology are the planned
+  countermeasures.
 - The first fix after startup is trusted if no other evidence exists (there is nothing to compare
   it with).
 

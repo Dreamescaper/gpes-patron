@@ -1,0 +1,1 @@
+{"name":"gnss_ramp_capture_doppler_consistent","description":"Competent spoofer: offset ramps to 1 km over 2 min with consistent velocity, held for 3 more.","steps":[{"type":"offset","startS":120,"durationS":300,"dEastM":700,"dNorthM":700,"rampS":120,"consistentVelocity":true}]}

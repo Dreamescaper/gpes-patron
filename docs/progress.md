@@ -13,7 +13,8 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 | Pipeline: reorder, history, snapshots, rollback | ✅ done | determinism / late-delivery / rollback tests |
 | Simulator (IMU/GNSS/network with tilted mount) | ✅ done | tests, CLI |
 | Recording (SQLDelight), JSONL/CSV/GnssLogger export | ✅ done | round-trip test, CLI, emulator pull |
-| Replay CLI, 11 standard scenarios, 5 variants, metrics | ✅ done | matrix on a simulated drive |
+| Replay CLI, 13 standard scenarios, 5 variants, metrics | ✅ done | matrix on a simulated drive |
+| Plot script (track, error vs r68/r95, trust timeline) | ✅ done | run on simulated outputs |
 | Android acquisition (gps/network/fused, raw GNSS, 11 sensors) | ✅ done | emulator API 37 |
 | Foreground service, RECORD/ESTIMATE/MOCK modes | ✅ done | emulator |
 | Mock output (fused), feedback guard | ✅ done | emulator: fused last location = our mock; our input rejected as SYNTHETIC_INPUT |
@@ -22,8 +23,8 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 
 ## Known limitations
 
-- **No real-world data yet.** All accuracy numbers come from the simulator. Its offset
-  transforms do not rewrite Doppler velocity, so spoof detection results are optimistic.
+- **No real-world data yet.** All accuracy numbers come from the simulator.
+- **Slow Doppler-consistent spoofing is essentially undetected** by phone sensors alone (R-002).
 - Trust thresholds and stationary-detection thresholds are untuned for real car vibration.
 - A slow drift or ramp capture (≤ 2 m/s) is only partly detected (about 50% missed); a patient,
   consistent spoofer without contradicting network evidence is accepted after 120 s (D-011).
@@ -38,6 +39,10 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 - The GnssLogger export is a best-effort subset (no carrier-phase derived fields).
 
 ## Log
+
+### 2026-09-28 — Competent-spoofer scenarios, plotting
+- Added `consistentVelocity` to the offset/drift transforms, and 2 new scenarios (D-016); results in R-002.
+- Added `tools/plot/plot_replay.py` (matplotlib), verified on simulated runs.
 
 ### 2026-09-28 — Android app, emulator verification, docs
 - App: `AndroidLocationSource`, `GnssRawSource` (status throttled to ≤ 5 Hz; raw measurements with
@@ -64,6 +69,22 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 - Research doc, core module, SQLDelight recording, replay CLI, 11 scenarios. 24 unit tests.
 
 ## Results log
+
+### R-002 (2026-09-28) — naive vs Doppler-consistent spoofing, simulated drive (same setup as R-001)
+
+| scenario | variant | p95 m | missed detection | detection latency s |
+|---|---|---|---|---|
+| drift 2 m/s (naive) | phone-only | 734 | 0.516 | 26 |
+| drift 2 m/s (Doppler-consistent) | phone-only | 760 | 0.993 | 26 |
+| drift 2 m/s (Doppler-consistent) | +synthNetwork | 572 | 0.993 | 26 |
+| drift 2 m/s (Doppler-consistent) | +synthNetwork+synthObd | 572 | 0.749 | 26 |
+| ramp 1 km/2 min (naive) | +synthNetwork | 989 | 0.571 | 7 |
+| ramp 1 km/2 min (Doppler-consistent) | +synthNetwork | 989 | 0.878 | 7 |
+| ramp 1 km/2 min (Doppler-consistent) | +synthNetwork+synthObd | 988 | 0.646 | 7 |
+
+Reading: with a competent spoofer the Phase 1 trust evaluator is largely blind. Independent speed
+helps somewhat. Early "detections" (latency 7–26 s) are isolated QUESTIONABLE verdicts, not
+sustained rejection.
 
 ### R-001 (2026-09-28, commit after e4b3484) — simulated drive, standard matrix
 
