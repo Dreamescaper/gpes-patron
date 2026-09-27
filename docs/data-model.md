@@ -1,0 +1,48 @@
+# Data model
+
+Code: `core/src/main/kotlin/gpes/core/model/`. All classes are `@Serializable` and Android-free.
+
+## Timebase
+
+- `tNs` is **nanoseconds of `SystemClock.elapsedRealtimeNanos()`**: monotonic and including deep
+  sleep. `Location.getElapsedRealtimeNanos()` and `SensorEvent.timestamp` use this base on API 29+
+  devices. `SensorSource` checks this once per session, records an `Annotation("timebase", …)`,
+  and corrects only if the offset is > 1 s.
+- `SessionInfo` stores one anchor `(anchorElapsedNs, anchorWallMs)`, so
+  `wallMs(t) = anchorWallMs + (t − anchorElapsedNs)/1e6`.
+- `LocationMeasurement.receivedNs` is when the app received the fix. The difference from `tNs` is
+  the delivery latency, which the trust check uses for staleness.
+- Canonical order: `RecordOrder.comparator` = (tNs, kind rank). It is stable within one kind.
+
+## Records (`DriveRecord`)
+
+| Type (`"type"` in JSONL) | Class | Key fields / units |
+|---|---|---|
+| `session` | `SessionInfo` | sessionId, anchor, device, SDK, app version, mode, configJson |
+| `sensor_info` | `SensorInfo` | Android sensor metadata (vendor, resolution, range, delays, FIFO) |
+| `location` | `LocationMeasurement` | source (GNSS/FUSED/NETWORK/PASSIVE/OTHER), provider, lat/lon (deg), altM, hAccM (68%), vAccM, speedMps, speedAccMps, bearingDeg, bearingAccDeg, wallTimeMs, isMock, satsUsed, extras |
+| `provider` | `ProviderEvent` | provider, ENABLED/DISABLED/OVERRIDDEN/RESTORED |
+| `imu` | `ImuSample` | kind (ACCEL/GYRO/MAG/*_UNCAL/GRAVITY/LINEAR_ACCEL), x/y/z in the phone frame (m/s², rad/s, µT), bias bx/by/bz for uncalibrated kinds, accuracy |
+| `orientation` | `OrientationSample` | kind (ROTATION_VECTOR/GAME_ROTATION_VECTOR/GEOMAG_ROTATION_VECTOR), unit quaternion qw,qx,qy,qz (phone→world ENU), headingAccRad |
+| `gnss_status` | `GnssStatusSnapshot` | sats[]: svid, constellation, cn0DbHz, elevDeg, azDeg, usedInFix, ephemeris/almanac, carrierHz, basebandCn0 |
+| `gnss_meas` | `GnssMeasurementBatch` | clock (GnssClock fields), meas[] (raw GnssMeasurement fields), agc[] (API 34+) |
+| `nmea` | `NmeaSentence` | text |
+| `vehicle_speed` | `VehicleSpeedMeasurement` | speedMps, stdMps, source ("obd", "synthetic", …) |
+| `annotation` | `Annotation` | label, note (user marks, timebase check) |
+| `trust` | `TrustAssessment` | source, provider, state, confidence 0..1, reasons[], innovationNis, impliedSpeedMps |
+| `estimate` | `PositionEstimate` | estimator, lat/lon, cov (Cov2 m² ENU), headingRad (bearing), headingStdRad, speedMps, speedStdMps, mode, confidence, hypotheses[], road |
+
+`LocationMeasurement.isSynthetic` = `isMock || extras["gpes.synthetic"] == "1"`.
+
+## Derived (not recorded)
+
+- `MotionUpdate` (20 Hz): yawRateUp (rad/s, counter-clockwise positive), stationary,
+  stationaryForS, gyroNormMean, accelStd.
+
+## Phase 2 placeholders
+
+- `RoadState(segmentId, distanceAlongM, directionForward)`, and `Hypothesis(weight, lat, lon, cov,
+  road)`. `PositionEstimate.hypotheses` already carries a list, so multi-hypothesis estimators need
+  no model change.
+- `future/Interfaces.kt`: `RoadGraph`, `RoadSegment`, `RoutePrior`, `PlannedManeuver`,
+  `RoadStateEstimator`, `VehicleSpeedSource`.
