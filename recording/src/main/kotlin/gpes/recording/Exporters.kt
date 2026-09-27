@@ -2,6 +2,8 @@ package gpes.recording
 
 import gpes.core.io.DriveJson
 import gpes.core.model.Annotation
+import gpes.core.model.CellScan
+import gpes.core.model.WifiScan
 import gpes.core.model.DriveRecord
 import gpes.core.model.GnssMeasurementBatch
 import gpes.core.model.GnssStatusSnapshot
@@ -51,6 +53,30 @@ object Exporters {
                 w.write("t_ns,svid,constellation,cn0_dbhz,elev_deg,az_deg,used_in_fix,carrier_hz\n")
                 for (s in status) for (sat in s.sats) {
                     w.write(listOf(s.tNs, sat.svid, sat.constellation, sat.cn0DbHz, sat.elevDeg, sat.azDeg, sat.usedInFix, sat.carrierHz).joinToString(",") { fmt(it) })
+                    w.write("\n")
+                }
+            }
+            files += f
+        }
+        val cells = records.filterIsInstance<CellScan>()
+        if (cells.isNotEmpty()) {
+            val f = File(dir, "cell.csv")
+            f.bufferedWriter().use { w ->
+                w.write("t_ns,rat,registered,mcc,mnc,area,cid,pci,arfcn,bandwidth_khz,rssi_dbm,rsrp_dbm,rsrq_db,sinr_db,timing_advance,asu_level,measured_ns,connection_status\n")
+                for (s in cells) for (c in s.cells) {
+                    w.write(listOf(s.tNs, c.rat, c.registered, c.mcc, c.mnc, c.area, c.cid, c.pci, c.arfcn, c.bandwidthKhz, c.rssiDbm, c.rsrpDbm, c.rsrqDb, c.sinrDb, c.timingAdvance, c.asuLevel, c.measuredNs, c.connectionStatus).joinToString(",") { fmt(it) })
+                    w.write("\n")
+                }
+            }
+            files += f
+        }
+        val wifi = records.filterIsInstance<WifiScan>()
+        if (wifi.isNotEmpty()) {
+            val f = File(dir, "wifi.csv")
+            f.bufferedWriter().use { w ->
+                w.write("t_ns,bssid,rssi_dbm,freq_mhz,channel_width,seen_ns,standard\n")
+                for (s in wifi) for (a in s.aps) {
+                    w.write(listOf(s.tNs, a.bssid, a.rssiDbm, a.freqMhz, a.channelWidth, a.seenNs, a.standard).joinToString(",") { fmt(it) })
                     w.write("\n")
                 }
             }

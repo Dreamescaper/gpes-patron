@@ -18,6 +18,7 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 | Android acquisition (gps/network/fused, raw GNSS, 11 sensors) | ✅ done | emulator API 37 |
 | Foreground service, RECORD/ESTIMATE/MOCK modes | ✅ done | emulator |
 | Mock output (fused), feedback guard | ✅ done | emulator: fused last location = our mock; our input rejected as SYNTHETIC_INPUT |
+| Raw cell + Wi-Fi recording | ✅ done (recorded only; not used yet) | emulator: NR serving cell with identity/signal, Wi-Fi AP scans; CSV export |
 | Real-device drive | ⏳ not yet | — |
 | Platform `gps` override keeps raw GNSS flowing | ⏳ unverified | needs a real device |
 
@@ -39,6 +40,18 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 - The GnssLogger export is a best-effort subset (no carrier-phase derived fields).
 
 ## Log
+
+### 2026-09-28 — Raw cellular and Wi-Fi recording
+- `CellSource` (GSM/WCDMA/TD-SCDMA/LTE/NR/CDMA → `CellObs`, TA, modem timestamp) and `WifiSource`
+  (requested scans plus system broadcasts, new APs only, no SSID). Live panel shows the serving
+  cell and AP count (D-017).
+- Emulator (API 37): 10 cell scans (NR 310-260, TAC 8514, NCI 100500, PCI 555, NR-ARFCN 9000,
+  RSRP −78…−83), 4 Wi-Fi scans (1 AP). Old bundles without these tables still read and export.
+- **Bug found and fixed:** JSONL export crashed on real drives (`SensorInfo.type` vs the
+  discriminator, D-018). The test now covers all record kinds.
+- Not yet verified: neighbour-cell and timing-advance availability on a real phone and network
+  (the emulator reports only a serving NR cell and no TA). Wi-Fi throttling behaviour for a
+  foreground-service app on a real device.
 
 ### 2026-09-28 — Competent-spoofer scenarios, plotting
 - Added `consistentVelocity` to the offset/drift transforms, and 2 new scenarios (D-016); results in R-002.

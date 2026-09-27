@@ -68,6 +68,22 @@ CREATE TABLE gnss_meas (
 CREATE INDEX gnss_meas_t ON gnss_meas(t_ns);
 CREATE TABLE gnss_agc (t_ns INTEGER NOT NULL, constellation INTEGER NOT NULL, carrier_hz REAL NOT NULL, level_db REAL NOT NULL);
 
+-- Radio environment (added 2026-09-28; absent in older bundles, readers must tolerate that).
+CREATE TABLE IF NOT EXISTS cell_scan (t_ns INTEGER NOT NULL PRIMARY KEY, cell_count INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS cell (
+  t_ns INTEGER NOT NULL, rat TEXT NOT NULL, registered INTEGER NOT NULL, mcc INTEGER, mnc INTEGER,
+  area INTEGER, cid INTEGER, pci INTEGER, arfcn INTEGER, bandwidth_khz INTEGER,
+  rssi_dbm INTEGER, rsrp_dbm INTEGER, rsrq_db INTEGER, sinr_db INTEGER, timing_advance INTEGER,
+  asu_level INTEGER, measured_ns INTEGER, connection_status INTEGER
+);
+CREATE INDEX IF NOT EXISTS cell_t ON cell(t_ns);
+CREATE TABLE IF NOT EXISTS wifi_scan (t_ns INTEGER NOT NULL PRIMARY KEY, ap_count INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS wifi_ap (
+  t_ns INTEGER NOT NULL, bssid TEXT NOT NULL, rssi_dbm INTEGER NOT NULL, freq_mhz INTEGER NOT NULL,
+  channel_width INTEGER, seen_ns INTEGER NOT NULL, standard INTEGER
+);
+CREATE INDEX IF NOT EXISTS wifi_ap_t ON wifi_ap(t_ns);
+
 CREATE TABLE nmea (t_ns INTEGER NOT NULL, text TEXT NOT NULL);
 
 CREATE TABLE vehicle_speed (t_ns INTEGER NOT NULL, speed_mps REAL NOT NULL, std_mps REAL NOT NULL, source TEXT NOT NULL);
@@ -101,6 +117,10 @@ insertGnssClock: INSERT OR REPLACE INTO gnss_clock VALUES ?;
 insertGnssMeas: INSERT INTO gnss_meas VALUES ?;
 insertGnssAgc: INSERT INTO gnss_agc VALUES ?;
 insertNmea: INSERT INTO nmea VALUES ?;
+insertCellScan: INSERT OR REPLACE INTO cell_scan VALUES ?;
+insertCell: INSERT INTO cell VALUES ?;
+insertWifiScan: INSERT OR REPLACE INTO wifi_scan VALUES ?;
+insertWifiAp: INSERT INTO wifi_ap VALUES ?;
 insertVehicleSpeed: INSERT INTO vehicle_speed VALUES ?;
 insertAnnotation: INSERT INTO annotation VALUES ?;
 insertTrust: INSERT INTO trust VALUES ?;
@@ -121,6 +141,10 @@ selectGnssClock: SELECT * FROM gnss_clock ORDER BY t_ns;
 selectGnssMeas: SELECT * FROM gnss_meas ORDER BY t_ns, rowid;
 selectGnssAgc: SELECT * FROM gnss_agc ORDER BY t_ns, rowid;
 selectNmea: SELECT * FROM nmea ORDER BY t_ns, rowid;
+selectCellScan: SELECT * FROM cell_scan ORDER BY t_ns;
+selectCell: SELECT * FROM cell ORDER BY t_ns, rowid;
+selectWifiScan: SELECT * FROM wifi_scan ORDER BY t_ns;
+selectWifiAp: SELECT * FROM wifi_ap ORDER BY t_ns, rowid;
 selectVehicleSpeed: SELECT * FROM vehicle_speed ORDER BY t_ns, rowid;
 selectAnnotation: SELECT * FROM annotation ORDER BY t_ns, rowid;
 selectTrust: SELECT * FROM trust ORDER BY t_ns, rowid;

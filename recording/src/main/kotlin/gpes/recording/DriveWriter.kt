@@ -2,6 +2,12 @@ package gpes.recording
 
 import gpes.core.io.DriveJson
 import gpes.core.model.Annotation
+import gpes.core.model.CellScan
+import gpes.core.model.WifiScan
+import gpes.recording.db.Cell
+import gpes.recording.db.Cell_scan
+import gpes.recording.db.Wifi_ap
+import gpes.recording.db.Wifi_scan
 import gpes.core.model.DriveRecord
 import gpes.core.model.GnssMeasurementBatch
 import gpes.core.model.GnssStatusSnapshot
@@ -113,6 +119,20 @@ class DriveWriter(private val db: DriveDatabase) {
                 for (a in r.agc) q.insertGnssAgc(Gnss_agc(r.tNs, a.constellation.toLong(), a.carrierHz, a.levelDb))
             }
             is NmeaSentence -> q.insertNmea(Nmea(r.tNs, r.text))
+            is CellScan -> {
+                q.insertCellScan(Cell_scan(r.tNs, r.cells.size.toLong()))
+                for (c in r.cells) q.insertCell(
+                    Cell(
+                        r.tNs, c.rat, c.registered.l(), c.mcc?.toLong(), c.mnc?.toLong(), c.area, c.cid, c.pci?.toLong(), c.arfcn?.toLong(),
+                        c.bandwidthKhz?.toLong(), c.rssiDbm?.toLong(), c.rsrpDbm?.toLong(), c.rsrqDb?.toLong(), c.sinrDb?.toLong(),
+                        c.timingAdvance?.toLong(), c.asuLevel?.toLong(), c.measuredNs, c.connectionStatus?.toLong(),
+                    ),
+                )
+            }
+            is WifiScan -> {
+                q.insertWifiScan(Wifi_scan(r.tNs, r.aps.size.toLong()))
+                for (a in r.aps) q.insertWifiAp(Wifi_ap(r.tNs, a.bssid, a.rssiDbm.toLong(), a.freqMhz.toLong(), a.channelWidth?.toLong(), a.seenNs, a.standard?.toLong()))
+            }
             is VehicleSpeedMeasurement -> q.insertVehicleSpeed(Vehicle_speed(r.tNs, r.speedMps, r.stdMps, r.source))
             is Annotation -> q.insertAnnotation(Annotation_(r.tNs, r.label, r.note))
             is TrustAssessment -> q.insertTrust(

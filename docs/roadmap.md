@@ -11,6 +11,15 @@ later or speculative.
   different phones.
 - **P1 Verify on a real device** that raw GnssStatus/GnssMeasurement keep flowing while the
   platform `gps` provider is overridden by our test provider (D-009).
+- **P1 Offline cell/Wi-Fi positioning** (`CellWifiResolver` as another coarse source):
+  - Cell database: OpenCelliD (CC BY-SA 4.0) and/or BeaconDB exports, filtered to the region and
+    stored on the phone (check licence terms before bundling).
+  - Model: serving-cell position + timing-advance ring (LTE ≈ 78 m steps, GSM ≈ 550 m), with
+    neighbour cells via signal weighting. Wi-Fi from a self-built BSSID map (learned from our own
+    drives with good GNSS) or public data.
+  - Compare against Google `network` in replay (a new variant rung). Output is a
+    `LocationMeasurement(source = NETWORK-like)` with an honest covariance, possibly a ring/sector
+    rather than a disk (a Phase 2 road-candidate generator can use rings directly).
 - **P1 Calibrate trust on real data.** Measure false-rejection rates per check, and set C/N0 and
   AGC thresholds from recorded jamming, if any is observed.
 - **P2 Automatic rollback.** When a spoof is detected (for example by network disagreement), roll

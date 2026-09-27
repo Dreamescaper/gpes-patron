@@ -58,6 +58,18 @@ What follows for the phone-in-a-car problem:
 
 Why none can be used directly: every one of them models **GNSS points with ~10–50 m noise** as the observation. Our observations are gyro turn events, speed or odometry, and coarse fixes of ±300–1500 m. The Phase 2 estimator is therefore a **particle filter or HMM on road state** (`segmentId, distanceAlong, direction`). Particles propagate with speed (or OBD odometry) along the graph, branch at intersections, get weighted by turn-angle agreement with the gyro, and get weighted by coarse fixes. That is closer to map-aided PDR literature and to "odometry-based map matching" than to classical GNSS map matching. The graph loading, spatial index and transition heuristics can come from GraphHopper or Barefoot.
 
+## 5b. Cell / Wi-Fi positioning data (Phase 1 records raw observations; resolver planned)
+
+| Source | License | Decision | Notes |
+|---|---|---|---|
+| OpenCelliD | CC BY-SA 4.0 (data) | **defer → P1 resolver** | Crowd-sourced cell tower positions by MCC/MNC/LAC/CID. Downloadable per country, so it works offline. Positions are often a centroid of observations rather than the true mast. |
+| BeaconDB | check terms | **evaluate** | Community successor to Mozilla Location Service (shut down in 2024). Cells and Wi-Fi. |
+| Google `network` provider | proprietary, online | **used as-is** | Good accuracy when online, but a black box, and needs connectivity. Kept as one comparison rung. |
+
+LTE timing advance quantizes the distance to the serving cell in ≈ 78 m steps (16·Ts·c/2). In
+practice it is available mainly for the serving cell while connected. Its availability needs to
+be measured on real devices.
+
 ## 6. Planned-route prior (Phase 3)
 
 There is no directly reusable open-source component. Conceptually, it is sequence alignment (DTW or an HMM) between the planned manoeuvre sequence and the observed gyro turn events. It is injected as a prior on particle weights, never as a hard constraint.

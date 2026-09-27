@@ -121,3 +121,24 @@ Decision: add `consistentVelocity` to `offset`/`drift`, plus two standard scenar
 are kept, because naive spoofers (and some jammers) exist too.
 Consequences: R-002 shows slow consistent spoofing passes the Phase 1 trust evaluator. This
 motivates prioritising OBD speed and road-state estimation (roadmap).
+
+## D-017: Record raw cellular and Wi-Fi observations — Accepted (2026-09-28)
+Context: coarse location currently comes only from Google's `network` provider. That is a black box,
+it usually needs mobile internet (which may be restricted in the target areas), and it gives no
+timing advance.
+Decision: record serving and neighbour cells (identity, ARFCN/PCI, signal, timing advance, modem
+timestamp) about every 2 s via `requestCellInfoUpdate` (exact cached repeats skipped), and Wi-Fi
+APs (BSSID, RSSI, frequency, per-AP seen time) from requested scans (~4 per 2 min) plus system
+scan broadcasts. Recording only for now; they are not yet used by trust or the estimator.
+Alternatives: (a) use only the `network` provider (rejected: not reproducible or offline);
+(b) TelephonyCallback cell listeners (possible later; polling is simpler and gives a uniform
+cadence); (c) record SSIDs (rejected: personal data such as home network names, and BSSID is what
+positioning needs).
+Consequences: this enables an offline cell/Wi-Fi resolver (OpenCelliD/BeaconDB + timing-advance
+rings), compared against Google network in replay. The tables are additive, and readers tolerate
+old bundles.
+
+## D-018: SensorInfo.type serialized as `sensorType` — Accepted (2026-09-28)
+Context: JSONL export of real drives crashed, because `SensorInfo.type` collides with the `"type"`
+class discriminator. Simulated drives have no SensorInfo, so tests missed it.
+Decision: `@SerialName("sensorType")`. The JSONL round-trip test now includes every record kind.

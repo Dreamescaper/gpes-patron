@@ -204,6 +204,67 @@ data class NmeaSentence(
 ) : Measurement
 
 // ---------------------------------------------------------------------------------------------
+// Radio environment: cellular and Wi-Fi (raw, for coarse positioning without Google/internet)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * One observed cell. Field meaning depends on [rat]:
+ *  - [area]: LAC (GSM/WCDMA/TD-SCDMA), TAC (LTE/NR), network id (CDMA)
+ *  - [cid]: CID (GSM/WCDMA), ECI (LTE, 28 bit), NCI (NR, 36 bit), base-station id (CDMA)
+ *  - [pci]: BSIC (GSM), PSC (WCDMA), PCI (LTE/NR), CPID (TD-SCDMA)
+ *  - [arfcn]: ARFCN / UARFCN / EARFCN / NR-ARFCN
+ *  - [timingAdvance]: raw TA units (GSM: 0..63 ≈ 550 m steps; LTE: 0..1282 ≈ 78 m steps)
+ * Neighbour cells often have only [pci]/[arfcn] and signal, with no identity.
+ */
+@Serializable
+data class CellObs(
+    val rat: String,
+    val registered: Boolean,
+    val mcc: Int? = null,
+    val mnc: Int? = null,
+    val area: Long? = null,
+    val cid: Long? = null,
+    val pci: Int? = null,
+    val arfcn: Int? = null,
+    val bandwidthKhz: Int? = null,
+    val rssiDbm: Int? = null,
+    val rsrpDbm: Int? = null,
+    val rsrqDb: Int? = null,
+    val sinrDb: Int? = null,
+    val timingAdvance: Int? = null,
+    val asuLevel: Int? = null,
+    /** When the modem measured this cell (elapsedRealtimeNanos), if reported (API 30+). */
+    val measuredNs: Long? = null,
+    val connectionStatus: Int? = null,
+)
+
+@Serializable
+@SerialName("cell_scan")
+data class CellScan(
+    override val tNs: Long,
+    val cells: List<CellObs>,
+) : Measurement
+
+/** One Wi-Fi access point. SSIDs are deliberately not recorded (privacy); BSSID is what positioning needs. */
+@Serializable
+data class WifiObs(
+    val bssid: String,
+    val rssiDbm: Int,
+    val freqMhz: Int,
+    val channelWidth: Int? = null,
+    /** When the AP was last seen (elapsedRealtimeNanos, from ScanResult.timestamp). */
+    val seenNs: Long,
+    val standard: Int? = null,
+)
+
+@Serializable
+@SerialName("wifi_scan")
+data class WifiScan(
+    override val tNs: Long,
+    val aps: List<WifiObs>,
+) : Measurement
+
+// ---------------------------------------------------------------------------------------------
 // Future / synthetic inputs
 // ---------------------------------------------------------------------------------------------
 
@@ -257,7 +318,8 @@ data class SessionInfo(
 @SerialName("sensor_info")
 data class SensorInfo(
     override val tNs: Long,
-    val type: Int,
+    /** android.hardware.Sensor.getType(). Serialized as "sensorType": "type" is the JSONL discriminator. */
+    @SerialName("sensorType") val type: Int,
     val stringType: String,
     val name: String,
     val vendor: String,
@@ -285,10 +347,12 @@ object RecordOrder {
         is GnssStatusSnapshot -> 5
         is GnssMeasurementBatch -> 6
         is NmeaSentence -> 7
-        is VehicleSpeedMeasurement -> 8
-        is LocationMeasurement -> 9
-        is Annotation -> 10
-        else -> 11
+        is CellScan -> 8
+        is WifiScan -> 9
+        is VehicleSpeedMeasurement -> 10
+        is LocationMeasurement -> 11
+        is Annotation -> 12
+        else -> 13
     }
 
     val comparator: Comparator<DriveRecord> = compareBy<DriveRecord> { it.tNs }.thenBy { rank(it) }

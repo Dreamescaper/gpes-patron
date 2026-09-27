@@ -20,6 +20,8 @@ or use "Share .db" in the app.
 | `gnss_status` + `gnss_sat` | status snapshot / satellite | joined on `t_ns` |
 | `gnss_clock` + `gnss_meas` + `gnss_agc` | measurement event / satellite / band | joined on `t_ns` |
 | `nmea` | sentence | |
+| `cell_scan` + `cell` | cell scan (about every 2 s, exact repeats skipped) / cell | serving and neighbour cells; `measured_ns` = modem measurement time (ms resolution) |
+| `wifi_scan` + `wifi_ap` | emission of newly seen APs / AP | about 4 app-requested scans per 2 min plus scans from the system/other apps; no SSID |
 | `vehicle_speed` | speed sample | empty until OBD exists |
 | `annotation` | user mark, timebase check | |
 | `trust` | assessment of each location fix | only in ESTIMATE/MOCK modes (replay recomputes) |
@@ -49,6 +51,9 @@ select kind, count(*) from imu group by kind;
   Written with `replay export --format gnsslogger`.
 
 ## Compatibility rules
+
+History: the `cell*`/`wifi*` tables were added on 2026-09-28 (additive, `CREATE TABLE IF NOT
+EXISTS`). Earlier bundles lack them, and `DriveReader` returns empty lists for them.
 
 - Adding nullable columns or new tables: bump nothing, but readers must tolerate their absence.
 - Renaming or removing columns, or changing semantics: bump `DRIVE_SCHEMA_VERSION`, and keep a

@@ -203,6 +203,11 @@ private fun LivePanel(s: Status) {
                 "Sats used/visible ${s.satsUsed}/${s.satsVisible}  mean C/N0 ${s.meanCn0?.let { "%.1f".format(it) } ?: "–"} dB-Hz  raw: ${s.gnssMeasurements}",
                 fontSize = 12.sp,
             )
+            Text(
+                "Cells: ${s.cells?.first ?: 0}  serving: ${s.cells?.second ?: "–"}\n" +
+                    "Wi-Fi: ${s.wifiAps?.let { "${it.first} APs, ${it.second}s ago" } ?: "–"}  scans ok/throttled ${s.wifiScans.first}/${s.wifiScans.second}",
+                fontSize = 12.sp,
+            )
             HorizontalDivider()
             val e = s.estimate
             if (s.mode.estimate) {

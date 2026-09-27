@@ -33,6 +33,12 @@ data class Status(
     val mockPublished: Long = 0,
     val mockError: String? = null,
     val lateMeasurements: Long = 0,
+    /** (cell count, serving cell description) of the latest cell scan. */
+    val cells: Pair<Int, String?>? = null,
+    /** (AP count in latest emission, its age in s). */
+    val wifiAps: Pair<Int, Long>? = null,
+    /** (scans requested OK, requests throttled). */
+    val wifiScans: Pair<Int, Int> = 0 to 0,
     val notes: List<String> = emptyList(),
 )
 

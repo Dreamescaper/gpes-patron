@@ -23,7 +23,13 @@ import gpes.app.mock.MockLocationPublisher
 import gpes.app.mock.MockTarget
 import gpes.app.source.AndroidLocationSource
 import gpes.app.source.GnssRawSource
+import gpes.app.source.CellSource
 import gpes.app.source.SensorSource
+import gpes.app.source.WifiSource
+import android.telephony.TelephonyManager
+import gpes.core.model.CellObs
+import gpes.core.model.CellScan
+import gpes.core.model.WifiScan
 import gpes.app.ui.MainActivity
 import gpes.core.estimator.BaselineConfig
 import gpes.core.estimator.BaselineDrEstimator
@@ -167,10 +173,16 @@ private class Session(
     private var publisher: MockLocationPublisher? = null
     private val sensorSource = SensorSource(ctx.getSystemService(SensorManager::class.java), handler)
     private val gnssRaw = GnssRawSource(ctx, handler)
-    private val sources: List<MeasurementSource> = listOf(AndroidLocationSource(ctx, handler), gnssRaw, sensorSource)
+    private val wifi = WifiSource(ctx, handler)
+    private val sources: List<MeasurementSource> = buildList {
+        add(AndroidLocationSource(ctx, handler)); add(gnssRaw); add(sensorSource); add(wifi)
+        ctx.getSystemService(TelephonyManager::class.java)?.let { add(CellSource(it, handler)) }
+    }
 
     // Written on the handler thread, read by the status ticker.
     @Volatile private var lastStatus: GnssStatusSnapshot? = null
+    @Volatile private var lastCells: CellScan? = null
+    @Volatile private var lastWifi: WifiScan? = null
     private val lastTrust = HashMap<LocSource, TrustAssessment>()
     @Volatile private var sourceStates: Map<LocSource, TrustState> = emptyMap()
     @Volatile private var lastEstimate: PositionEstimate? = null
@@ -180,7 +192,12 @@ private class Session(
 
     private val sink = MeasurementSink { m: Measurement ->
         writer.write(m)
-        if (m is GnssStatusSnapshot) lastStatus = m
+        when (m) {
+            is GnssStatusSnapshot -> lastStatus = m
+            is CellScan -> lastCells = m
+            is WifiScan -> lastWifi = m
+            else -> Unit
+        }
         pipeline?.emit(m)
     }
 
@@ -260,6 +277,9 @@ private class Session(
                 gnssMeasurements = gnssRaw.measurementsStatus,
                 mockPublished = publisher?.published ?: 0, mockError = publisher?.lastError,
                 lateMeasurements = pipeline?.stats?.late ?: 0,
+                cells = lastCells?.let { c -> c.cells.size to c.cells.firstOrNull { x -> x.registered }?.let(::describeCell) },
+                wifiAps = lastWifi?.let { w -> w.aps.size to ((now - w.tNs) / 1_000_000_000) },
+                wifiScans = wifi.scansRequested to wifi.scansThrottled,
             )
         }
     }
@@ -290,4 +310,13 @@ private class Session(
         if (wakeLock.isHeld) wakeLock.release()
         LiveStatus.update { it.copy(running = false) }
     }
+}
+
+private fun describeCell(c: CellObs): String = buildString {
+    append(c.rat)
+    if (c.mcc != null) append(" ${c.mcc}-${c.mnc}")
+    if (c.area != null) append(" area ${c.area}")
+    if (c.cid != null) append(" cid ${c.cid}")
+    (c.rsrpDbm ?: c.rssiDbm)?.let { append(" ${it} dBm") }
+    c.timingAdvance?.let { append(" TA $it") }
 }

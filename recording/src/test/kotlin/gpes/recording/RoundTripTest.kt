@@ -3,6 +3,10 @@ package gpes.recording
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import gpes.core.model.AgcInfo
 import gpes.core.model.Annotation
+import gpes.core.model.CellObs
+import gpes.core.model.CellScan
+import gpes.core.model.WifiObs
+import gpes.core.model.WifiScan
 import gpes.core.model.Cov2
 import gpes.core.model.DriveRecord
 import gpes.core.model.EstimatorMode
@@ -47,6 +51,11 @@ class RoundTripTest {
                 listOf(AgcInfo(1, 1.57542e9, 3.2)),
             ),
             ProviderEvent(sim[200].tNs, "gps", ProviderEvent.Kind.OVERRIDDEN),
+            CellScan(sim[250].tNs, listOf(
+                CellObs("LTE", true, 255, 1, 12345, 123456789, 101, 1300, 20000, -60, -95, -10, 12, 7, 40, sim[250].tNs - 1000, 1),
+                CellObs("LTE", false, pci = 202, arfcn = 1300, rsrpDbm = -110),
+            )),
+            WifiScan(sim[260].tNs, listOf(WifiObs("aa:bb:cc:dd:ee:ff", -55, 2437, 0, sim[260].tNs - 5_000_000, 6))),
             Annotation(sim[300].tNs, "tunnel", "entering, with comma"),
             TrustAssessment(sim[400].tNs, LocSource.GNSS, "gps", TrustState.REJECTED, 0.05, setOf(TrustReason.IMPOSSIBLE_VELOCITY, TrustReason.INNOVATION_GATE), 99.0, 1000.0),
             PositionEstimate(sim[500].tNs, "baseline", 50.0, 30.0, Cov2(4.0, 0.5, 9.0), 1.0, 0.1, 10.0, 0.5, EstimatorMode.DEAD_RECKONING, 0.7,
@@ -74,5 +83,16 @@ class RoundTripTest {
         val files = Exporters.csv(recs, dir)
         assertTrue(files.map(File::getName).containsAll(listOf("location.csv", "imu.csv")))
         dir.deleteRecursively()
+    }
+
+    @Test
+    fun `bundles without radio tables still read`() {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        DriveDatabase.Schema.create(driver)
+        driver.execute(null, "DROP TABLE cell", 0); driver.execute(null, "DROP TABLE cell_scan", 0)
+        driver.execute(null, "DROP TABLE wifi_ap", 0); driver.execute(null, "DROP TABLE wifi_scan", 0)
+        val r = DriveReader(DriveDatabase(driver))
+        assertEquals(emptyList<CellScan>(), r.cellScans())
+        assertEquals(emptyList<WifiScan>(), r.wifiScans())
     }
 }

@@ -66,7 +66,7 @@ These are part of "done". A change is not finished until the docs reflect it.
 core/        pure Kotlin/JVM: models, geo, motion, trust, estimator, pipeline, sim, replay, future/ interfaces
 recording/   SQLDelight schema (Drive.sq), DriveWriter/Reader, JSONL/CSV/GnssLogger exporters
 replay-cli/  `replay` CLI: simulate | export | run | matrix
-app/         Android: sources, DriveService (foreground), MockLocationPublisher, Compose UI
+app/         Android: sources (location, raw GNSS, sensors, cell, Wi-Fi), DriveService (foreground), MockLocationPublisher, Compose UI
 scenarios/   standard fault-injection scenarios (JSON)
 docs/        see table above
 ```

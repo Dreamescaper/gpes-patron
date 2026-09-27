@@ -87,7 +87,17 @@ class PipelineTest {
 
     @Test
     fun `jsonl round trip preserves records`() {
-        val recs = TestSupport.defaultDrive.records.take(2000)
+        // Include every record kind that the simulator does not produce.
+        val extra = listOf(
+            gpes.core.model.SensorInfo(5, 4, "android.sensor.gyroscope", "gyro", "vendor", 1, 0.001, 34.9, 2500, 200000, 300, 0.5),
+            gpes.core.model.CellScan(6, listOf(gpes.core.model.CellObs("LTE", true, 255, 1, 1, 2, 3, 4, timingAdvance = 5))),
+            gpes.core.model.WifiScan(7, listOf(gpes.core.model.WifiObs("aa:bb", -50, 2412, 0, 7))),
+            gpes.core.model.ProviderEvent(8, "gps", gpes.core.model.ProviderEvent.Kind.OVERRIDDEN),
+            gpes.core.model.Annotation(9, "tunnel", "note"),
+            gpes.core.model.NmeaSentence(10, "\$GPGGA,1"),
+            gpes.core.model.VehicleSpeedMeasurement(11, 10.0, 0.1, "obd"),
+        )
+        val recs = extra + TestSupport.defaultDrive.records.take(2000)
         val w = StringWriter()
         DriveJson.write(recs.asSequence(), w)
         val back = DriveJson.read(BufferedReader(StringReader(w.toString()))).toList()

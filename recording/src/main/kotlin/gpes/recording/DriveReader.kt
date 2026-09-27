@@ -3,7 +3,11 @@ package gpes.recording
 import gpes.core.io.DriveJson
 import gpes.core.model.AgcInfo
 import gpes.core.model.Annotation
+import gpes.core.model.CellObs
+import gpes.core.model.CellScan
 import gpes.core.model.Cov2
+import gpes.core.model.WifiObs
+import gpes.core.model.WifiScan
 import gpes.core.model.DriveRecord
 import gpes.core.model.EstimatorMode
 import gpes.core.model.GnssClockInfo
@@ -88,6 +92,30 @@ class DriveReader(db: DriveDatabase) {
         }
     }
 
+    /** Empty for bundles recorded before these tables existed. */
+    fun cellScans(): List<CellScan> = tolerant {
+        val cells = q.selectCell { t, rat, reg, mcc, mnc, area, cid, pci, arfcn, bw, rssi, rsrp, rsrq, sinr, ta, asu, meas, conn ->
+            t to CellObs(
+                rat, reg != 0L, mcc?.toInt(), mnc?.toInt(), area, cid, pci?.toInt(), arfcn?.toInt(), bw?.toInt(), rssi?.toInt(),
+                rsrp?.toInt(), rsrq?.toInt(), sinr?.toInt(), ta?.toInt(), asu?.toInt(), meas, conn?.toInt(),
+            )
+        }.executeAsList().groupBy({ it.first }, { it.second })
+        q.selectCellScan().executeAsList().map { CellScan(it.t_ns, cells[it.t_ns] ?: emptyList()) }
+    }
+
+    fun wifiScans(): List<WifiScan> = tolerant {
+        val aps = q.selectWifiAp { t, bssid, rssi, freq, width, seen, std ->
+            t to WifiObs(bssid, rssi.toInt(), freq.toInt(), width?.toInt(), seen, std?.toInt())
+        }.executeAsList().groupBy({ it.first }, { it.second })
+        q.selectWifiScan().executeAsList().map { WifiScan(it.t_ns, aps[it.t_ns] ?: emptyList()) }
+    }
+
+    private fun <T> tolerant(block: () -> List<T>): List<T> = try {
+        block()
+    } catch (e: Exception) {
+        if (e.message?.contains("no such table") == true || e.cause?.message?.contains("no such table") == true) emptyList() else throw e
+    }
+
     fun trust(): List<TrustAssessment> = q.selectTrust { t, src, prov, st, conf, reasons, nis, implied ->
         TrustAssessment(
             t, LocSource.valueOf(src), prov, TrustState.valueOf(st), conf,
@@ -106,7 +134,7 @@ class DriveReader(db: DriveDatabase) {
     /** All pipeline inputs, merged and sorted by time (stable within equal timestamps). */
     fun measurements(): List<Measurement> {
         val all = ArrayList<Measurement>()
-        all += imu(); all += orientation(); all += locations(); all += gnssStatus(); all += gnssMeasurements()
+        all += imu(); all += orientation(); all += locations(); all += gnssStatus(); all += gnssMeasurements(); all += cellScans(); all += wifiScans()
         all += q.selectProviderEvent { t, p, e -> ProviderEvent(t, p, ProviderEvent.Kind.valueOf(e)) }.executeAsList()
         all += q.selectNmea { t, text -> NmeaSentence(t, text) }.executeAsList()
         all += q.selectVehicleSpeed { t, s, std, src -> VehicleSpeedMeasurement(t, s, std, src) }.executeAsList()

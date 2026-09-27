@@ -36,7 +36,9 @@ and core outputs back into platform calls.
  Android (app)                                   core (shared with replay)
  ─────────────                                   ─────────────────────────
  AndroidLocationSource (gps, network, fused) ─┐
- GnssRawSource (status, raw meas, AGC, NMEA) ─┼─► MeasurementSink ──► DriveWriter (records everything, incl. rejected/mock)
+ GnssRawSource (status, raw meas, AGC, NMEA) ─┤
+ CellSource (serving/neighbour cells, TA)   ──┤
+ WifiSource (BSSID/RSSI scans)              ──┼─► MeasurementSink ──► DriveWriter (records everything, incl. rejected/mock)
  SensorSource (IMU, mag, rotation vectors)  ──┤         │
  [future] VehicleSpeedSource (OBD)          ──┘         ▼
                                                 MeasurementPipeline

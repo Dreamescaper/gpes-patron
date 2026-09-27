@@ -19,7 +19,7 @@ Code: `core/src/main/kotlin/gpes/core/model/`. All classes are `@Serializable` a
 | Type (`"type"` in JSONL) | Class | Key fields / units |
 |---|---|---|
 | `session` | `SessionInfo` | sessionId, anchor, device, SDK, app version, mode, configJson |
-| `sensor_info` | `SensorInfo` | Android sensor metadata (vendor, resolution, range, delays, FIFO) |
+| `sensor_info` | `SensorInfo` | Android sensor metadata (vendor, resolution, range, delays, FIFO). Sensor type is serialized as `sensorType`, because `type` is the JSONL discriminator |
 | `location` | `LocationMeasurement` | source (GNSS/FUSED/NETWORK/PASSIVE/OTHER), provider, lat/lon (deg), altM, hAccM (68%), vAccM, speedMps, speedAccMps, bearingDeg, bearingAccDeg, wallTimeMs, isMock, satsUsed, extras |
 | `provider` | `ProviderEvent` | provider, ENABLED/DISABLED/OVERRIDDEN/RESTORED |
 | `imu` | `ImuSample` | kind (ACCEL/GYRO/MAG/*_UNCAL/GRAVITY/LINEAR_ACCEL), x/y/z in the phone frame (m/s², rad/s, µT), bias bx/by/bz for uncalibrated kinds, accuracy |
@@ -27,6 +27,8 @@ Code: `core/src/main/kotlin/gpes/core/model/`. All classes are `@Serializable` a
 | `gnss_status` | `GnssStatusSnapshot` | sats[]: svid, constellation, cn0DbHz, elevDeg, azDeg, usedInFix, ephemeris/almanac, carrierHz, basebandCn0 |
 | `gnss_meas` | `GnssMeasurementBatch` | clock (GnssClock fields), meas[] (raw GnssMeasurement fields), agc[] (API 34+) |
 | `nmea` | `NmeaSentence` | text |
+| `cell_scan` | `CellScan` | cells[]: rat (GSM/WCDMA/TDSCDMA/LTE/NR/CDMA), registered, mcc, mnc, area (LAC/TAC), cid (CID/ECI/NCI), pci (BSIC/PSC/PCI), arfcn, bandwidthKhz, rssi/rsrp/rsrq/sinr, timingAdvance (raw units), asuLevel, measuredNs (modem measurement time), connectionStatus |
+| `wifi_scan` | `WifiScan` | aps[]: bssid, rssiDbm, freqMhz, channelWidth, seenNs (ScanResult.timestamp), standard. **No SSID** (privacy) |
 | `vehicle_speed` | `VehicleSpeedMeasurement` | speedMps, stdMps, source ("obd", "synthetic", …) |
 | `annotation` | `Annotation` | label, note (user marks, timebase check) |
 | `trust` | `TrustAssessment` | source, provider, state, confidence 0..1, reasons[], innovationNis, impliedSpeedMps |
