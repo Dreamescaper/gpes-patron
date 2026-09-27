@@ -351,6 +351,16 @@ data class SessionInfo(
     fun wallMs(tNs: Long): Long = anchorWallMs + (tNs - anchorElapsedNs) / 1_000_000
 }
 
+/** One raw request/response with an OBD adapter, recorded for debugging real adapters. Not a pipeline input. */
+@Serializable
+@SerialName("obd_raw")
+data class ObdExchange(
+    override val tNs: Long,
+    val request: String,
+    val response: String?,
+    val latencyMs: Int,
+) : DriveRecord
+
 @Serializable
 @SerialName("sensor_info")
 data class SensorInfo(

@@ -124,6 +124,9 @@ sealed interface ScenarioStep {
         val scaleError: Double = 0.0,
         override val startS: Double = 0.0,
         override val durationS: Double? = null,
+        /** Mimic an ELM327: integer km/h and a reporting delay (s) not reflected in the timestamp. */
+        val quantizeKmh: Boolean = false,
+        val latencyS: Double = 0.0,
     ) : ScenarioStep
 }
 
@@ -208,10 +211,13 @@ class ScenarioApplier(private val scenario: Scenario, private val t0Ns: Long) {
                             extras = mapOf("scenario.synthetic" to "network"),
                         )
                     }
-                    is ScenarioStep.SyntheticVehicleSpeed -> out += VehicleSpeedMeasurement(
-                        t, (tr.speedMps * (1 + step.scaleError) + gauss() * step.sigmaMps).coerceAtLeast(0.0),
-                        step.sigmaMps, "synthetic",
-                    )
+                    is ScenarioStep.SyntheticVehicleSpeed -> {
+                        // Value measured `latencyS` earlier than its timestamp says (stale reading).
+                        val src = if (step.latencyS > 0) truth.at(t - (step.latencyS * 1e9).toLong()) ?: tr else tr
+                        var v = (src.speedMps * (1 + step.scaleError) + gauss() * step.sigmaMps).coerceAtLeast(0.0)
+                        if (step.quantizeKmh) v = Math.round(v * 3.6) / 3.6
+                        out += VehicleSpeedMeasurement(t, v, step.sigmaMps, "synthetic")
+                    }
                     else -> Unit
                 }
                 t += (period * 1e9).toLong()

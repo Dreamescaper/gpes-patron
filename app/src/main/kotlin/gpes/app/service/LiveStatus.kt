@@ -4,6 +4,7 @@ import androidx.annotation.StringRes
 import gpes.app.R
 import gpes.app.mock.MockTarget
 import gpes.core.estimator.CompassStatus
+import gpes.app.source.ObdStatus
 import gpes.core.model.LocSource
 import gpes.core.model.PositionEstimate
 import gpes.core.model.TrustAssessment
@@ -43,6 +44,9 @@ data class Status(
     /** (scans requested OK, requests throttled). */
     val wifiScans: Pair<Int, Int> = 0 to 0,
     val compass: CompassStatus? = null,
+    val obd: ObdStatus? = null,
+    /** Speedometer scale error estimate (fraction, std). */
+    val speedScale: Pair<Double, Double>? = null,
     val notes: List<String> = emptyList(),
 )
 

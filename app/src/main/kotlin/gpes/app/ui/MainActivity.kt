@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -56,7 +58,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import gpes.app.R
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothManager
+import android.content.pm.PackageManager
 import gpes.app.mock.MockTarget
+import gpes.app.source.ObdState
 import gpes.core.estimator.CompassMode
 import gpes.core.estimator.CompassVerdict
 import gpes.core.model.EstimatorMode
@@ -101,6 +107,9 @@ private fun Screen() {
     var gps by rememberSaveable { mutableStateOf(false) }
     var network by rememberSaveable { mutableStateOf(false) }
     var useQuestionable by rememberSaveable { mutableStateOf(false) }
+    val prefs = remember { ctx.getSharedPreferences("gpes", Context.MODE_PRIVATE) }
+    var obdEnabled by remember { mutableStateOf(prefs.getBoolean("obd_enabled", false)) }
+    var obdAddress by remember { mutableStateOf(prefs.getString("obd_address", null)) }
     var refresh by remember { mutableIntStateOf(0) }
 
     val perms = buildList {
@@ -152,13 +161,19 @@ private fun Screen() {
                             if (gps) add(MockTarget.GPS)
                             if (network) add(MockTarget.NETWORK)
                         }
-                        DriveService.start(ctx, mode, targets, useQuestionable)
+                        DriveService.start(ctx, mode, targets, useQuestionable, obdAddress.takeIf { obdEnabled })
                     }) { Text(stringResource(R.string.start)) }
                 } else {
                     Button(onClick = { DriveService.stop(ctx); refresh++ }) { Text(stringResource(R.string.stop)) }
                 }
             }
         }
+
+        ObdCard(
+            enabled = obdEnabled, address = obdAddress, locked = status.running,
+            onEnabled = { obdEnabled = it; prefs.edit().putBoolean("obd_enabled", it).apply() },
+            onAddress = { obdAddress = it; prefs.edit().putString("obd_address", it).apply() },
+        )
 
         if (status.running) {
             LivePanel(status)
@@ -182,9 +197,45 @@ private fun Screen() {
     }
 }
 
+@SuppressLint("MissingPermission")
+@Composable
+private fun ObdCard(enabled: Boolean, address: String?, locked: Boolean, onEnabled: (Boolean) -> Unit, onAddress: (String) -> Unit) {
+    val ctx = LocalContext.current
+    var granted by remember {
+        mutableStateOf(Build.VERSION.SDK_INT < 31 || ctx.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED)
+    }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
+    Card {
+        Column(Modifier.padding(12.dp)) {
+            Text(stringResource(R.string.obd_title), fontWeight = FontWeight.Bold)
+            CheckRow(stringResource(R.string.obd_use), enabled, !locked, onEnabled)
+            if (!enabled) return@Column
+            if (!granted) {
+                OutlinedButton(onClick = { launcher.launch(Manifest.permission.BLUETOOTH_CONNECT) }) { Text(stringResource(R.string.obd_grant)) }
+                return@Column
+            }
+            val devices = remember(granted) {
+                runCatching { ctx.getSystemService(BluetoothManager::class.java)?.adapter?.bondedDevices?.toList() }.getOrNull().orEmpty()
+                    .sortedBy { it.name ?: it.address }
+            }
+            Text(stringResource(R.string.obd_pair_hint), fontSize = 12.sp)
+            if (devices.isEmpty()) Text(stringResource(R.string.obd_no_paired), fontSize = 12.sp)
+            devices.forEach { d ->
+                Row(Modifier.fillMaxWidth().selectable(selected = address == d.address, enabled = !locked) { onAddress(d.address) }) {
+                    RadioButton(selected = address == d.address, onClick = null, enabled = !locked)
+                    Text("${d.name ?: "?"}  ${d.address}", Modifier.padding(start = 8.dp), fontSize = 13.sp)
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun CheckRow(label: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
-    Row { Checkbox(checked, onChange, enabled = enabled); Text(label, Modifier.padding(top = 12.dp), fontSize = 13.sp) }
+    Row(Modifier.fillMaxWidth().toggleable(value = checked, enabled = enabled, role = Role.Checkbox, onValueChange = onChange)) {
+        Checkbox(checked, onCheckedChange = null, enabled = enabled, modifier = Modifier.padding(12.dp))
+        Text(label, Modifier.padding(top = 12.dp), fontSize = 13.sp)
+    }
 }
 
 /** GnssRawSource reports English status codes; show them localized. */
@@ -274,6 +325,23 @@ private fun LivePanel(s: Status) {
                     },
                     fontSize = 12.sp,
                 )
+            }
+            s.obd?.let { o ->
+                val state = when (o.state) {
+                    ObdState.CONNECTING -> R.string.obd_state_connecting
+                    ObdState.INITIALIZING -> R.string.obd_state_initializing
+                    ObdState.POLLING -> R.string.obd_state_polling
+                    ObdState.RETRYING -> R.string.obd_state_retrying
+                    ObdState.STOPPED -> R.string.obd_state_stopped
+                }
+                Text(
+                    stringResource(
+                        R.string.obd_line, stringResource(state), o.version ?: o.device, o.protocol ?: "", o.lastKmh?.toString() ?: "–",
+                        o.samples.toInt(), o.noData.toInt(),
+                    ) + (o.error?.let { "\n$it" } ?: ""),
+                    color = if (o.state == ObdState.POLLING) Color(0xFF2E7D32) else Color(0xFFF9A825), fontSize = 12.sp,
+                )
+                s.speedScale?.let { (k, sd) -> Text(stringResource(R.string.obd_scale, k * 100, sd * 100), fontSize = 12.sp) }
             }
             HorizontalDivider()
             val e = s.estimate

@@ -11,6 +11,10 @@
     <!-- Raw Wi-Fi scans (BSSID/RSSI) for offline coarse positioning. Cell info needs only fine location. -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <!-- OBD adapter over Bluetooth Classic (paired devices only; no scanning). -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <!-- Only effective when this app is chosen as "Select mock location app" in Developer options. -->
     <uses-permission
         android:name="android.permission.ACCESS_MOCK_LOCATION"
@@ -20,6 +24,7 @@
     <uses-feature android:name="android.hardware.sensor.gyroscope" android:required="false" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
     <uses-feature android:name="android.hardware.wifi" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
 
     <application
         android:allowBackup="false"

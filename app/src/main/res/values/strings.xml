@@ -69,6 +69,20 @@
     <string name="est_dead_reckoning">DEAD RECKONING</string>
     <string name="est_stationary">STATIONARY</string>
 
+    <!-- OBD -->
+    <string name="obd_title">OBD adapter (ELM327, Bluetooth)</string>
+    <string name="obd_use">Use OBD vehicle speed</string>
+    <string name="obd_pair_hint">Pair the adapter in Android Bluetooth settings first (PIN usually 1234 or 0000), with the ignition on.</string>
+    <string name="obd_no_paired">No paired Bluetooth devices.</string>
+    <string name="obd_grant">Allow Bluetooth access</string>
+    <string name="obd_state_connecting">connecting</string>
+    <string name="obd_state_initializing">initializing</string>
+    <string name="obd_state_polling">reading</string>
+    <string name="obd_state_retrying">reconnecting</string>
+    <string name="obd_state_stopped">stopped</string>
+    <string name="obd_line">OBD: %1$s  %2$s  %3$s  %4$s km/h  samples %5$d  no data %6$d</string>
+    <string name="obd_scale">Speedometer scale: %1$+.1f%% ± %2$.1f%%</string>
+
     <!-- Drives -->
     <string name="recorded_drives">Recorded drives (%1$d)</string>
     <string name="stored_in">Stored in %1$s</string>

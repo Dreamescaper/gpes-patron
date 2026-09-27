@@ -70,7 +70,8 @@ data class Variant(
                 ScenarioStep.DropSource(LocSource.FUSED, dropRawGnss = false),
             )
             val synthNet = ScenarioStep.SyntheticNetwork(sigmaM = 500.0, periodS = 20.0)
-            val synthObd = ScenarioStep.SyntheticVehicleSpeed(sigmaMps = 0.3, scaleError = 0.01)
+            // Like a cheap ELM327: integer km/h, ~0.15 s reporting delay, speedometer reading 3% high.
+            val synthObd = ScenarioStep.SyntheticVehicleSpeed(sigmaMps = 0.3, scaleError = 0.03, quantizeKmh = true, latencyS = 0.15)
             val noCompass = BaselineConfig(compass = CompassConfig(enabled = false))
             return listOf(
                 Variant("hold-last-fix", estimator = "passthrough"),

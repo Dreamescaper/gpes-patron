@@ -12,6 +12,7 @@ import gpes.core.model.ProviderEvent
 import gpes.core.model.TrustAssessment
 import gpes.core.model.TrustReason
 import gpes.core.model.TrustState
+import gpes.core.model.VehicleSpeedMeasurement
 import kotlinx.serialization.Serializable
 import kotlin.math.abs
 import kotlin.math.max
@@ -83,6 +84,13 @@ data class TrustConfig(
     /** Baseline for comparing position displacement with integrated reported velocity. */
     val velocityWindowS: Double = 10.0,
     val velocityMismatchM: Double = 15.0,
+    /**
+     * GNSS speed vs independent vehicle speed (OBD): allowed |Δ| = abs + rel·v. The relative part covers
+     * speedometer scale error and the adapter's latency during acceleration.
+     */
+    val obdSpeedAbsMps: Double = 1.5,
+    val obdSpeedRel: Double = 0.08,
+    val obdMaxAgeS: Double = 1.5,
 )
 
 /**
@@ -107,6 +115,7 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
         val lastNetwork: LocationMeasurement?,
         val lastStatus: GnssStatusSnapshot?,
         val overridden: Set<String>,
+        val lastObd: VehicleSpeedMeasurement?,
     )
 
     private data class Hit(val reason: TrustReason, val severity: TrustState, val factor: Double = 1.0)
@@ -115,10 +124,12 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
     private var lastNetwork: LocationMeasurement? = null
     private var lastStatus: GnssStatusSnapshot? = null
     private val overridden = HashSet<String>()
+    private var lastObd: VehicleSpeedMeasurement? = null
 
     override fun observe(m: Measurement) {
         when (m) {
             is GnssStatusSnapshot -> lastStatus = m
+            is VehicleSpeedMeasurement -> lastObd = m
             is ProviderEvent -> when (m.event) {
                 ProviderEvent.Kind.OVERRIDDEN -> overridden += m.provider
                 ProviderEvent.Kind.RESTORED -> overridden -= m.provider
@@ -159,6 +170,7 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
                 nis = checkInnovation(m, ctx.predicted, hits)
                 checkCourse(m, st.prev, ctx.motion, hits)
                 checkVelocityConsistency(m, st.recent, hits)
+                checkObdSpeed(m, hits)
                 checkStationary(m, ctx.motion, hits)
                 networkAgrees = checkNetwork(m, hits)
                 if (m.source == LocSource.GNSS) checkRawGnss(m, hits)
@@ -318,6 +330,16 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
         if (diff > allow) hits += Hit(TrustReason.VELOCITY_POSITION_MISMATCH, TrustState.QUESTIONABLE, 0.6)
     }
 
+    /** A spoofer can fake a consistent GNSS track, but not the car's own speedometer. */
+    private fun checkObdSpeed(m: LocationMeasurement, hits: MutableList<Hit>) {
+        val obd = lastObd ?: return
+        val v = m.speedMps ?: return
+        if (abs(m.tNs - obd.tNs) / 1e9 > cfg.obdMaxAgeS) return
+        if (abs(v - obd.speedMps) > cfg.obdSpeedAbsMps + cfg.obdSpeedRel * obd.speedMps) {
+            hits += Hit(TrustReason.SPEED_OBD_MISMATCH, TrustState.QUESTIONABLE, 0.5)
+        }
+    }
+
     private fun checkStationary(m: LocationMeasurement, motion: MotionView?, hits: MutableList<Hit>) {
         if (motion == null) return
         if (motion.stationaryForS() >= cfg.stationaryMinS && (m.speedMps ?: 0.0) > cfg.stationaryMaxSpeedMps) {
@@ -350,12 +372,13 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
         }
     }
 
-    override fun snapshot(): Any = Snap(HashMap(sources), lastNetwork, lastStatus, HashSet(overridden))
+    override fun snapshot(): Any = Snap(HashMap(sources), lastNetwork, lastStatus, HashSet(overridden), lastObd)
 
     override fun restore(snapshot: Any) {
         val s = snapshot as Snap
         sources.clear(); sources.putAll(s.sources)
         lastNetwork = s.lastNetwork; lastStatus = s.lastStatus
         overridden.clear(); overridden.addAll(s.overridden)
+        lastObd = s.lastObd
     }
 }

@@ -4,6 +4,7 @@ import gpes.core.io.DriveJson
 import gpes.core.model.Annotation
 import gpes.core.model.CellScan
 import gpes.core.model.PowerState
+import gpes.core.model.ObdExchange
 import gpes.core.model.WifiScan
 import gpes.core.model.DriveRecord
 import gpes.core.model.GnssMeasurementBatch
@@ -83,6 +84,7 @@ object Exporters {
             }
             files += f
         }
+        table("obd_raw", "t_ns,request,response,latency_ms", records.filterIsInstance<ObdExchange>()) { listOf(it.tNs, it.request, it.response, it.latencyMs) }
         table("power", "t_ns,plug,charging,current_ua,voltage_mv,level_pct,temperature_c", records.filterIsInstance<PowerState>()) {
             listOf(it.tNs, it.plug, it.charging, it.currentUa, it.voltageMv, it.levelPct, it.temperatureC)
         }

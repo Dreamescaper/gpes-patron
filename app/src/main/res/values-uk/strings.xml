@@ -70,6 +70,20 @@
     <string name="est_dead_reckoning">ЧИСЛЕННЯ ШЛЯХУ</string>
     <string name="est_stationary">НЕРУХОМО</string>
 
+    <!-- OBD -->
+    <string name="obd_title">OBD-адаптер (ELM327, Bluetooth)</string>
+    <string name="obd_use">Використовувати швидкість з OBD</string>
+    <string name="obd_pair_hint">Спершу спаріть адаптер у налаштуваннях Bluetooth Android (PIN зазвичай 1234 або 0000), із запаленням увімкненим.</string>
+    <string name="obd_no_paired">Немає спарених Bluetooth-пристроїв.</string>
+    <string name="obd_grant">Дозволити доступ до Bluetooth</string>
+    <string name="obd_state_connecting">підключення</string>
+    <string name="obd_state_initializing">ініціалізація</string>
+    <string name="obd_state_polling">читання</string>
+    <string name="obd_state_retrying">перепідключення</string>
+    <string name="obd_state_stopped">зупинено</string>
+    <string name="obd_line">OBD: %1$s  %2$s  %3$s  %4$s км/год  вимірів %5$d  без даних %6$d</string>
+    <string name="obd_scale">Масштаб спідометра: %1$+.1f%% ± %2$.1f%%</string>
+
     <!-- Поїздки -->
     <string name="recorded_drives">Записані поїздки (%1$d)</string>
     <string name="stored_in">Зберігаються в %1$s</string>

@@ -8,6 +8,7 @@ import gpes.core.model.CellScan
 import gpes.core.model.Cov2
 import gpes.core.model.GeomagneticReference
 import gpes.core.model.PowerState
+import gpes.core.model.ObdExchange
 import gpes.core.model.WifiObs
 import gpes.core.model.WifiScan
 import gpes.core.model.DriveRecord
@@ -120,6 +121,10 @@ class DriveReader(db: DriveDatabase) {
         q.selectPower { t, plug, ch, cur, v, lvl, temp -> PowerState(t, plug, ch != 0L, cur, v?.toInt(), lvl?.toInt(), temp) }.executeAsList()
     }
 
+    fun obdRaw(): List<ObdExchange> = tolerant {
+        q.selectObdRaw { t, req, resp, lat -> ObdExchange(t, req, resp, lat.toInt()) }.executeAsList()
+    }
+
     private fun <T> tolerant(block: () -> List<T>): List<T> = try {
         block()
     } catch (e: Exception) {
@@ -159,7 +164,7 @@ class DriveReader(db: DriveDatabase) {
         session()?.let { head += it }
         head += sensorInfo()
         val body = ArrayList<DriveRecord>()
-        body += measurements(); body += trust(); body += estimates()
+        body += measurements(); body += trust(); body += estimates(); body += obdRaw()
         body.sortWith(RecordOrder.comparator)
         return head + body
     }

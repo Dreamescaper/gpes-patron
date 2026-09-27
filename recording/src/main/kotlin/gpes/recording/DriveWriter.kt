@@ -6,6 +6,8 @@ import gpes.core.model.CellScan
 import gpes.core.model.GeomagneticReference
 import gpes.recording.db.Geomag
 import gpes.recording.db.Power
+import gpes.recording.db.Obd_raw
+import gpes.core.model.ObdExchange
 import gpes.core.model.PowerState
 import gpes.core.model.WifiScan
 import gpes.recording.db.Cell
@@ -125,6 +127,7 @@ class DriveWriter(private val db: DriveDatabase) {
             is NmeaSentence -> q.insertNmea(Nmea(r.tNs, r.text))
             is GeomagneticReference -> q.insertGeomag(Geomag(r.tNs, r.lat, r.lon, r.declinationDeg, r.inclinationDeg, r.fieldUt, r.source))
             is PowerState -> q.insertPower(Power(r.tNs, r.plug, r.charging.l(), r.currentUa, r.voltageMv?.toLong(), r.levelPct?.toLong(), r.temperatureC))
+            is ObdExchange -> q.insertObdRaw(Obd_raw(r.tNs, r.request, r.response, r.latencyMs.toLong()))
             is CellScan -> {
                 q.insertCellScan(Cell_scan(r.tNs, r.cells.size.toLong()))
                 for (c in r.cells) q.insertCell(

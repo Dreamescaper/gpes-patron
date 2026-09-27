@@ -65,12 +65,16 @@ data class BaselineConfig(
     val speedKnownStd: Double = 3.0,
     /** Initial speed std when starting without GNSS (m/s). */
     val unknownSpeedStd: Double = 10.0,
+    /** Vehicle-speed (OBD) scale error: initial std (fraction) and random walk (per √s). */
+    val speedScaleInitialStd: Double = 0.03,
+    val speedScaleRandomWalk: Double = 2e-5,
     /** Magnetometer heading (deviation-card calibrated, gated). See [Compass]. */
     val compass: CompassConfig = CompassConfig(),
 )
 
 /**
- * Phase 1 baseline: a 2-D EKF in a local ENU frame with state `[e, n, ψ, v, b]`.
+ * Phase 1 baseline: a 2-D EKF in a local ENU frame with state `[e, n, ψ, v, b, s]`
+ * (s = vehicle-speed/OBD scale error, learned against trusted GNSS).
  *  - ψ is the course (bearing, radians clockwise from north), propagated with the yaw rate from the
  *    gyro projected on gravity. There is no absolute heading source except GNSS course.
  *  - v is the speed along the course. This is the non-holonomic assumption: no lateral or vertical
@@ -95,8 +99,11 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
 
     private var initialized = false
     private var frame: LocalFrame? = null
-    private val x = DoubleArray(5)
-    private var p = Mat.diag(1.0, 1.0, PI * PI, cfg.unknownSpeedStd * cfg.unknownSpeedStd, cfg.initialBiasStd * cfg.initialBiasStd)
+    private val x = DoubleArray(N)
+    private var p = Mat.diag(
+        1.0, 1.0, PI * PI, cfg.unknownSpeedStd * cfg.unknownSpeedStd, cfg.initialBiasStd * cfg.initialBiasStd,
+        cfg.speedScaleInitialStd * cfg.speedScaleInitialStd,
+    )
     private var headingKnown = false
     private var lastT = Long.MIN_VALUE
     private var lastYawRate = 0.0
@@ -105,6 +112,10 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
     private var dirlessDist = 0.0
     private var compass = Compass(cfg.compass)
     private var nextCompassT = Long.MIN_VALUE
+    /** Latest speedometer scale estimate (fraction, std), for UI; safe to read from another thread. */
+    @Volatile var speedScaleStatus: Pair<Double, Double>? = null
+        private set
+
     /** Latest compass state for UI/diagnostics (published at 1 Hz; safe to read from another thread). */
     @Volatile var compassStatus: CompassStatus? = null
         private set
@@ -127,9 +138,12 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
         }
         stationary = u.stationary
         if (u.stationary) {
-            // ZUPT: speed is zero; the measured yaw rate is pure bias.
-            update1(IDX_V, 0.0, 0.05 * 0.05)
-            update1(IDX_B, u.yawRateUp, 0.003 * 0.003)
+            // ZUPT: speed is zero; the measured yaw rate is pure bias. These are *local* updates (only
+            // v and b move): after a long outage, P couples bias to position with a huge lever (heading
+            // drift × distance), and one noisy bias sample would otherwise teleport the position by
+            // hundreds of metres (seen in replay: 2 m → 178 m at the first stop). See D-028.
+            updateLocal(IDX_V, 0.0, 0.05 * 0.05)
+            updateLocal(IDX_B, u.yawRateUp, 0.003 * 0.003)
         }
         compass.onMotion(u, x[IDX_B])
         if (cfg.compass.enabled && u.tNs >= nextCompassT) {
@@ -165,8 +179,12 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
             is PowerState -> compass.onPower(m)
             is VehicleSpeedMeasurement -> {
                 propagateTo(m.tNs, lastYawRate)
-                update1(IDX_V, m.speedMps, max(m.stdMps, 0.05).let { it * it })
+                // Speedometer model: z = v·(1 + s). The scale error s (tyre wear, tyre size, OEM
+                // over-reading) is learned while trusted GNSS speed is available, then kept during outages.
+                val h = DoubleArray(N).also { it[IDX_V] = 1 + x[IDX_S]; it[IDX_S] = x[IDX_V] }
+                updateH(h, m.speedMps - x[IDX_V] * (1 + x[IDX_S]), max(m.stdMps, 0.05).let { it * it })
                 clampSpeed()
+                speedScaleStatus = x[IDX_S] to sqrt(p[IDX_S, IDX_S])
             }
             else -> Unit
         }
@@ -266,6 +284,7 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
         q[IDX_PSI, IDX_PSI] = cfg.headingRandomWalk * cfg.headingRandomWalk * dt + turn * turn
         q[IDX_V, IDX_V] = cfg.speedRandomWalk * cfg.speedRandomWalk * dt
         q[IDX_B, IDX_B] = cfg.biasRandomWalk * cfg.biasRandomWalk * dt
+        q[IDX_S, IDX_S] = cfg.speedScaleRandomWalk * cfg.speedScaleRandomWalk * dt
 
         if (initialized && headingKnown) {
             x[0] += v * sin(psi) * dt
@@ -290,6 +309,34 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
 
     // ------------------------------------------------------------------------------------------
     // Updates
+
+    /** Scalar update with a general measurement row [h] and innovation [innov]. */
+    private fun updateH(h: DoubleArray, innov: Double, r: Double) {
+        val ph = DoubleArray(N) { i -> (0 until N).sumOf { j -> p[i, j] * h[j] } }
+        val s = (0 until N).sumOf { h[it] * ph[it] } + r
+        val k = DoubleArray(N) { ph[it] / s }
+        for (i in 0 until N) x[i] += k[i] * innov
+        x[IDX_PSI] = Geo.wrapRad(x[IDX_PSI])
+        val newP = p.copy()
+        for (i in 0 until N) for (j in 0 until N) newP[i, j] = p[i, j] - k[i] * ph[j]
+        p = newP.symmetrize()
+    }
+
+    /**
+     * Scalar update of state [idx] only (a Schmidt-style "consider" update): the other states keep their
+     * values, and P is updated with the Joseph form for that suboptimal gain, so it stays consistent.
+     */
+    private fun updateLocal(idx: Int, z: Double, r: Double) {
+        val k = p[idx, idx] / (p[idx, idx] + r)
+        x[idx] += k * (z - x[idx])
+        // A = I − K·H with K = k·e_idx, H = e_idx: only row idx of A differs from I.
+        val a = Mat.identity(N).also { it[idx, idx] = 1 - k }
+        val kk = Mat(N, N).also { it[idx, idx] = k * k * r }
+        p = (a * p * a.t() + kk).symmetrize()
+    }
+
+    /** Current speedometer scale estimate (fraction) and its std, for diagnostics. */
+    fun speedScale(): Pair<Double, Double> = x[IDX_S] to sqrt(p[IDX_S, IDX_S])
 
     private fun update1(idx: Int, z: Double, r: Double, angular: Boolean = false) {
         var innov = z - x[idx]
@@ -391,9 +438,10 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
     }
 
     private companion object {
-        const val N = 5
+        const val N = 6
         const val IDX_PSI = 2
         const val IDX_V = 3
         const val IDX_B = 4
+        const val IDX_S = 5
     }
 }

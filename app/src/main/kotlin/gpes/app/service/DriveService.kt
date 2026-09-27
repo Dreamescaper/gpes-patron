@@ -26,6 +26,7 @@ import gpes.app.source.AndroidLocationSource
 import gpes.app.source.GnssRawSource
 import gpes.app.source.CellSource
 import gpes.app.source.PowerSource
+import gpes.app.source.ObdSource
 import gpes.app.source.SensorSource
 import gpes.app.source.WifiSource
 import android.telephony.TelephonyManager
@@ -89,12 +90,14 @@ class DriveService : Service() {
         const val EXTRA_TARGETS = "targets"
         const val EXTRA_LABEL = "label"
         const val EXTRA_USE_QUESTIONABLE = "useQuestionable"
+        const val EXTRA_OBD_ADDRESS = "obdAddress"
         private const val CHANNEL = "drive"
         private const val NOTIF_ID = 1
 
-        fun start(ctx: Context, mode: RunMode, targets: Set<MockTarget>, useQuestionable: Boolean = false) {
+        fun start(ctx: Context, mode: RunMode, targets: Set<MockTarget>, useQuestionable: Boolean = false, obdAddress: String? = null) {
             val i = Intent(ctx, DriveService::class.java).setAction(ACTION_START)
                 .putExtra(EXTRA_MODE, mode.name)
+                .putExtra(EXTRA_OBD_ADDRESS, obdAddress)
                 .putExtra(EXTRA_USE_QUESTIONABLE, useQuestionable)
                 .putExtra(EXTRA_TARGETS, targets.map { it.name }.toTypedArray())
             ctx.startForegroundService(i)
@@ -120,7 +123,7 @@ class DriveService : Service() {
                 val targets = intent.getStringArrayExtra(EXTRA_TARGETS)?.map { MockTarget.valueOf(it) }?.toSet() ?: emptySet()
                 goForeground(mode)
                 val baseline = BaselineConfig(questionableRScale = if (intent.getBooleanExtra(EXTRA_USE_QUESTIONABLE, false)) 4.0 else null)
-                session = Session(this, mode, if (mode.mock) targets else emptySet(), baseline).also { it.start() }
+                session = Session(this, mode, if (mode.mock) targets else emptySet(), baseline, intent.getStringExtra(EXTRA_OBD_ADDRESS)).also { it.start() }
             }
             ACTION_STOP -> {
                 session?.stop()
@@ -160,6 +163,7 @@ private class Session(
     private val mode: RunMode,
     private val targets: Set<MockTarget>,
     private val baselineConfig: BaselineConfig,
+    private val obdAddress: String?,
 ) {
     private val id = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
     private val file = File(DriveStorage.dir(ctx), "$id.db")
@@ -177,9 +181,13 @@ private class Session(
     private val sensorSource = SensorSource(ctx.getSystemService(SensorManager::class.java), handler)
     private val gnssRaw = GnssRawSource(ctx, handler)
     private val wifi = WifiSource(ctx, handler)
+    private val obd: ObdSource? = obdAddress?.let { addr ->
+        ObdSource(ctx, addr, post = { m -> handler.post { sink.emit(m) } }, record = { r -> writer.write(r) })
+    }
     private val sources: List<MeasurementSource> = buildList {
         add(AndroidLocationSource(ctx, handler)); add(gnssRaw); add(sensorSource); add(wifi); add(PowerSource(ctx, handler))
         ctx.getSystemService(TelephonyManager::class.java)?.let { add(CellSource(it, handler)) }
+        obd?.let { add(it) }
     }
 
     // Written on the handler thread, read by the status ticker.
@@ -217,6 +225,7 @@ private class Session(
             putJsonArray("mockTargets") { targets.forEach { add(it.name) } }
             put("imuPeriodUs", 10_000)
             put("estimator", if (mode.estimate) "baseline" else "none")
+            put("obdAddress", obdAddress ?: "")
             put("baseline", DriveJson.json.encodeToJsonElement(BaselineConfig.serializer(), baselineConfig))
         }
         writer.write(
@@ -304,6 +313,8 @@ private class Session(
                 wifiAps = lastWifi?.let { w -> w.aps.size to ((now - w.tNs) / 1_000_000_000) },
                 wifiScans = wifi.scansRequested to wifi.scansThrottled,
                 compass = estimator?.compassStatus,
+                obd = obd?.status,
+                speedScale = estimator?.speedScaleStatus,
             )
         }
     }
