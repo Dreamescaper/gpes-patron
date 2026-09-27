@@ -54,6 +54,9 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
   - a single-turn circle fit gave confident 44° errors;
   - repeated compass updates made heading overconfident;
   - the network σ-rule blocked averaging of coarse fixes (D-021).
+- Process slip: one commit (094ced4) went in with a failing seed-sensitive test, because a piped
+  `grep` hid the Gradle exit code. The sim now draws no random numbers for disabled options, and
+  the test was re-checked over 6 seeds. Rule: check the Gradle exit code before committing.
 - App: `GeomagneticReference` from `android.hardware.GeomagneticField` at the first real fix and
   every 50 km. Emulator: declination 8.8°, inclination 67.7°, 51.1 µT for Kyiv.
 - Simulator: GRV, magnetometer model, optional gyro scale error and bias walk (D-022).

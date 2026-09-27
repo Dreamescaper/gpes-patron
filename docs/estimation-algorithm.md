@@ -190,7 +190,9 @@ an **ellipse**: soft iron gives the shape, hard iron the offset.
 
 Simulation, measured:
 - Full heading coverage with anomalies: p95 7.9°; without anomalies: 4.1°.
-- Short drive with partial coverage: GNSS-aligned p95 < 12°, with > 90% of errors within 2σ.
+- Short drive with partial coverage: GNSS-aligned p95 3–6° over 6 seeds, with 100% of errors
+  within 2σ. The mean σ is about 16°, so the sigma model is deliberately conservative: real cars will
+  be worse than the simulation.
 - Uncalibrated p50 < 20°.
 - Real cars and holders may be much worse, so this needs validation (see progress).
 

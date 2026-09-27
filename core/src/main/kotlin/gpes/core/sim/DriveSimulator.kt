@@ -179,7 +179,7 @@ object DriveSimulator {
             // Yaw rate about up (CCW positive) = −bearing rate.
             val wVeh = doubleArrayOf(0.0, 0.0, -bearingRate)
             val fPh = mul(rot, fVeh)
-            biasZ += rnd.gauss() * cfg.gyroBiasWalk * kotlin.math.sqrt(dt)
+            if (cfg.gyroBiasWalk > 0) biasZ += rnd.gauss() * cfg.gyroBiasWalk * kotlin.math.sqrt(dt)
             val wPh = mul(rot, wVeh).let { w -> DoubleArray(3) { w[it] * (1 + cfg.gyroScaleError) } }
             val biasPh = mul(rot, doubleArrayOf(0.0, 0.0, biasZ))
             records += ImuSample(t, ImuKind.ACCEL, fPh[0] + rnd.gauss() * cfg.accelNoise, fPh[1] + rnd.gauss() * cfg.accelNoise, fPh[2] + rnd.gauss() * cfg.accelNoise)

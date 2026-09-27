@@ -45,6 +45,9 @@ These are part of "done". A change is not finished until the docs reflect it.
    incompatible SQLite changes.
 7. Use absolute dates (YYYY-MM-DD). Be honest about what was and was not verified on a real device.
 
+8. Before committing, run the tests and check the **exit code** (don't pipe Gradle through
+   `grep`/`head` in a way that hides failures).
+
 ## Invariants — do not break
 
 - **GNSS is untrusted evidence.** Never treat it as ground truth inside the estimator.
