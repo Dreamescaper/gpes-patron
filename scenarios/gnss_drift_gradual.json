@@ -1,0 +1,1 @@
+{"name":"gnss_drift_gradual","description":"GNSS gradually drifts north at 2 m/s for 5 min (velocity not adjusted).","steps":[{"type":"drift","startS":120,"durationS":300,"rateMps":2.0,"bearingDeg":0}]}

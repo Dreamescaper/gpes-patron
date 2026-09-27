@@ -8,6 +8,7 @@ import gpes.core.model.ImuKind
 import gpes.core.model.ImuSample
 import gpes.core.model.LocSource
 import gpes.core.model.LocationMeasurement
+import gpes.core.model.RecordOrder
 import gpes.core.model.SatInfo
 import gpes.core.model.SessionInfo
 import kotlinx.serialization.Serializable
@@ -84,6 +85,7 @@ data class SimConfig(
     }
 }
 
+@Serializable
 data class TruthSample(val tNs: Long, val lat: Double, val lon: Double, val bearingDeg: Double, val speedMps: Double)
 
 data class SimDrive(val records: List<DriveRecord>, val truth: List<TruthSample>)
@@ -182,7 +184,7 @@ object DriveSimulator {
                 repeat(steps) { step(leg.speedMps, rate) }
             }
         }
-        records.sortWith(compareBy { it.tNs })
+        records.sortWith(RecordOrder.comparator)
         return SimDrive(records, truth)
     }
 

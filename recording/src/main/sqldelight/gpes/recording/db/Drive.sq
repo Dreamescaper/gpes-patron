@@ -1,0 +1,131 @@
+-- Drive bundle schema. One SQLite file per recorded session.
+-- All t_ns / recv_ns are Android elapsedRealtimeNanos, stored exactly as received.
+-- Child rows of list-shaped records (satellites, raw measurements, AGC) share the parent's t_ns.
+
+CREATE TABLE schema_version (version INTEGER NOT NULL);
+
+CREATE TABLE session (
+  session_id TEXT NOT NULL PRIMARY KEY,
+  anchor_elapsed_ns INTEGER NOT NULL,
+  anchor_wall_ms INTEGER NOT NULL,
+  device TEXT NOT NULL,
+  manufacturer TEXT NOT NULL,
+  model TEXT NOT NULL,
+  android_sdk INTEGER NOT NULL,
+  app_version TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  notes TEXT NOT NULL,
+  config_json TEXT NOT NULL
+);
+
+CREATE TABLE sensor_info (
+  t_ns INTEGER NOT NULL, type INTEGER NOT NULL, string_type TEXT NOT NULL, name TEXT NOT NULL, vendor TEXT NOT NULL,
+  version INTEGER NOT NULL, resolution REAL NOT NULL, max_range REAL NOT NULL, min_delay_us INTEGER NOT NULL,
+  max_delay_us INTEGER NOT NULL, fifo_max_events INTEGER NOT NULL, power_ma REAL NOT NULL
+);
+
+CREATE TABLE location (
+  t_ns INTEGER NOT NULL, recv_ns INTEGER NOT NULL, source TEXT NOT NULL, provider TEXT NOT NULL,
+  lat REAL NOT NULL, lon REAL NOT NULL, alt_m REAL, h_acc_m REAL, v_acc_m REAL,
+  speed_mps REAL, speed_acc_mps REAL, bearing_deg REAL, bearing_acc_deg REAL,
+  wall_time_ms INTEGER NOT NULL, is_mock INTEGER NOT NULL, sats_used INTEGER, extras_json TEXT
+);
+CREATE INDEX location_t ON location(t_ns);
+
+CREATE TABLE provider_event (t_ns INTEGER NOT NULL, provider TEXT NOT NULL, event TEXT NOT NULL);
+
+CREATE TABLE imu (
+  t_ns INTEGER NOT NULL, kind TEXT NOT NULL, x REAL NOT NULL, y REAL NOT NULL, z REAL NOT NULL,
+  bx REAL, by REAL, bz REAL, accuracy INTEGER NOT NULL
+);
+CREATE INDEX imu_t ON imu(t_ns);
+
+CREATE TABLE orientation (
+  t_ns INTEGER NOT NULL, kind TEXT NOT NULL, qw REAL NOT NULL, qx REAL NOT NULL, qy REAL NOT NULL, qz REAL NOT NULL,
+  heading_acc_rad REAL
+);
+
+CREATE TABLE gnss_status (t_ns INTEGER NOT NULL PRIMARY KEY, sat_count INTEGER NOT NULL);
+CREATE TABLE gnss_sat (
+  t_ns INTEGER NOT NULL, svid INTEGER NOT NULL, constellation INTEGER NOT NULL, cn0_dbhz REAL NOT NULL,
+  elev_deg REAL NOT NULL, az_deg REAL NOT NULL, used_in_fix INTEGER NOT NULL, has_ephemeris INTEGER NOT NULL,
+  has_almanac INTEGER NOT NULL, carrier_hz REAL, baseband_cn0_dbhz REAL
+);
+CREATE INDEX gnss_sat_t ON gnss_sat(t_ns);
+
+CREATE TABLE gnss_clock (
+  t_ns INTEGER NOT NULL PRIMARY KEY, time_nanos INTEGER NOT NULL, leap_second INTEGER, time_unc_nanos REAL,
+  full_bias_nanos INTEGER, bias_nanos REAL, bias_unc_nanos REAL, drift_nsps REAL, drift_unc_nsps REAL,
+  hw_clock_discontinuity_count INTEGER NOT NULL
+);
+CREATE TABLE gnss_meas (
+  t_ns INTEGER NOT NULL, svid INTEGER NOT NULL, constellation INTEGER NOT NULL, time_offset_nanos REAL NOT NULL,
+  state INTEGER NOT NULL, received_sv_time_nanos INTEGER NOT NULL, received_sv_time_unc_nanos INTEGER NOT NULL,
+  cn0_dbhz REAL NOT NULL, pseudorange_rate_mps REAL NOT NULL, pseudorange_rate_unc_mps REAL NOT NULL,
+  adr_state INTEGER NOT NULL, adr_m REAL NOT NULL, adr_unc_m REAL NOT NULL, carrier_hz REAL,
+  multipath INTEGER NOT NULL, snr_db REAL, agc_db REAL, baseband_cn0_dbhz REAL, code_type TEXT
+);
+CREATE INDEX gnss_meas_t ON gnss_meas(t_ns);
+CREATE TABLE gnss_agc (t_ns INTEGER NOT NULL, constellation INTEGER NOT NULL, carrier_hz REAL NOT NULL, level_db REAL NOT NULL);
+
+CREATE TABLE nmea (t_ns INTEGER NOT NULL, text TEXT NOT NULL);
+
+CREATE TABLE vehicle_speed (t_ns INTEGER NOT NULL, speed_mps REAL NOT NULL, std_mps REAL NOT NULL, source TEXT NOT NULL);
+
+CREATE TABLE annotation (t_ns INTEGER NOT NULL, label TEXT NOT NULL, note TEXT NOT NULL);
+
+CREATE TABLE trust (
+  t_ns INTEGER NOT NULL, source TEXT NOT NULL, provider TEXT NOT NULL, state TEXT NOT NULL,
+  confidence REAL NOT NULL, reasons TEXT NOT NULL, innovation_nis REAL, implied_speed_mps REAL
+);
+
+CREATE TABLE estimate (
+  t_ns INTEGER NOT NULL, estimator TEXT NOT NULL, lat REAL NOT NULL, lon REAL NOT NULL,
+  cov_ee REAL NOT NULL, cov_en REAL NOT NULL, cov_nn REAL NOT NULL, accuracy_m REAL NOT NULL,
+  heading_rad REAL, heading_std_rad REAL, speed_mps REAL, speed_std_mps REAL,
+  mode TEXT NOT NULL, confidence REAL NOT NULL, hypotheses_json TEXT
+);
+
+-- Inserts ------------------------------------------------------------------------------------
+
+insertVersion: INSERT INTO schema_version VALUES (?);
+insertSession: INSERT OR REPLACE INTO session VALUES ?;
+insertSensorInfo: INSERT INTO sensor_info VALUES ?;
+insertLocation: INSERT INTO location VALUES ?;
+insertProviderEvent: INSERT INTO provider_event VALUES ?;
+insertImu: INSERT INTO imu VALUES ?;
+insertOrientation: INSERT INTO orientation VALUES ?;
+insertGnssStatus: INSERT OR REPLACE INTO gnss_status VALUES ?;
+insertGnssSat: INSERT INTO gnss_sat VALUES ?;
+insertGnssClock: INSERT OR REPLACE INTO gnss_clock VALUES ?;
+insertGnssMeas: INSERT INTO gnss_meas VALUES ?;
+insertGnssAgc: INSERT INTO gnss_agc VALUES ?;
+insertNmea: INSERT INTO nmea VALUES ?;
+insertVehicleSpeed: INSERT INTO vehicle_speed VALUES ?;
+insertAnnotation: INSERT INTO annotation VALUES ?;
+insertTrust: INSERT INTO trust VALUES ?;
+insertEstimate: INSERT INTO estimate VALUES ?;
+
+-- Reads (ordered by time; rowid breaks ties in insertion order) ------------------------------
+
+selectVersion: SELECT version FROM schema_version LIMIT 1;
+selectSession: SELECT * FROM session;
+selectSensorInfo: SELECT * FROM sensor_info;
+selectLocation: SELECT * FROM location ORDER BY t_ns, rowid;
+selectProviderEvent: SELECT * FROM provider_event ORDER BY t_ns, rowid;
+selectImu: SELECT * FROM imu ORDER BY t_ns, rowid;
+selectOrientation: SELECT * FROM orientation ORDER BY t_ns, rowid;
+selectGnssStatus: SELECT * FROM gnss_status ORDER BY t_ns;
+selectGnssSat: SELECT * FROM gnss_sat ORDER BY t_ns, rowid;
+selectGnssClock: SELECT * FROM gnss_clock ORDER BY t_ns;
+selectGnssMeas: SELECT * FROM gnss_meas ORDER BY t_ns, rowid;
+selectGnssAgc: SELECT * FROM gnss_agc ORDER BY t_ns, rowid;
+selectNmea: SELECT * FROM nmea ORDER BY t_ns, rowid;
+selectVehicleSpeed: SELECT * FROM vehicle_speed ORDER BY t_ns, rowid;
+selectAnnotation: SELECT * FROM annotation ORDER BY t_ns, rowid;
+selectTrust: SELECT * FROM trust ORDER BY t_ns, rowid;
+selectEstimate: SELECT * FROM estimate ORDER BY t_ns, rowid;
+
+countImu: SELECT count(*) FROM imu;
+countLocation: SELECT count(*) FROM location;
+timeRange: SELECT min(t_ns), max(t_ns) FROM imu;

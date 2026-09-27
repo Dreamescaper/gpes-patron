@@ -77,6 +77,8 @@ data class TrustConfig(
      * null disables it.
      */
     val resetAfterConsistentS: Double? = 120.0,
+    /** Same as [resetAfterConsistentS], but when a fresh network fix agrees with the stream. */
+    val resetWithNetworkS: Double? = 15.0,
     val unavailableAfterS: Double = 5.0,
     /** Baseline for comparing position displacement with integrated reported velocity. */
     val velocityWindowS: Double = 10.0,
@@ -131,6 +133,7 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
         val hits = ArrayList<Hit>()
         var nis: Double? = null
         var impliedSpeed: Double? = null
+        var networkAgrees = false
 
         if (m.isSynthetic) hits += Hit(TrustReason.SYNTHETIC_INPUT, TrustState.REJECTED)
         if (m.provider in overridden) hits += Hit(TrustReason.SOURCE_OVERRIDDEN, TrustState.UNAVAILABLE)
@@ -157,7 +160,7 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
                 checkCourse(m, st.prev, ctx.motion, hits)
                 checkVelocityConsistency(m, st.recent, hits)
                 checkStationary(m, ctx.motion, hits)
-                checkNetwork(m, hits)
+                networkAgrees = checkNetwork(m, hits)
                 if (m.source == LocSource.GNSS) checkRawGnss(m, hits)
             }
             else -> Unit
@@ -176,10 +179,12 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
                     val start = if (consistent) st.streamStart!! else m
                     newSt = newSt.copy(recoveryNeeded = cfg.recoveryConsecutive, streamStart = start, streamLast = m)
                     val resettable = setOf(
-                        TrustReason.IMPOSSIBLE_VELOCITY, TrustReason.INNOVATION_GATE, TrustReason.IMPOSSIBLE_ACCELERATION,
+                        TrustReason.INNOVATION_GATE, TrustReason.IMPOSSIBLE_ACCELERATION,
                         TrustReason.RECOVERING, TrustReason.CN0_UNIFORM, TrustReason.COURSE_GYRO_MISMATCH, TrustReason.VELOCITY_POSITION_MISMATCH,
                     )
-                    val reset = cfg.resetAfterConsistentS
+                    // Never reset onto a physically unreachable position (IMPOSSIBLE_VELOCITY is not resettable).
+                    // Independent agreement from a coarse fix shortens the wait.
+                    val reset = if (networkAgrees) cfg.resetWithNetworkS else cfg.resetAfterConsistentS
                     if (reset != null && reasons.all { it in resettable } &&
                         (m.tNs - start.tNs) / 1e9 >= reset
                     ) {
@@ -320,14 +325,16 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
         }
     }
 
-    private fun checkNetwork(m: LocationMeasurement, hits: MutableList<Hit>) {
-        val net = lastNetwork ?: return
+    /** Returns true when a fresh coarse fix independently agrees with [m]. */
+    private fun checkNetwork(m: LocationMeasurement, hits: MutableList<Hit>): Boolean {
+        val net = lastNetwork ?: return false
         val ageS = abs(m.tNs - net.tNs) / 1e9
-        if (ageS > cfg.networkMaxAgeS) return
+        if (ageS > cfg.networkMaxAgeS) return false
         val d = Geo.haversineM(net.lat, net.lon, m.lat, m.lon)
         val allow = cfg.networkK * ((net.hAccM ?: 1000.0) + (m.hAccM ?: 50.0)) + ageS * 30.0
         if (d > allow + cfg.networkImpossibleM) hits += Hit(TrustReason.GEOGRAPHICALLY_IMPOSSIBLE, TrustState.REJECTED)
         else if (d > allow) hits += Hit(TrustReason.NETWORK_DISAGREEMENT, TrustState.QUESTIONABLE, 0.5)
+        return d <= allow
     }
 
     private fun checkRawGnss(m: LocationMeasurement, hits: MutableList<Hit>) {

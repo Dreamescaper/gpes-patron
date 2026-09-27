@@ -1,0 +1,1 @@
+{"name":"gnss_drop_2min","description":"GNSS removed for 2 min.","steps":[{"type":"drop_source","source":"GNSS","startS":120,"durationS":120}]}

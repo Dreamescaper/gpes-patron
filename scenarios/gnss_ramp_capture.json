@@ -1,0 +1,1 @@
+{"name":"gnss_ramp_capture","description":"Spoofer capture: offset ramps to 1 km over 2 min and is held for 3 more.","steps":[{"type":"offset","startS":120,"durationS":300,"dEastM":700,"dNorthM":700,"rampS":120}]}

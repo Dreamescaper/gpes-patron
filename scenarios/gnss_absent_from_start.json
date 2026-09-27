@@ -1,0 +1,1 @@
+{"name":"gnss_absent_from_start","description":"GNSS never available: startup from coarse/network location only.","steps":[{"type":"drop_source","source":"GNSS","startS":0}]}

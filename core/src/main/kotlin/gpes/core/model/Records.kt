@@ -269,3 +269,27 @@ data class SensorInfo(
     val fifoMaxEvents: Int,
     val powerMa: Double,
 ) : DriveRecord
+
+/**
+ * Canonical ordering of records: by time, then by kind. Sources such as live Android callbacks,
+ * SQLite tables and JSONL all normalize to this, so replay is identical whatever storage produced
+ * it. Sorting is stable, so records of the same kind at the same time keep their order.
+ */
+object RecordOrder {
+    private fun rank(r: DriveRecord): Int = when (r) {
+        is SessionInfo -> 0
+        is SensorInfo -> 1
+        is ProviderEvent -> 2
+        is ImuSample -> 3
+        is OrientationSample -> 4
+        is GnssStatusSnapshot -> 5
+        is GnssMeasurementBatch -> 6
+        is NmeaSentence -> 7
+        is VehicleSpeedMeasurement -> 8
+        is LocationMeasurement -> 9
+        is Annotation -> 10
+        else -> 11
+    }
+
+    val comparator: Comparator<DriveRecord> = compareBy<DriveRecord> { it.tNs }.thenBy { rank(it) }
+}

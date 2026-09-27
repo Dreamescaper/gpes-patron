@@ -1,0 +1,1 @@
+{"name":"gnss_noise_overconfident","description":"GNSS error 40 m sigma while still reporting good accuracy (multipath / low-power jamming).","steps":[{"type":"inflate_noise","source":"GNSS","startS":120,"durationS":180,"sigmaM":40}]}

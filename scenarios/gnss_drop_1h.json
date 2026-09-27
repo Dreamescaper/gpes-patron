@@ -1,0 +1,1 @@
+{"name":"gnss_drop_1h","description":"GNSS removed for 1 h, then returns (tests recovery after a long outage).","steps":[{"type":"drop_source","source":"GNSS","startS":120,"durationS":3600}]}

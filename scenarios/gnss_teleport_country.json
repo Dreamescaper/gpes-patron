@@ -1,0 +1,1 @@
+{"name":"gnss_teleport_country","description":"GNSS jumps to Lima (another continent) with a consistent moving track for 5 min.","steps":[{"type":"teleport","startS":120,"durationS":300,"lat":-12.0464,"lon":-77.0428}]}

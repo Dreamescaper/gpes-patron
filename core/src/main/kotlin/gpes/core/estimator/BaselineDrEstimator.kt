@@ -26,8 +26,10 @@ import kotlin.math.sqrt
 data class BaselineConfig(
     /** Minimum GNSS speed at which its course is trusted for heading (m/s). */
     val minCourseSpeedMps: Double = 5.0,
-    /** Longitudinal speed random walk (m/s² one-sigma). Controls how fast speed becomes unknown. */
-    val speedRandomWalk: Double = 0.4,
+    /** Longitudinal speed random walk (m/s per √s). Controls how fast speed becomes unknown. */
+    val speedRandomWalk: Double = 0.7,
+    /** Speed assumed right after leaving a stop when no speed source exists (with [unknownSpeedStd]). */
+    val pullAwaySpeedMps: Double = 8.0,
     /** Position process noise (m/√s), for lateral slip and model error. */
     val posRandomWalk: Double = 0.3,
     /** Heading process noise (rad/√s): gyro noise plus mounting wobble. */
@@ -92,6 +94,13 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
     override fun onMotion(u: MotionUpdate) {
         propagateTo(u.tNs, lastYawRate)
         lastYawRate = u.yawRateUp
+        if (stationary && !u.stationary) {
+            // Pulling away: ZUPT pinned v to 0 with tiny variance, which is now meaningless.
+            // Without a speed source the new speed is genuinely unknown.
+            for (i in 0 until N) { p[IDX_V, i] = 0.0; p[i, IDX_V] = 0.0 }
+            p[IDX_V, IDX_V] = cfg.unknownSpeedStd * cfg.unknownSpeedStd
+            x[IDX_V] = cfg.pullAwaySpeedMps
+        }
         stationary = u.stationary
         if (u.stationary) {
             // ZUPT: speed is zero; the measured yaw rate is pure bias.

@@ -1,0 +1,1 @@
+{"name":"gnss_jump_5km","description":"GNSS suddenly jumps 5 km east for 2 min, then returns to truth.","steps":[{"type":"offset","startS":120,"durationS":120,"dEastM":5000,"dNorthM":0}]}

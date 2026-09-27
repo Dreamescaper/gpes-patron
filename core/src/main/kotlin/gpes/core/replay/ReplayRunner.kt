@@ -9,6 +9,7 @@ import gpes.core.model.LocSource
 import gpes.core.model.LocationMeasurement
 import gpes.core.model.Measurement
 import gpes.core.model.PositionEstimate
+import gpes.core.model.RecordOrder
 import gpes.core.model.TrustAssessment
 import gpes.core.model.TrustState
 import gpes.core.pipeline.MeasurementPipeline
@@ -157,7 +158,7 @@ class ReplayRunner(
             stream += out
         }
         stream += applier.generate(truth, end)
-        stream.sortBy { it.tNs } // stable: keeps original order for equal timestamps
+        stream.sortWith(RecordOrder.comparator)
 
         val estimates = ArrayList<PositionEstimate>()
         val trust = ArrayList<TrustAssessment>()
