@@ -63,6 +63,7 @@ by the estimator).
 | Innovation gate | NIS vs estimator prediction, 2 dof: > 13.8 → Q, > 50 → R | Q / R |
 | Course vs gyro | GNSS course change vs gyro bearing change, both > 5 m/s, dt ≤ 5 s: diff > 25° + 10°/s·dt | Q |
 | Velocity–position consistency | displacement over ~10 s vs integral of reported (Doppler) velocity: diff > 15 m + 2·(hAcc₁+hAcc₂) | Q |
+| GNSS speed vs OBD speed | fresh OBD (≤ 1.5 s): \|v_gnss − v_obd\| > 1.5 m/s + 8%·v_obd (`SPEED_OBD_MISMATCH`) | Q |
 | Moving while stationary | IMU stationary ≥ 3 s but GNSS speed > 3 m/s | Q |
 | Network disagreement | fresh network fix (≤ 120 s): d > 2·(accNet+accGnss) + 30 m/s·age → Q; beyond that by 20 km → R (`GEOGRAPHICALLY_IMPOSSIBLE`) | Q / R |
 | Raw GNSS | sats used < 4 → Q. Used-sat C/N0 std < 1 dB with ≥ 6 sats → `CN0_UNIFORM`, which only lowers confidence (low weight in Phase 1) | Q / info |
@@ -98,8 +99,8 @@ Network fixes: synthetic → R, missing accuracy or > 5 km → R, latency > 30 s
 
 ## 3. Baseline estimator (`BaselineDrEstimator`)
 
-A 2-D EKF in local ENU with state **x = [e, n, ψ, v, b]** (east, north, bearing, speed along
-bearing, gyro bias about up).
+A 2-D EKF in local ENU with state **x = [e, n, ψ, v, b, s]** (east, north, bearing, speed along
+bearing, gyro bias about up, vehicle-speed/OBD scale error).
 
 ### Propagation (on every MotionUpdate, and before every update)
 
@@ -130,8 +131,8 @@ b ← b                       (random walk σ = 2e−4 rad/s/√s)
 | GNSS course | speed ≥ 5 m/s | wrapped innovation, R = max(bAcc, 1°)²; the first course, or a jump > 60°, re-initializes ψ |
 | Network fix | TRUSTED/QUESTIONABLE, if our σ > 0.5·σ_net **or** ≥ 15 s and ≥ 150 m of odometry since the last fused one (D-021) | σ_net = 1.5·hAcc/1.51; NIS > 50 → reset to the network fix |
 | Compass heading | 1 Hz, gated (see §3b), only if σ_ψ > σ_compass (correlated errors must not average down) | wrapped innovation, R = σ_compass²; NIS > 9 → skip; initializes ψ when heading is unknown |
-| Vehicle speed (OBD/synthetic) | always | R = max(std, 0.05)² |
-| ZUPT | IMU stationary | v = 0 (R = 0.05²), b = ω_up (R = 0.003²) |
+| Vehicle speed (OBD/synthetic) | always | z = v·(1+s), H = [0,0,0,1+s,0,v], R = max(std, 0.05)² (ELM327: 0.3 m/s). s starts at 0 ± 3% with a 2e-5/√s random walk, is learned while GNSS speed is trusted, and is kept during outages (D-029) |
+| ZUPT | IMU stationary | **local** updates (only v and b move, Joseph form): v = 0 (R = 0.05²), b = ω_up (R = 0.003²). A full update let one noisy bias sample move the position by the bias-to-heading-to-position lever after a long outage (D-028) |
 
 Updates use the Joseph form, and P is symmetrized after each step.
 
