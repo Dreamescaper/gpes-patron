@@ -110,6 +110,7 @@ e ← e + v·sin ψ·dt          (only while heading is known)
 n ← n + v·cos ψ·dt
 v ← v                       (random walk σ = 0.7 m/s/√s)
 b ← b                       (random walk σ = 2e−4 rad/s/√s)
+s ← s                       (random walk σ = 2e−5 /√s; speedometer scale)
 ```
 
 - The position follows ψ: **non-holonomic constraint** (no lateral or vertical velocity) by
@@ -120,7 +121,8 @@ b ← b                       (random walk σ = 2e−4 rad/s/√s)
   (per-axis variance D²/2), and D resets on every position update.
 - **Pulling away** (stationary → moving) sets v = 8 m/s with σ_v = 10 m/s. Without a speed source,
   the speed after a stop is genuinely unknown; before this fix, ZUPT kept v ≈ 0 with tiny variance,
-  which made the filter overconfident (see D-012).
+  which made the filter overconfident (see D-012). With OBD, the next vehicle-speed update
+  (≤ 0.2 s later) overrides it.
 
 ### Updates
 
@@ -141,6 +143,9 @@ Updates use the Joseph form, and P is symmetrized after each step.
 - First trusted GNSS → position, speed and (if moving) heading. Mode GNSS_TRACKING.
 - Network only → mode COARSE_ONLY, position = network fix, covariance = network accuracy × 1.5.
   The coarse fix is **never** turned into a confident point.
+- Heading without GNSS comes from the compass once it has a reading (UNCORRECTED σ ≈ 35°, then
+  FORWARD_ALIGNED after enough turns). With OBD speed this starts real dead reckoning between
+  coarse fixes (R-006: start without GNSS, p50 ≈ 190 m).
 - Nothing → no estimate (UNINITIALIZED); mock output publishes nothing.
 
 ### Output (every 1 s tick)

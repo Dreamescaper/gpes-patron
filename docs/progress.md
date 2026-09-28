@@ -8,12 +8,12 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 |---|---|---|
 | Core models, geo, canonical ordering | ✅ done | unit tests |
 | Motion tracker (yaw via gravity, stationary) | ✅ done | sim tests (90° turn ±4° with a tilted mount) |
-| Trust evaluator (12 checks, hysteresis, reset) | ✅ done | unit + replay tests |
+| Trust evaluator (14 checks incl. velocity consistency and GNSS-vs-OBD, hysteresis, reset) | ✅ done | unit + replay tests |
 | Baseline EKF + passthrough reference | ✅ done | replay tests, matrix |
 | Pipeline: reorder, history, snapshots, rollback | ✅ done | determinism / late-delivery / rollback tests |
-| Simulator (IMU/GNSS/network with tilted mount) | ✅ done | tests, CLI |
+| Simulator (IMU/GNSS/network, tilted mount, GRV, magnetometer with car/holder distortions and anomalies, saturation, wobble, wireless charging, gyro scale/bias walk) | ✅ done | tests, CLI |
 | Recording (SQLDelight), JSONL/CSV/GnssLogger export | ✅ done | round-trip test, CLI, emulator pull |
-| Replay CLI, 13 standard scenarios, 5 variants, metrics | ✅ done | matrix on a simulated drive |
+| Replay CLI, 13 standard scenarios, 7-variant ladder, metrics | ✅ done | matrix on a simulated drive |
 | Plot script (track, error vs r68/r95, trust timeline) | ✅ done | run on simulated outputs |
 | Android acquisition (gps/network/fused, raw GNSS, 11 sensors) | ✅ done | emulator API 37 |
 | Foreground service, RECORD/ESTIMATE/MOCK modes | ✅ done | emulator |
@@ -23,8 +23,11 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 | OBD (ELM327 Bluetooth) source, speed-scale state, OBD spoof check, obd_raw recording | ✅ code + tests (fake adapter) | **not yet tested with a real adapter/car** |
 | Raw cell + Wi-Fi recording | ✅ done (recorded only; not used yet) | emulator: NR serving cell with identity/signal, Wi-Fi AP scans; CSV export |
 | Ukrainian localization (UI, notification, errors; per-app language on Android 13+) | ✅ done | emulator with the app locale set to `uk`; lint: no missing translations |
+| CI (GitHub Actions: tests, lint, APK artifact, releases) | ✅ done | green runs; CI APK signature = local debug key |
 | Real-device drive | ⏳ not yet | — |
 | Platform `gps` override keeps raw GNSS flowing | ⏳ unverified | needs a real device |
+
+Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Known limitations
 

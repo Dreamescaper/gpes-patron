@@ -42,7 +42,7 @@ hysteresis, reset on glitch, multi-lane idea, EKF-GSF yaw as a follow-up).
 Why rejected: a 24-state 3-D model assumes a rigid calibrated IMU and free 3-D motion, and EKF3
 is GPL-3. A car gains more from constraints (NHC, roads) than from states. See research.md.
 
-## D-005: 2-D EKF [e, n, ψ, v, b] with yaw from gyro·gravity — Accepted (2026-09-27)
+## D-005: 2-D EKF [e, n, ψ, v, b] with yaw from gyro·gravity — Accepted (2026-09-27); state extended by D-029 (speed scale s)
 Decision: project the gyro onto the gravity/up direction for yaw rate, which avoids needing phone
 mounting calibration. Velocity is aligned with heading (NHC).
 Alternatives: full 3-D attitude with mounting-misalignment estimation (KF-GINS style). Deferred:

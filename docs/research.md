@@ -79,4 +79,4 @@ There is no directly reusable open-source component. Conceptually, it is sequenc
 - **Formats:** GnssLogger text export.
 - **Concepts:** from PX4 EKF2, innovation gating, the delayed horizon / history buffer, GPS checks with hysteresis and reset-on-glitch. From ArduPilot EKF3, multi-lane thinking for future hypotheses. From the automotive literature, NHC and 2-D DR.
 - **Libraries:** Android platform APIs, Play Services location (fused input and fused mock), SQLDelight (one SQLite schema on Android and the JVM), kotlinx.serialization.
-- **Written ourselves (small):** mock publisher, trust checks, 5-state EKF, replay and metrics. None of these exist in reusable, license-compatible form for our assumptions.
+- **Written ourselves (small):** mock publisher, trust checks, 6-state EKF, compass iron fit, ELM327 client, replay and metrics. None of these exist in reusable, license-compatible form for our assumptions.

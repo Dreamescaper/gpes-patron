@@ -22,6 +22,7 @@ road graph, OBD speed, planned route) improve it?*
 | [docs/recording-format.md](docs/recording-format.md) | SQLite drive bundle, JSONL/CSV/GnssLogger exports |
 | [docs/replay-and-scenarios.md](docs/replay-and-scenarios.md) | Replay CLI, scenario format, variants, metrics |
 | [docs/research.md](docs/research.md) | Existing projects evaluated, and what was reused or rejected |
+| [docs/dev-guide.md](docs/dev-guide.md) | **Recipes** (add a measurement, trust check, EKF state, variant, sim feature, UI text), test and emulator workflow, **pitfalls already hit** |
 
 ## Documentation rules (keep docs in sync during implementation)
 
@@ -44,11 +45,14 @@ These are part of "done". A change is not finished until the docs reflect it.
    `docs/recording-format.md` or `docs/replay-and-scenarios.md`. Bump `DRIVE_SCHEMA_VERSION` for
    incompatible SQLite changes.
 7. Use absolute dates (YYYY-MM-DD). Be honest about what was and was not verified on a real device.
+   **Current state: nothing has been verified on a real car or phone yet (simulation + emulator only).**
 
 8. Before committing, run the tests and check the **exit code** (don't pipe Gradle through
    `grep`/`head` in a way that hides failures).
 
-9. **UI text** goes in `app/src/main/res/values/strings.xml` *and* `values-uk/strings.xml`
+9. **Pitfalls** you hit that a future session could repeat → add them to `docs/dev-guide.md`.
+
+10. **UI text** goes in `app/src/main/res/values/strings.xml` *and* `values-uk/strings.xml`
    (with Ukrainian plural forms for counts). Never hardcode user-visible strings in Kotlin. Never
    localize values that are written to recordings.
 
@@ -72,9 +76,11 @@ These are part of "done". A change is not finished until the docs reflect it.
 ```
 core/        pure Kotlin/JVM: models, geo, motion, trust, estimator, pipeline, sim, replay, future/ interfaces
 recording/   SQLDelight schema (Drive.sq), DriveWriter/Reader, JSONL/CSV/GnssLogger exporters
-replay-cli/  `replay` CLI: simulate | export | run | matrix
+replay-cli/  `replay` CLI: simulate | export | run | matrix | compass-report
 app/         Android: sources (location, raw GNSS, sensors, cell, Wi-Fi, power, OBD/ELM327), DriveService (foreground), MockLocationPublisher, Compose UI
 scenarios/   standard fault-injection scenarios (JSON)
+tools/plot/  plot_replay.py (matplotlib) for replay run directories
+.github/     CI workflow (tests, lint, APK artifact, releases on v* tags)
 docs/        see table above
 ```
 
@@ -90,6 +96,7 @@ R=replay-cli/build/install/replay/bin/replay
 $R simulate --out /tmp/sim/drive.db --network-period 20
 $R matrix --drive /tmp/sim/drive.db --truth /tmp/sim/drive.truth.json --scenario scenarios --out /tmp/sim/out
 cat /tmp/sim/out/comparison.md
+$R compass-report --drive /tmp/sim/drive.db --truth /tmp/sim/drive.truth.json --out /tmp/sim/compass
 
 # Device / emulator
 adb install -r -g app/build/outputs/apk/debug/app-debug.apk

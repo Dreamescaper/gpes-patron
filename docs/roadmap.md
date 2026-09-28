@@ -3,10 +3,26 @@
 Items move to [progress.md](progress.md) when done. Priorities: **P1** next, **P2** soon, **P3**
 later or speculative.
 
+## Suggested order for the next sessions (as of 2026-09-28)
+
+1. **Get real data** (user). RECORD_ONLY with network on, OBD adapter selected, phone in its usual
+   holder; ideally several 30–60 min urban drives with good GNSS.
+2. **Check the real recording**:
+   - sample rates, timebase annotation and `obd_raw` latency;
+   - neighbour cells and TA present?
+   - Wi-Fi throttling;
+   - `replay compass-report` verdict;
+   - OBD speed-scale estimate vs GNSS.
+   Fix the device quirks you find, and add them to dev-guide pitfalls.
+3. **Run the standard matrix on the real drives**, record them as R-00x, then tune trust,
+   stationary and compass thresholds against false rejection and calibration.
+4. **Phase 2 kickoff**: an OSM road graph plus a road-state particle filter (see below). This is
+   the main accuracy lever for hours-long outages.
+
 ## Phase 1 follow-ups (finish the baseline and the dataset)
 
-- **P1 Real drives.** Record urban drives with good GNSS in RECORD_ONLY (with network enabled),
-  then run the standard matrix. Real data is needed to tune the stationary thresholds, trust
+- **P1 Real drives.** Record urban drives with good GNSS in RECORD_ONLY (with network enabled and
+  the OBD adapter selected), then run the standard matrix. Real data is needed to tune the stationary thresholds, trust
   thresholds and random-walk constants. Target: at least 5 drives × 30 min, with at least 2
   different phones.
 - **P1 Verify on a real device** that raw GnssStatus/GnssMeasurement keep flowing while the
@@ -35,9 +51,10 @@ later or speculative.
   back to the last trustworthy snapshot and re-process without the suspect GNSS
   (`rollbackAndReplay` already exists).
 - **P2 Trust metrics per reason** in replay (a confusion matrix per check).
-- **P2 Spoof detection against consistent spoofers**: compare GNSS speed with OBD speed; compare
-  GNSS track curvature with gyro over long windows (minutes, not seconds); use raw-measurement
-  consistency (AGC/C/N0 patterns and clock drift jumps) once real data is available.
+- **P2 Spoof detection against consistent spoofers** (GNSS-vs-OBD speed is done, D-030; with OBD
+  it still misses about 80% on the 1-h drive): compare GNSS track curvature with the gyro over long
+  windows (minutes, not seconds); use raw-measurement consistency (AGC/C/N0 patterns and clock drift
+  jumps) once real data is available; escalate a sustained SPEED_OBD_MISMATCH to REJECTED.
 - **P2 Mock output forward-prediction** to "now" at publish time (it currently republishes the
   last tick with the current timestamp).
 - **P3 Streaming reader** for multi-hour drives (the current reader loads everything into memory).

@@ -18,6 +18,7 @@ offline replay/fault-injection framework to measure what each extra signal is wo
 - Architecture: [docs/architecture.md](docs/architecture.md)
 - Algorithm: [docs/estimation-algorithm.md](docs/estimation-algorithm.md)
 - Status and results: [docs/progress.md](docs/progress.md) · Roadmap: [docs/roadmap.md](docs/roadmap.md) · Decisions: [docs/decisions.md](docs/decisions.md)
+- Contributing / recipes / pitfalls: [docs/dev-guide.md](docs/dev-guide.md)
 
 ## Quick start
 

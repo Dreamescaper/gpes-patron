@@ -13,7 +13,8 @@ deliberately simple baseline, and makes every future constraint measurable:
 GNSS ──────────────┐
 Cell/Wi-Fi ────────┤
 IMU ───────────────┤
-OBD speed ─────────┤  (future: synthetic in replay today)
+OBD speed ─────────┤  (ELM327 Bluetooth; synthetic in replay)
+Compass ───────────┤  (iron-fit + alignment, self-assessed)
 OSM topology ──────┼──► probabilistic vehicle location ──► lat/lon ──► Android mock location ──► Maps/Waze
 planned route ─────┘  (future)
 ```
@@ -24,7 +25,7 @@ planned route ─────┘  (future)
 |---|---|---|---|
 | `:core` | Kotlin/JVM, no Android | kotlinx.serialization | Models, geo, motion tracker, trust evaluator, estimators, pipeline, simulator, replay and metrics, Phase 2 interfaces |
 | `:recording` | Kotlin/JVM | `:core`, SQLDelight runtime | SQLite drive-bundle schema, writer and reader, exporters |
-| `:replay-cli` | JVM application | `:recording`, sqlite-jdbc, clikt | `replay simulate/export/run/matrix` |
+| `:replay-cli` | JVM application | `:recording`, sqlite-jdbc, clikt | `replay simulate/export/run/matrix/compass-report` |
 | `:app` | Android | `:recording`, Play Services location, Compose | Acquisition, foreground service, mock publisher, UI |
 
 `:core` is the heart of the system. Android code only converts platform objects into core models,
@@ -41,14 +42,14 @@ and core outputs back into platform calls.
  WifiSource (BSSID/RSSI scans)              ──┤
  PowerSource (charging, battery current)    ──┤
  ObdSource (ELM327 over Bluetooth SPP)      ──┼─► MeasurementSink ──► DriveWriter (records everything, incl. rejected/mock)
- SensorSource (IMU, mag, rotation vectors)  ──┤         │
- [future] VehicleSpeedSource (OBD)          ──┘         ▼
+ SensorSource (IMU, mag, rotation vectors)  ──┘         │
+                                                        ▼
                                                 MeasurementPipeline
                                                   1. reorder buffer (500 ms; late fixes sorted in)
                                                   2. history ring buffer + periodic snapshots (rollback)
-                                                  3. MotionTracker → MotionUpdate (yaw rate, stationary)
+                                                  3. MotionTracker → MotionUpdate (yaw rate, stationary, up, forward axis, mount epoch, shake)
                                                   4. LocationTrustEvaluator → TrustAssessment
-                                                  5. PositionEstimator (baseline EKF / passthrough / [future] road-state)
+                                                  5. PositionEstimator (baseline EKF + compass / passthrough / [future] road-state)
                                                   6. 1 Hz ticks → PositionEstimate
                                                         │
                         ┌───────────────────────────────┼─────────────────────┐
@@ -63,8 +64,10 @@ Offline, `ReplayRunner` feeds recorded measurements, transformed by a `Scenario`
 ## Key interfaces (core)
 
 - `Measurement` (sealed): `LocationMeasurement`, `ImuSample`, `OrientationSample`,
-  `GnssStatusSnapshot`, `GnssMeasurementBatch`, `NmeaSentence`, `VehicleSpeedMeasurement`,
-  `ProviderEvent`, `Annotation`. See [data-model.md](data-model.md).
+  `GnssStatusSnapshot`, `GnssMeasurementBatch`, `NmeaSentence`, `CellScan`, `WifiScan`,
+  `GeomagneticReference`, `PowerState`, `VehicleSpeedMeasurement`, `ProviderEvent`, `Annotation`.
+  Non-input records: `SessionInfo`, `SensorInfo`, `ObdExchange`, `TrustAssessment`,
+  `PositionEstimate`. See [data-model.md](data-model.md).
 - `MeasurementSource` / `MeasurementSink`: producers and consumers. Android sources, replay, and future OBD.
 - `LocationTrustEvaluator`: `observe(m)`, `assess(fix, ctx) → TrustAssessment`, `sourceState()`,
   snapshot and restore.
@@ -117,5 +120,6 @@ implemented and tested but not yet triggered automatically (see roadmap).
   baseline immediately.
 - A `RoadGraph` implementation is loaded from OSM, possibly using GraphHopper or Barefoot
   components (see [research.md](research.md)).
-- A `VehicleSpeedSource` (Bluetooth OBD) emits `VehicleSpeedMeasurement`, which the baseline
-  already consumes.
+- More vehicle-speed sources (BLE OBD, CAN wheel speeds) emit `VehicleSpeedMeasurement`, as
+  `ObdSource` (ELM327 over Bluetooth SPP) does today. The estimator and trust check need no
+  change.
