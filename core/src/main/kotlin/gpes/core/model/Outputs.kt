@@ -80,12 +80,19 @@ data class Cov2(val ee: Double, val en: Double, val nn: Double) {
 @Serializable
 enum class EstimatorMode { UNINITIALIZED, COARSE_ONLY, GNSS_TRACKING, DEAD_RECKONING, STATIONARY }
 
-/** Phase 2+: position expressed on the road network. Null in Phase 1. */
+/** Position expressed on the road network (road matcher, Phase 2). Null when no road data. */
 @Serializable
 data class RoadState(
     val segmentId: Long,
     val distanceAlongM: Double,
     val directionForward: Boolean,
+    /** Probability of this road state among all hypotheses, including off-road. */
+    val probability: Double = 1.0,
+    /** Probability of being off the mapped roads (car park, unmapped road). */
+    val pOffRoad: Double = 0.0,
+    /** Distance driven continuously on this road with high confidence (m). */
+    val confidentM: Double = 0.0,
+    val roadName: String = "",
 )
 
 /** One candidate position. Phase 1 estimators produce exactly one. */

@@ -32,6 +32,11 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Known limitations
 
+- Road constraint (R-020): needs OBD (or GNSS speed); a road missing from OSM next to a mapped parallel
+  street can still pull the track until P(off-road) rises; the reported radius is the road-free one
+  (conservative); along-track error between turns is only partly corrected (M4 fires a few times per
+  drive); not yet run in the app or a car.
+
 - **Almost no real-world data.** Two drives (Pixel 8, R-007 with GNSS, R-008 jammed); all other
   numbers come from the simulator. Live ESTIMATE/MOCK modes have not run in a car yet.
 - **Chip dead-reckoning fixes pass as GNSS.** The Pixel 8 keeps emitting `gps` fixes with hAcc
@@ -66,6 +71,28 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 - The GnssLogger export is a best-effort subset (no carrier-phase derived fields).
 
 ## Log
+
+### 2026-10-01 — Road constraint M6: app
+- `RoadMapManager`: on each estimate (or network fix before the first estimate), at most every 1 km,
+  downloads missing tiles within 6 km from the Overpass API (POST, User-Agent set, retry after 5 min) and
+  rebuilds the network from tiles within 12 km on a background thread; the estimator reads it through
+  `BaselineDrEstimator(roads = …)` and restarts the matcher when it changes.
+- UI: "Road map (OpenStreetMap)" toggle (default on, persisted), the area-not-route privacy note, a status
+  line (tiles, segments, downloads, last error) and the road state (street, probability, confident
+  distance, or off-road). Strings in English and Ukrainian. INTERNET permission. `config_json.roads`.
+- Verified: build and lint pass. **Not run on a device or emulator**: the download path is untested
+  against the live Overpass server; replay covers the estimator side.
+
+### 2026-10-01 — Road constraint M0–M5 (D-041…D-044)
+- M0 `core/road`: `OverpassImport`, `OsmWay`, `RoadNetwork` (split at shared nodes, successors, grid index,
+  projection), `RoadTile` grid + Overpass query, `RoadTileCodec`, `RoadTileFiles`; CLI `replay roads`.
+- M1 `RoadMatcher` (HMM with OFF-ROAD) inside `BaselineDrEstimator`, on a road-free twin (D-042);
+  `PositionEstimate.road` filled; `ticks.csv` road columns.
+- M2/M3 heading and cross-track road updates; M4 `AlongTrackMatch`; honest radius from the twin (D-043, D-044).
+- M5 `RoadEdit` (`remove_roads_along_truth`, `shift_roads`) on variants.
+- Ladder rungs `phone+network+osm`, `phone+network+obd+osm` (with `--roads`).
+- Tests: `RoadNetworkTest` (7), `RoadMatcherTest` (4, incl. determinism with roads), `AlongTrackMatchTest`
+  (5). All unit tests pass. Measured: R-020. Not run in the app yet (M6).
 
 ### 2026-10-01 — Weighted coarse-odometry votes (D-040)
 - Votes weigh 1/(σ₁²+σ₂²), σ floored at 50 m. Test: `vague voters cannot outvote a precise one` (and
@@ -270,6 +297,75 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 - Research doc, core module, SQLDelight recording, replay CLI, 11 scenarios. 24 unit tests.
 
 ## Results log
+
+### R-020 (2026-10-01, working tree on de60a52) — road constraint (M1–M5)
+Road tiles from the two Overpass extracts already used for the OSM truths (cover all four drives).
+
+**M1 matcher** (on the twin; `road_right` = matched street within 15 m of truth), with OBD:
+
+| Drive (scenario) | right road | confident ≥ 100 m | right when confident | P(off) > 0.5 |
+|---|---|---|---|---|
+| 2026-09-28 jammed | 0.86 | 0.67 | 0.989 | 0.01 |
+| A jammed | 0.98 | 0.76 | 1.000 | 0.00 |
+| R-007 GNSS absent | 0.83 | 0.66 | 0.960 | 0.03 |
+| B GNSS absent (≤ 700 s) | 0.99 | 0.78 | 0.993 | 0.00 |
+
+Without OBD: right 0.74–0.90, right when confident 0.87–0.99. Wrong-but-confident stretches on R-007
+only where the EKF itself was 120–370 m off. Off-road: R-007 underground car park P(off) = 1.0; the
+parking search at the end of 2026-09-28 was on a mapped street (right 0.99), correctly not off-road.
+
+**Full matrix** (all 13 scenarios; R-007 and B ≤ 700 s), `+osm` vs the same rung without it:
+
+| Rung | R-007 p95 geo | B p95 geo | mean within95 R-007 / B |
+|---|---|---|---|
+| phone+network+obd+osm | ×0.812 | ×0.815 | 0.76 → 0.77 / 0.75 → 0.75 |
+| phone+network+osm | ×1.000 | ×1.000 | unchanged (no known speed → road off) |
+
+Largest changes with OBD: R-007 GNSS absent p50 56.4 → 47.8, p95 365 → 169 m; R-007 1-h drop p95 375 →
+140 m; R-007 teleport p50 52.9 → 1.1 m; B 1-h drop p50 11.4 → 7.7, p95 30.0 → 18.7 m. Worse: R-007
+10-min drop p95 103 → 126 m. Jammed drives (circular truth): 2026-09-28 p50 17.3 → 7.8 m, p95 51.7 → 50.8;
+A p50 15.1 → 16.7, p95 74.8 → 53.9 m. The R-019 wobble (2026-09-28 +2:40–4:25): max error 43 → 14 m,
+heading error 3.7° → 1.2°.
+
+**M4** (along-track shape) vs M3 only, GNSS-truth drives: R-007 GNSS absent along-track p50 48.9 → 46.3 m,
+p50 48.0 → 45.4; R-007 1-h drop p50 65.4 → 60.5; B 1-h drop p50 9.0 → 8.2, p95 22.4 → 20.8 m.
+
+**M5 robustness** (roads removed within 30 m of the truth for 300–480 s; window p95, m):
+
+| Drive | no road | entry 50 m / off 2.5σ | 100 m / 2.0σ | **150 m / 2.0σ** |
+|---|---|---|---|---|
+| 2026-09-28 | 53 | 106 | 43 | 42 |
+| A | 28 | 79 | 24 | 31 |
+| B GNSS absent | 58 | 57 | 67 | 57 |
+| B 1-h drop | 21 | 42 | 42 | 19 |
+| R-007 GNSS absent | 163 | 164 | 163 | 163 |
+
+Map shifted 15 m east / 30 m north (jammed truths are OSM, so this shows the bias directly): 2026-09-28
+p50 15.0 / 23.8 m, A 18.8 / 32.7 m (vs 11.1 / 13.2 unshifted, entry 50 m run). Non-road rungs are
+unchanged by the new code (regression vs de60a52).
+
+### R-019 (2026-10-01, de60a52) — heading wobble between coarse fixes: error correlation and two tuning knobs (no change)
+Symptom (2026-09-28 jammed, +2:40–+4:25, straight road at 157–158°): the heading swings 152° → 161° → 156°
+and the track drifts up to 40 m across the road between fixes. EKF log per fix: the off-road fix at 2:46
+turned the heading only −1.9°; the next two on-road fixes turned it +3.6° and +5.4° and overshot to +3°.
+The heading std stays 5–7° (back up by ~1° between fixes); 2:36 was skipped by the D-021 spacing rule.
+
+Google network error correlation vs truth (fixes ≤ 200 m off; OSM truth for the jammed drives, GNSS for
+R-007 and B): per-axis rms 26–39 m. Correlation between errors: consecutive moving fixes −0.14…+0.24,
+25–60 s −0.35…+0.26, 60–300 s ≈ 0; at stops +0.69…+0.80. So a correlated-error (bias) state would
+model little while driving; the independence assumption is about right.
+
+Tuning tried (FUSED dropped, real OBD; R-007 and B ≤ 700 s × all scenarios, both jammed drives):
+
+| Knob | Jammed 09-28 p50/p95 | Jammed A p50/p95 | R-007 p95 geo | B p95 geo | 2:40–4:25 mean \|heading err\| |
+|---|---|---|---|---|---|
+| default (headingRandomWalk 0.01, networkInflation 1.5) | 17.3 / 52 | 15.1 / 75 | 1 | 1 | 3.7° |
+| headingRandomWalk 0.005 / 0.003 | 17.4 / 50, 17.2 / 50 | 15.1 / 77, 14.7 / 77 | ×1.041 / ×1.078 | ×0.944 / ×0.941 | 4.0° / 4.1° |
+| networkInflation 2.0 / 2.5 | 19.3 / 50, 25.0 / 52 | 20.9 / 75, 34.2 / 77 | ×1.042 / ×1.127 | ×1.028 / ×1.042 | 3.6° / 3.5° |
+
+Without OBD, headingRandomWalk 0.005 / 0.003: R-007 ×1.083 / ×1.136, B ×0.966 / ×0.965. Defaults kept: with
+~30–40 m per-axis independent fix noise every 13–15 s and no road knowledge, a few degrees of heading
+error per fix is close to what a filter can do. The wobble is a case for the road constraint (Phase 2).
 
 ### R-018 (2026-10-01, working tree on 296c86e) — weighted votes (D-040), on top of R-017
 Variants file (FUSED dropped, real OBD) on R-007 and B (≤ 700 s) × all scenarios and both jammed

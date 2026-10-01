@@ -17,6 +17,7 @@ road graph, OBD speed, planned route) improve it?*
 | [docs/estimation-algorithm.md](docs/estimation-algorithm.md) | Trust evaluator, motion tracker and baseline EKF, as implemented |
 | [docs/decisions.md](docs/decisions.md) | Decision log: accepted and rejected options, with reasons |
 | [docs/roadmap.md](docs/roadmap.md) | Planned future work (Phase 2+), open questions |
+| [docs/road-constraint.md](docs/road-constraint.md) | Phase 2 design plan: road matcher + road pseudo-measurements |
 | [docs/progress.md](docs/progress.md) | Completed work, verified status, known limitations, results log |
 | [docs/data-model.md](docs/data-model.md) | Measurement and output models, units, timebase |
 | [docs/recording-format.md](docs/recording-format.md) | SQLite drive bundle, JSONL/CSV/GnssLogger exports |
@@ -80,9 +81,9 @@ These are part of "done". A change is not finished until the docs reflect it.
 ## Layout
 
 ```
-core/        pure Kotlin/JVM: models, geo, motion, trust, estimator, pipeline, sim, replay, future/ interfaces
+core/        pure Kotlin/JVM: models, geo, motion, trust, estimator, road (OSM tiles, matcher), pipeline, sim, replay, future/ interfaces
 recording/   SQLDelight schema (Drive.sq), DriveWriter/Reader, JSONL/CSV/GnssLogger exporters
-replay-cli/  `replay` CLI: simulate | export | run | matrix | compass-report
+replay-cli/  `replay` CLI: simulate | export | run | matrix | compass-report | roads
 app/         Android: sources (location, raw GNSS, sensors, cell, Wi-Fi, power, OBD/ELM327), DriveService (foreground), MockLocationPublisher, Compose UI
 scenarios/   standard fault-injection scenarios (JSON)
 tools/plot/  plot_replay.py (matplotlib) for replay run directories
@@ -108,6 +109,7 @@ $R compass-report --drive /tmp/sim/drive.db --truth /tmp/sim/drive.truth.json --
 adb install -r -g app/build/outputs/apk/debug/app-debug.apk
 adb shell appops set gpes.patron android:mock_location allow
 adb pull /storage/emulated/0/Android/data/gpes.patron/files/drives/<id>.db
+adb pull /storage/emulated/0/Android/data/gpes.patron/files/roads tiles/   # road tiles, for replay --roads
 ```
 
 CI: `.github/workflows/android.yml` runs tests, lint, the debug APK and the replay CLI on every

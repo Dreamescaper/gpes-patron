@@ -50,10 +50,24 @@ Code: `core/src/main/kotlin/gpes/core/model/`. All classes are `@Serializable` a
   wirelessCharging, mountEpoch.
 - `CompassReading`: bearingRad, sigmaRad, mode (GNSS_ALIGNED / FORWARD_ALIGNED / UNCORRECTED).
 
+## Road model (Phase 2)
+
+- `RoadState(segmentId, distanceAlongM, directionForward, probability, pOffRoad, confidentM, roadName)`
+  in `PositionEstimate.road`: the matcher's best state. `segmentId` indexes the `RoadNetwork` the
+  estimator used (ids change when tiles are added); `probability` covers the same street and travel
+  direction; added fields have defaults, so older JSON still decodes.
+- `RoadSegment` (`future/Interfaces.kt`) gained `lanes`, `layer`, `name`, `osmWayId`, `startNode`,
+  `endNode`; `oneway` means drivable only from the first to the last point.
+- `OsmWay(id, nodeIds, lats, lons, roadClass, oneway, lanes, layer, name)`: a reverse one-way way is
+  stored reversed with `oneway = true`.
+- **Road tile file** (`<tile.key>.roads`, `RoadTileCodec` v1): gzip of big-endian `int magic "GPRD"`,
+  `int version`, `int wayCount`, then per way `long id, UTF class, bool oneway, byte lanes, byte layer,
+  UTF name, int n, n × (long nodeId, int lat·1e7, int lon·1e7)`. Tile grid: `RoadTile(ix = ⌊lon/0.08⌋,
+  iy = ⌊lat/0.05⌋)`, key `r<iy>_<ix>`; a tile holds every way that touches it.
+
 ## Phase 2 placeholders
 
-- `RoadState(segmentId, distanceAlongM, directionForward)`, and `Hypothesis(weight, lat, lon, cov,
-  road)`. `PositionEstimate.hypotheses` already carries a list, so multi-hypothesis estimators need
+- `Hypothesis(weight, lat, lon, cov, road)`. `PositionEstimate.hypotheses` already carries a list, so multi-hypothesis estimators need
   no model change.
 - `future/Interfaces.kt`: `RoadGraph`, `RoadSegment`, `RoutePrior`, `PlannedManeuver`,
   `RoadStateEstimator`, `VehicleSpeedSource`.

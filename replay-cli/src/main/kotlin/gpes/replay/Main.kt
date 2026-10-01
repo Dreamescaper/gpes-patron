@@ -27,7 +27,7 @@ import gpes.recording.Exporters
 import kotlinx.serialization.builtins.ListSerializer
 import java.io.File
 
-fun main(args: Array<String>) = Replay().subcommands(Simulate(), Export(), Run(), Matrix(), CompassReportCmd()).main(args)
+fun main(args: Array<String>) = Replay().subcommands(Simulate(), Export(), Run(), Matrix(), CompassReportCmd(), RoadsCmd()).main(args)
 
 class Replay : CliktCommand(name = "replay") {
     override fun help(context: Context) =
@@ -76,23 +76,42 @@ private fun loadScenarios(files: List<File>): List<Scenario> =
         .map { DriveJson.json.decodeFromString(Scenario.serializer(), it.readText()) }
         .ifEmpty { listOf(Scenario("clean")) }
 
-private fun loadVariants(file: File?, names: List<String>): List<Variant> {
-    val all = file?.let { DriveJson.json.decodeFromString(ListSerializer(Variant.serializer()), it.readText()) } ?: Variant.standard()
-    return if (names.isEmpty()) all else names.map { n -> all.firstOrNull { it.name == n } ?: error("unknown variant '$n' (have ${all.map { it.name }})") }
+private fun loadVariants(file: File?, names: List<String>, haveRoads: Boolean = false): List<Variant> {
+    val all = file?.let { DriveJson.json.decodeFromString(ListSerializer(Variant.serializer()), it.readText()) }
+        ?: Variant.standard().filter { haveRoads || !it.roads } // +osm rungs only with --roads
+    val picked = if (names.isEmpty()) all else names.map { n -> all.firstOrNull { it.name == n } ?: error("unknown variant '$n' (have ${all.map { it.name }})") }
+    require(haveRoads || picked.none { it.roads }) { "variants ${picked.filter { it.roads }.map { it.name }} need --roads" }
+    return picked
 }
 
-private fun writeResult(r: ReplayResult, s: ReplaySummary, dir: File) {
+private fun loadRoads(dir: File?): gpes.core.road.RoadNetwork? = dir?.let {
+    gpes.core.road.RoadNetwork.build(gpes.core.road.RoadTileFiles.loadDir(it))
+}
+
+private fun writeResult(r: ReplayResult, s: ReplaySummary, dir: File, roadsIn: gpes.core.road.RoadNetwork? = null) {
     dir.mkdirs()
+    // Edited maps renumber segments; road columns refer to the unedited network only.
+    val roads = roadsIn?.takeIf { r.variant.roadEdits.isEmpty() }
     val rows = Metrics.rows(r)
     File(dir, "summary.json").writeText(pretty.encodeToString(ReplaySummary.serializer(), s))
     File(dir, "ticks.csv").bufferedWriter().use { w ->
-        w.write("t_s,est_lat,est_lon,r68_m,mode,truth_lat,truth_lon,err_m,heading_err_deg,degraded,since_degraded_s,est_speed_mps,est_heading_deg,truth_speed_mps,truth_heading_deg\n")
+        w.write("t_s,est_lat,est_lon,r68_m,mode,truth_lat,truth_lon,err_m,heading_err_deg,degraded,since_degraded_s,est_speed_mps,est_heading_deg,truth_speed_mps,truth_heading_deg,road_p_off,road_prob,road_confident_m,road_lat,road_lon,road_name,road_truth_dist_m,road_right\n")
         for ((x, e) in rows.zip(r.estimates)) {
             val tr = r.truth.at(e.tNs)
             w.write(
                 listOf(
                     x.tS, x.estLat, x.estLon, x.r68, x.mode, x.truthLat, x.truthLon, x.errM, x.headingErrDeg, x.degradedKind, x.sinceDegradedStartS,
                     e.speedMps, e.headingRad?.let { Math.toDegrees(it) }, tr?.speedMps, tr?.bearingDeg?.takeIf { !it.isNaN() },
+                    e.road?.pOffRoad, e.road?.probability, e.road?.confidentM,
+                    e.road?.let { rs -> roads?.toLatLon(rs)?.lat }, e.road?.let { rs -> roads?.toLatLon(rs)?.lon },
+                    e.road?.roadName?.replace(',', ' ')?.replace('"', ' '),
+                    if (tr != null && e.road != null && roads != null) roads.projectOnto(e.road!!.segmentId, tr.lat, tr.lon).distanceM else null,
+                    if (tr != null && e.road != null && roads != null) {
+                        // Same road = same OSM way or same street name as a road within 15 m of the truth.
+                        val seg = roads.segment(e.road!!.segmentId)!!
+                        val near = roads.project(tr.lat, tr.lon, 15.0).map { it.segment }
+                        if (near.any { it.osmWayId == seg.osmWayId || (seg.name.isNotEmpty() && it.name == seg.name) }) 1 else 0
+                    } else null,
                 ).joinToString(",") { it?.toString() ?: "" } + "\n",
             )
         }
@@ -127,19 +146,21 @@ class Run : CliktCommand(name = "run") {
     private val variantNames by option("--variant", help = "variant name(s) to run (default: all)").multiple()
     private val out by option("--out").file().default(File("replay-out"))
     private val truthFile by option("--truth", help = "optional truth JSON (list of TruthSample), e.g. from simulate").file(mustExist = true)
+    private val roadsDir by option("--roads", help = "road tile directory (from `replay roads`); enables the +osm variants").file(mustExist = true)
 
     override fun run() {
         val ms = DriveIo.load(drive).filterIsInstance<Measurement>()
         echo("loaded ${ms.size} measurements from $drive")
-        val runner = ReplayRunner()
+        val roads = loadRoads(roadsDir)
+        val runner = ReplayRunner(roads = roads)
         val truth = truthOrNull(truthFile) ?: runner.truthFrom(ms)
         echo("truth: ${truth.size} samples")
         val summaries = ArrayList<ReplaySummary>()
-        for (sc in loadScenarios(scenarios)) for (v in loadVariants(variantsFile, variantNames)) {
+        for (sc in loadScenarios(scenarios)) for (v in loadVariants(variantsFile, variantNames, roads != null)) {
             val r = runner.run(ms, sc, v, truth)
             val s = Metrics.summarize(r)
             summaries += s
-            writeResult(r, s, File(out, "${sc.name}__${v.name}"))
+            writeResult(r, s, File(out, "${sc.name}__${v.name}"), roads)
             echo("${sc.name} / ${v.name}: p50=${fmt(s.p50M)} p95=${fmt(s.p95M)} max=${fmt(s.maxM)} m, degraded p95=${fmt(s.degradedP95M)} m, within68=${fmt(s.within68, 2)}")
         }
         writeComparison(summaries, out)
@@ -153,18 +174,20 @@ class Matrix : CliktCommand(name = "matrix") {
     private val variantsFile by option("--variants").file(mustExist = true)
     private val out by option("--out").file().default(File("replay-out"))
     private val truthFile by option("--truth", help = "optional truth JSON (list of TruthSample), for simulated drives").file(mustExist = true)
+    private val roadsDir by option("--roads", help = "road tile directory (from `replay roads`); enables the +osm variants").file(mustExist = true)
 
     override fun run() {
         val summaries = ArrayList<ReplaySummary>()
-        val runner = ReplayRunner()
+        val roads = loadRoads(roadsDir)
+        val runner = ReplayRunner(roads = roads)
         for (d in drives) {
             val ms = DriveIo.load(d).filterIsInstance<Measurement>()
             val truth = truthOrNull(truthFile) ?: runner.truthFrom(ms)
-            for (sc in loadScenarios(scenarios)) for (v in loadVariants(variantsFile, emptyList())) {
+            for (sc in loadScenarios(scenarios)) for (v in loadVariants(variantsFile, emptyList(), roads != null)) {
                 val r = runner.run(ms, sc, v, truth)
                 val s = Metrics.summarize(r)
                 summaries += s
-                writeResult(r, s, File(out, "${d.nameWithoutExtension}/${sc.name}__${v.name}"))
+                writeResult(r, s, File(out, "${d.nameWithoutExtension}/${sc.name}__${v.name}"), roads)
             }
             echo("done ${d.name}")
         }
@@ -225,5 +248,35 @@ class CompassReportCmd : CliktCommand(name = "compass-report") {
         echo("held-out heading error: p50 ${fmt(summary.heldOutAll.p50Deg)}°, p95 ${fmt(summary.heldOutAll.p95Deg)}°, within 2σ ${fmt(summary.heldOutAll.within2SigmaFraction, 2)}, availability ${fmt(summary.availability, 2)}")
         for ((mode, st) in summary.heldOutByMode) echo("  $mode: n=${st.n} p50 ${fmt(st.p50Deg)}° p95 ${fmt(st.p95Deg)}° within 2σ ${fmt(st.within2SigmaFraction, 2)}")
         echo("wrote ${File(out, "compass_report.json")} and compass_timeline.csv")
+    }
+}
+
+class RoadsCmd : CliktCommand(name = "roads") {
+    override fun help(context: Context) =
+        "Convert Overpass JSON (drivable ways) into road tiles, and report how long the network takes to build."
+    private val overpass by option("--overpass", help = "Overpass JSON file (repeatable)").file(mustExist = true).multiple()
+    private val out by option("--out", help = "tile directory").file().required()
+
+    override fun run() {
+        for (f in overpass) {
+            val ways = gpes.core.road.OverpassImport.parse(f.readText())
+            val tiles = gpes.core.road.RoadTileFiles.splitByTile(ways)
+            // Merge with tiles already in the directory: a tile file holds every way that touches it.
+            for ((t, ws) in tiles) {
+                val existing = File(out, t.key + gpes.core.road.RoadTileFiles.EXT)
+                val old = if (existing.exists()) existing.inputStream().use { gpes.core.road.RoadTileCodec.read(it) } else emptyList()
+                gpes.core.road.RoadTileFiles.write(out, t, (old + ws).associateBy { it.id }.values.sortedBy { it.id })
+            }
+            echo("${f.name}: ${ways.size} ways → ${tiles.size} tiles")
+        }
+        val t0 = System.nanoTime()
+        val ways = gpes.core.road.RoadTileFiles.loadDir(out)
+        val t1 = System.nanoTime()
+        val net = gpes.core.road.RoadNetwork.build(ways)
+        val t2 = System.nanoTime()
+        val km = net.segments.sumOf { it.lengthM } / 1000
+        echo("loaded ${ways.size} ways in ${(t1 - t0) / 1_000_000} ms, built ${net.size} segments (${"%.0f".format(km)} km) in ${(t2 - t1) / 1_000_000} ms")
+        val size = (out.listFiles() ?: emptyArray()).sumOf { it.length() }
+        echo("tile files: ${out.listFiles()?.size ?: 0}, ${size / 1024} KiB")
     }
 }

@@ -102,4 +102,9 @@
     <string name="mock_err_not_selected">Застосунок не обрано для фіктивних локацій (%1$s)</string>
     <string name="mock_err_failed">Не вдалося увімкнути %1$s: %2$s</string>
     <string name="mock_err_publish">Публікація %1$s: %2$s</string>
+    <string name="roads_use">Карта доріг (OpenStreetMap)</string>
+    <string name="roads_hint">Завантажує дороги навколо авто з Overpass API (передає ділянку ~5 км, не маршрут). Для корекції позиції потрібен OBD.</string>
+    <string name="roads_tiles">Карта доріг: тайлів %1$d, сегментів %2$d, завантажується %3$d</string>
+    <string name="roads_on">Дорога: %1$s  p %2$.0f%%  упевнено %3$.0f м</string>
+    <string name="roads_off">Поза дорогами з карти (p %1$.0f%%)</string>
 </resources>

@@ -156,6 +156,9 @@ Found on the first real drive (R-007, 2026-09-28):
   should shrink both. *Robust weighting done (D-034, R-012): the 358-s snap only 42 → 37 m at the
   default threshold (18 m at 5.99); the heading still rotates. Next: a heavier-tailed error model
   instead of the ×1.5 inflation, which dilutes outlier detection (the 358-s fix is only ~3.2σ).*
+  Heading wobble between fixes on straight roads (R-019) is not fixed by tuning heading noise or
+  the fix inflation, and Google errors are nearly uncorrelated while driving (a bias state would not
+  help); the road constraint is the remedy.
   Evidence for it (R-018): the Huber-like R × NIS/9.21 still let a fix 1117 m off (drive A 699 s,
   NIS ≈ 37) move the estimate 100 m before D-040 rejected it in trust; a redescending weight
   (Student-t / Cauchy) would give it almost none.
@@ -238,6 +241,10 @@ Limiting heading corrections made it worse (D-035). A road constraint fixes a pa
 
 Goal: estimate *which road segment and where along it*, with multiple hypotheses.
 
+**Design plan (2026-10-01): [road-constraint.md](road-constraint.md); M0–M5 done (R-020).** — EKF stays; an online HMM matcher
+with an explicit off-road state feeds gated heading, cross-track and along-track (turn/bend alignment)
+pseudo-measurements; steps M0–M7. The particle filter below becomes M7.
+
 - **P1 OSM road graph.** Build an offline extract (for example a city PBF) and a `RoadGraph`
   implementation with a spatial index. Candidates: GraphHopper's OSM import (Apache-2.0), or
   Barefoot's road map (Apache-2.0). Decide and log in decisions.md.
@@ -253,6 +260,15 @@ Goal: estimate *which road segment and where along it*, with multiple hypotheses
   the matrix.
 - **P2 Turn-event detector** as its own component (angle, duration, start/end times) from the
   motion tracker.
+
+Road-constraint follow-ups (R-020):
+- **P1** first run of the app's road map on a device (download path untested), then a live drive with the
+  road constraint and real-drive calibration of the radius (it is the
+  road-free one now).
+- **P1** road constraint without OBD: speed from the accelerometer (D-036) would let the matcher work.
+- **P2** along-track: M4 fires rarely; try turn events at intersections as explicit along-track fixes.
+- **P2** R-007 10-min drop with OBD got worse (p95 103 → 126 m): inspect.
+- **P2** use the road state for spoofing detection (GNSS leaving all roads while the gyro shows none of its turns).
 
 ## Phase 3 — more evidence
 

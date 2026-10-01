@@ -5,6 +5,7 @@ import gpes.app.R
 import gpes.app.mock.MockTarget
 import gpes.core.estimator.CompassStatus
 import gpes.app.source.ObdStatus
+import gpes.app.road.RoadMapStatus
 import gpes.core.model.LocSource
 import gpes.core.model.PositionEstimate
 import gpes.core.model.TrustAssessment
@@ -47,6 +48,8 @@ data class Status(
     val obd: ObdStatus? = null,
     /** Speedometer scale error estimate (fraction, std). */
     val speedScale: Pair<Double, Double>? = null,
+    /** Road tiles (null when the road map is off). */
+    val roadMap: RoadMapStatus? = null,
     val notes: List<String> = emptyList(),
 )
 

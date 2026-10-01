@@ -110,6 +110,7 @@ private fun Screen() {
     val prefs = remember { ctx.getSharedPreferences("gpes", Context.MODE_PRIVATE) }
     var obdEnabled by remember { mutableStateOf(prefs.getBoolean("obd_enabled", false)) }
     var obdAddress by remember { mutableStateOf(prefs.getString("obd_address", null)) }
+    var roadsEnabled by remember { mutableStateOf(prefs.getBoolean("roads_enabled", true)) }
     var refresh by remember { mutableIntStateOf(0) }
 
     val perms = buildList {
@@ -138,6 +139,10 @@ private fun Screen() {
                 }
                 if (mode.estimate) {
                     CheckRow(stringResource(R.string.use_questionable), useQuestionable, !status.running) { useQuestionable = it }
+                    CheckRow(stringResource(R.string.roads_use), roadsEnabled, !status.running) {
+                        roadsEnabled = it; prefs.edit().putBoolean("roads_enabled", it).apply()
+                    }
+                    Text(stringResource(R.string.roads_hint), fontSize = 12.sp)
                 }
                 if (mode == RunMode.MOCK_OUTPUT) {
                     Spacer(Modifier.height(4.dp))
@@ -161,7 +166,7 @@ private fun Screen() {
                             if (gps) add(MockTarget.GPS)
                             if (network) add(MockTarget.NETWORK)
                         }
-                        DriveService.start(ctx, mode, targets, useQuestionable, obdAddress.takeIf { obdEnabled })
+                        DriveService.start(ctx, mode, targets, useQuestionable, obdAddress.takeIf { obdEnabled }, roadsEnabled)
                     }) { Text(stringResource(R.string.start)) }
                 } else {
                     Button(onClick = { DriveService.stop(ctx); refresh++ }) { Text(stringResource(R.string.stop)) }
@@ -358,6 +363,19 @@ private fun LivePanel(s: Status) {
                     ),
                     fontFamily = FontFamily.Monospace, fontSize = 12.sp,
                 )
+            }
+            s.roadMap?.let { r ->
+                Text(
+                    stringResource(R.string.roads_tiles, r.tilesLoaded, r.segments, r.downloading) + (r.lastError?.let { "\n$it" } ?: ""),
+                    color = if (r.lastError != null) Color(0xFFF9A825) else Color.Unspecified, fontSize = 12.sp,
+                )
+                e?.road?.let { rs ->
+                    Text(
+                        if (rs.pOffRoad > 0.5) stringResource(R.string.roads_off, rs.pOffRoad * 100)
+                        else stringResource(R.string.roads_on, rs.roadName.ifEmpty { "–" }, rs.probability * 100, rs.confidentM),
+                        fontSize = 12.sp,
+                    )
+                }
             }
             if (s.mode.mock) {
                 Text(stringResource(R.string.mock_published, s.mockPublished.toInt(), s.mockTargets.joinToString()), fontSize = 12.sp)

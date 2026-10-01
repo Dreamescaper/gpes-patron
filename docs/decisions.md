@@ -448,3 +448,63 @@ Alternatives:
 - Floors 30 / 50 / 80 m: identical results on all four drives; 50 m chosen (middle).
 - Vague voters abstain above an hAcc threshold: a second threshold with the same effect; not chosen.
 Consequences (R-018): A 699 s rejected, A p50 16.1 → 15.1 m, p95 76.7 → 74.8 m; all other runs unchanged.
+
+## D-041: Road data as OSM tiles downloaded around the current location, own compact format — Accepted (2026-10-01)
+Context: the road constraint (Phase 2) needs drivable roads with topology wherever the car is; the user
+wants the app to fetch them by itself around its location.
+Decision: a fixed grid of 0.05° × 0.08° tiles (≈ 5.6 km). A tile holds every drivable OSM way that touches
+it, with node ids, from an Overpass query (`RoadTile.overpassQuery`), stored as a gzipped binary file
+(`RoadTileCodec`, 1e-7° coordinates). The network is built from all loaded tiles at once
+(`RoadNetwork.build`): duplicate ways merge by id and ways split at shared nodes, so tile borders join
+by themselves. Car-park aisles, driveways, drive-throughs and emergency access are left out (off-road,
+not weak roads); areas and `access=no` too. Kotlin in `:core`, so the app and replay share one converter.
+Alternatives:
+- One region file: does not follow the car. Rejected after the user's answer.
+- GraphHopper or Barefoot import: heavy, routing-oriented, JVM-desktop parts; we need geometry,
+  topology and four tags. Rejected.
+- Car parks as weak roads: a matcher locked to an aisle would steer the heading while manoeuvring.
+  Rejected; they count as off-road.
+Measured: Kyiv extracts of the four drives: 9 857 ways → 15 411 segments (1 049 km), load 57 ms + build
+55 ms on the JVM, 598 KiB in 7 tiles.
+
+## D-042: EKF stays; road matcher on a road-free twin feeds gated road updates — Accepted (2026-10-01)
+Context: plan in road-constraint.md. First version ran the HMM matcher on the road-constrained EKF pose.
+Decision: `BaselineDrEstimator` with a road network keeps an internal twin that gets the same inputs but
+never uses the road. The matcher runs on the twin's pose, the constrained EKF applies the matched road
+(heading, cross-track, along-track). After two consecutive cross-track gate rejections the constrained
+EKF takes the twin's state (resync).
+Alternatives:
+- Matcher on the constrained pose: a road update confirms the road it came from; on R-007 with GNSS
+  absent it locked onto wrong roads (p50 56 → 115 m, within95 0.69 → 0.35). Rejected.
+- A road-state particle filter replacing the EKF: kept for later (M7); the EKF with soft updates can be
+  switched off per case, which the "do not overdo" requirement needs.
+
+## D-043: When road updates apply, and an honest radius — Accepted (2026-10-01)
+Decision: road updates only when the road (same street, travel direction within 45°) has probability
+≥ 0.9 for ≥ 150 m, P(off-road) ≤ 0.1, pose σ ≤ 50 m, speed ≥ 4.2 m/s with σ_v ≤ 1.5 m/s (OBD or GNSS),
+at most every 40 m, never below the road's own variance (P5), χ² gate 9. Heading only on straight road
+(< 5° over ±40 m) with the gyro straight (< 3° over the last 4 steps), σ 3°; cross-track σ² = (half
+width)²/3 + 4², only ≥ 15 m + 1σ from segment ends. The reported covariance is the road-free twin's
+whenever it is larger.
+Alternatives (R-020):
+- Entry after 50 m, off-road at 2.5σ: with the road removed along the truth (M5), the matcher locked
+  onto parallel streets 40–60 m away: window p95 48 → 106 m (2026-09-28), 20 → 79 m (A), worse than no
+  road (53, 28 m). 100 m / 2.0σ fixed the jammed drives but B lost (21 → 42 m). 150 m / 2.0σ: no worse
+  than without the road anywhere (A 31 vs 28 m, noise).
+- No intersection margin: cross-track updates near a node use the next street's normal; margin 30 m +
+  2σ cost R-007 p50 43 → 69 m; 15 m + 1σ kept most of the gain.
+- Without a known-speed condition: phone+network+osm on R-007 p95 ×1.17 (clean 35 → 164 m). With it,
+  the road is effectively off without OBD (×1.000).
+- Narrowed radius (constrained covariance): within95 0.18–0.76; along-only honest variance: 0.50–0.98.
+  The twin's radius keeps calibration (mean within95 0.76 → 0.77, 0.75 → 0.75).
+
+## D-044: Along-track position from the path shape (turns, bends) — Accepted (2026-10-01)
+Decision: `AlongTrackMatch` aligns the gyro heading profile (odometry distance back) with the matched
+road's bearing profile (from the hypothesis trail) over ≤ 250 m, shift ±50 m. Accepted only if the road
+turns ≥ 20° inside the window, the residual RMS < 6°, and no shift ≥ 15 m away is within 2× the cost.
+σ = half the width of the cost valley (≥ 4 m). Before the update, the along-track variance is restored to
+the twin's (cross-track updates on differently oriented streets shrink it without along evidence). At
+most every 150 m. A lane change (out-and-back, net ≈ 0) never qualifies.
+Measured (R-020, GNSS-truth drives): along-track p50 48.9 → 46.3 m (R-007 GNSS absent), B 1-h drop p95
+22.4 → 20.8 m. Fires a few times per drive. On the jammed drives the truth's along-track position is tied
+to OBD distance (osm_match), so it cannot judge M4.

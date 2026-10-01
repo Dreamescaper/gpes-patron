@@ -16,6 +16,10 @@ $R simulate --out sim/drive.db [--network-period 20] [--seed 1] [--config simcon
 $R export  --drive x.db --format jsonl|csv|gnsslogger --out <file|dir>
 $R run     --drive x.db|x.jsonl [--scenario file|dir]... [--variant name]... [--variants v.json] [--truth t.json] --out dir
 $R matrix  --drive a.db --drive b.db --scenario scenarios [--variants v.json] [--truth t.json] --out dir
+$R roads   --overpass area.json [--overpass more.json]... --out tiles/
+      # Overpass JSON (drivable ways) → road tiles; merges with tiles already there; prints build time
+$R run|matrix ... --roads tiles/
+      # enables the +osm rungs (road constraint); without --roads they are left out of the default ladder
 $R compass-report --drive x.db [--truth t.json] --out dir
       # verdict + reasons, fit metrics, held-out heading error per mode, compass_timeline.csv
       # (per tick: verdict, reasons, mount epoch, reading, GNSS course error, power)
@@ -24,7 +28,10 @@ $R compass-report --drive x.db [--truth t.json] --out dir
 Outputs per run (`<out>/<drive>/<scenario>__<variant>/`):
 - `summary.json`: all metrics.
 - `ticks.csv`: one row per 1 Hz estimate (estimate, truth, error, r68, mode, degraded window, and
-  estimated/true speed and heading).
+  estimated/true speed and heading). With `--roads`: `road_p_off, road_prob, road_confident_m,
+  road_lat, road_lon` (matched point), `road_name`, `road_truth_dist_m` (truth to the matched segment)
+  and `road_right` (1 if an OSM way or street of that name lies within 15 m of the truth). Empty for
+  variants with `roadEdits` (their segment ids differ).
 - `trust.csv`: every GNSS assessment with its injected offset label.
 - `error_vs_time.csv`: p50/p95 error by time since degradation began (10 s bins).
 
@@ -118,8 +125,17 @@ leaked into every rung, so R-007…R-010 "gyro-only/phone-only/phone+network" on
 | phone+synthNetwork+synthObd | baseline | on | + synthetic speed (as above) |
 | phone+obd | baseline | on | drop NETWORK, FUSED (uses recorded OBD) |
 | phone+network+obd | baseline | on | drop FUSED (recorded network + OBD) |
+| phone+network+osm | baseline + roads | on | drop FUSED, OBD; road constraint (needs `--roads`) |
+| phone+network+obd+osm | baseline + roads | on | drop FUSED; road constraint (needs `--roads`) |
 
-Custom variants go in a JSON list passed with `--variants`. Future rungs: `+osm`, `+route`.
+Custom variants go in a JSON list passed with `--variants`; `"roads": true` turns the road constraint on,
+and `"roadEdits"` alters the map for robustness tests (M5):
+`{"type":"remove_roads_along_truth","fromS":300,"toS":480,"bufferM":30}` (a road missing from OSM) and
+`{"type":"shift_roads","eastM":15,"northM":0}` (misaligned OSM). Future rung: `+route`.
+
+**Circularity:** the jammed drives' truth comes from OSM (`osm_match.py`), with along-track position
+tied to OBD distance, so `+osm` rungs score unfairly well there; use the GNSS drives with drop
+scenarios for road-constraint numbers.
 
 ## Metrics (`Metrics`)
 

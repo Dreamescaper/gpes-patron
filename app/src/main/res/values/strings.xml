@@ -101,4 +101,9 @@
     <string name="mock_err_not_selected">Not the selected mock location app (%1$s)</string>
     <string name="mock_err_failed">Mock %1$s failed: %2$s</string>
     <string name="mock_err_publish">Publishing %1$s: %2$s</string>
+    <string name="roads_use">Road map (OpenStreetMap)</string>
+    <string name="roads_hint">Downloads roads around the car from the Overpass API (sends the ~5 km area, not the route). Needs OBD to correct the position.</string>
+    <string name="roads_tiles">Road map: %1$d tiles, %2$d segments, downloading %3$d</string>
+    <string name="roads_on">Road: %1$s  p %2$.0f%%  confident %3$.0f m</string>
+    <string name="roads_off">Off the mapped roads (p %1$.0f%%)</string>
 </resources>

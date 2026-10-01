@@ -17,11 +17,22 @@ data class RoadSegment(
     val id: Long,
     val geometry: List<LatLon>,
     val lengthM: Double,
+    /** Drivable only from the first to the last point of [geometry]. */
     val oneway: Boolean,
     val roadClass: String,
-    /** Segments reachable from this segment's end (and from its start, if two-way). */
+    /**
+     * Segments that can be entered at this segment's end (and at its start, if two-way): those leaving
+     * the shared node, or two-way segments arriving at it.
+     */
     val successorsFromEnd: List<Long>,
     val successorsFromStart: List<Long>,
+    /** Total lanes from OSM, 0 when unknown. */
+    val lanes: Int = 0,
+    val layer: Int = 0,
+    val name: String = "",
+    val osmWayId: Long = 0,
+    val startNode: Long = 0,
+    val endNode: Long = 0,
 )
 
 /** Road network (for example from OSM). Used by a road-constrained estimator for candidate generation and propagation. */

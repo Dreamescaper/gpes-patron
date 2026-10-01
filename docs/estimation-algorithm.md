@@ -279,13 +279,42 @@ after PX4's EKF-GSF yaw estimator, with coarse positions instead of GNSS velocit
 
 Measured: R-011.
 
+## 3d. Road constraint (Phase 2, D-041…D-044; plan in road-constraint.md)
+
+Active only when the estimator gets a road network (`BaselineDrEstimator(cfg, roads = { network })`;
+replay rungs `+osm`).
+
+- **Road data** (`core/road`): OSM drivable ways in tiles (`RoadTile`, `RoadTileCodec`), joined into a
+  `RoadNetwork` (segments between intersections, successors respecting one-way and layer, a 200 m grid
+  index, `project(lat, lon, r)` → distance along, signed cross-track, bearing).
+- **Road-free twin** (D-042): an internal second estimator with the same inputs and no road updates.
+- **Matcher** (`RoadMatcher`, on the twin, every 10 m of odometry once the heading is known): HMM over
+  candidates = projections of the twin's pose on segments within 3σ (30–200 m), per allowed direction.
+  Emission: Gaussian cross-track distance with variance = pose variance along the road normal + road
+  variance ((half width)²/3 + 4², width from `lanes` or class), and heading vs travel bearing (σ² = EKF
+  heading variance + 10²°). Transition: Laplace in |route distance − driven distance| (β = 8 m + 0.15·step),
+  Gaussian in gyro turn − road bearing change (σ = 15° + 0.15·|turn|), routes over the graph within
+  2·step + 60 m. OFF-ROAD state: spatial likelihood of a candidate 2σ away, uniform heading, path score
+  1 nat below a perfect road step; leave 2 %/step (10 % below 15 km/h), enter 5 %/step. Road probability is
+  summed over the same street and direction; `confidentM` is the distance driven with it ≥ 0.9.
+- **Updates in the constrained EKF** (D-043), with the conditions listed there: heading = travel bearing
+  (σ 3°) on straight road with a straight gyro; cross-track (1-D along the normal); along-track from the
+  path shape (D-044). Each is skipped when the prior variance in that direction is already below the
+  measurement variance (repeated road evidence is one piece, P5), and gated at χ² 9. Two cross-track
+  rejections in a row → take the twin's state.
+- **Output**: position from the constrained EKF; covariance = the twin's when larger (honest radius);
+  `PositionEstimate.road` = the matcher's best state with probability, P(off-road), confident distance,
+  street name.
+- Without OBD the speed σ condition switches the updates off (except with GNSS speed): measured neutral.
+
 ## 4. What the baseline cannot do (by design)
 
 - Absolute heading without GNSS relies on the compass (§3b), untested on real cars yet, or on the
   heading bank (§3c), which needs coarse fixes and a few hundred metres of driving.
 - Distance without GNSS or OBD is poorly constrained, because speed is a random walk. That is why
   `synthObd` improves the 10-min outage p95 from about 1.4 km to about 250 m in simulation.
-- No map: errors grow without bound during hours-long outages. Phase 2 road-state estimation is
-  the intended fix.
+- No map in the baseline itself: errors grow without bound during hours-long outages. The road
+  constraint (§3d) bounds the cross-track part when OBD is present; along-track error still grows
+  between turns, and a road missing from OSM next to a mapped parallel one can still mislead it.
 - Coarse fixes are fused at most every 15 s / 150 m and inflated ×1.5. Real network errors may be
   more correlated than that (same towers for kilometres); check within95 on real drives.

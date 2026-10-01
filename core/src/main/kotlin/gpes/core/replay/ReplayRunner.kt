@@ -19,6 +19,7 @@ import gpes.core.pipeline.PipelineListener
 import gpes.core.sim.TruthSample
 import gpes.core.trust.DefaultTrustEvaluator
 import gpes.core.trust.TrustConfig
+import gpes.core.road.RoadNetwork
 import kotlinx.serialization.Serializable
 
 /** Ground-truth track with interpolation. */
@@ -55,9 +56,13 @@ data class Variant(
     val extraSteps: List<ScenarioStep> = emptyList(),
     val baseline: BaselineConfig = BaselineConfig(),
     val trust: TrustConfig = TrustConfig(),
+    /** Use the road network (Phase 2); such a variant needs `ReplayRunner(roads = …)`. */
+    val roads: Boolean = false,
+    /** Map edits for robustness tests (M5). */
+    val roadEdits: List<RoadEdit> = emptyList(),
 ) {
-    fun factory(): EstimatorFactory = when (estimator) {
-        "baseline" -> EstimatorFactory { BaselineDrEstimator(baseline) }
+    fun factory(network: RoadNetwork? = null): EstimatorFactory = when (estimator) {
+        "baseline" -> EstimatorFactory { BaselineDrEstimator(baseline, if (roads && network != null) ({ network }) else null) }
         "passthrough" -> EstimatorFactory { GnssPassthroughEstimator() }
         else -> error("unknown estimator '$estimator'")
     }
@@ -87,6 +92,9 @@ data class Variant(
                 // Recorded OBD (real drives; identical to the rungs above on simulated drives without OBD).
                 Variant("phone+obd", extraSteps = noNetFusedKeepObd),
                 Variant("phone+network+obd", extraSteps = noFused),
+                // Road constraint (Phase 2); run only when road tiles are supplied.
+                Variant("phone+network+osm", extraSteps = noFused + noObd, roads = true),
+                Variant("phone+network+obd+osm", extraSteps = noFused, roads = true),
             )
         }
     }
@@ -117,6 +125,8 @@ data class ReplayResult(
 class ReplayRunner(
     private val pipelineConfig: PipelineConfig = PipelineConfig(reorderWindowNs = 0),
     private val truthMaxAccM: Double = 10.0,
+    /** Road network for variants with `roads = true`. */
+    private val roads: RoadNetwork? = null,
 ) {
     fun truthFrom(measurements: List<Measurement>, trustCfg: TrustConfig = TrustConfig()): TruthTrack {
         val samples = ArrayList<TruthSample>()
@@ -165,7 +175,7 @@ class ReplayRunner(
 
         val estimates = ArrayList<PositionEstimate>()
         val trust = ArrayList<TrustAssessment>()
-        val pipeline = MeasurementPipeline(pipelineConfig, DefaultTrustEvaluator(variant.trust), variant.factory().create())
+        val pipeline = MeasurementPipeline(pipelineConfig, DefaultTrustEvaluator(variant.trust), variant.factory(roads?.let { RoadEdits.apply(it, variant.roadEdits, truth, t0) }).create())
         pipeline.listener = object : PipelineListener {
             override fun onTrust(a: TrustAssessment) { trust += a }
             override fun onEstimate(e: PositionEstimate) { estimates += e }

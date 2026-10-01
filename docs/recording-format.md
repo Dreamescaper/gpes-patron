@@ -9,9 +9,14 @@ One SQLite file per session, in WAL mode on Android. Schema:
 On the phone: `/storage/emulated/0/Android/data/gpes.patron/files/drives/`. Pull with `adb pull`,
 or use "Share .db" in the app.
 
+Road tiles the app downloaded (road map on, D-041) are next to it in `files/roads/*.roads` (format in
+`data-model.md`). They are not copied into the drive file; `PositionEstimate.road` in the `estimate`
+table refers to segment ids of the network built from the tiles loaded at that moment. To replay with
+the same roads: `adb pull …/files/roads tiles/` and `replay run … --roads tiles/`.
+
 | Table | One row per | Notes |
 |---|---|---|
-| `session` | session | anchor elapsed/wall time, device, SDK, app version, mode, `config_json` (mode, mock targets, estimator config) |
+| `session` | session | anchor elapsed/wall time, device, SDK, app version, mode, `config_json` (mode, mock targets, estimator config, `roads` on/off) |
 | `sensor_info` | sensor present | Android sensor metadata |
 | `location` | fix (all providers, **including mock and rejected**) | `extras_json` holds the Location extras |
 | `provider_event` | provider enable/disable/override | |

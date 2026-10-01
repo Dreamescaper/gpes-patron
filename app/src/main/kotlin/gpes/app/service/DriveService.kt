@@ -22,6 +22,7 @@ import gpes.app.BuildConfig
 import gpes.app.R
 import gpes.app.mock.MockLocationPublisher
 import gpes.app.mock.MockTarget
+import gpes.app.road.RoadMapManager
 import gpes.app.source.AndroidLocationSource
 import gpes.app.source.GnssRawSource
 import gpes.app.source.CellSource
@@ -91,11 +92,13 @@ class DriveService : Service() {
         const val EXTRA_LABEL = "label"
         const val EXTRA_USE_QUESTIONABLE = "useQuestionable"
         const val EXTRA_OBD_ADDRESS = "obdAddress"
+        const val EXTRA_ROADS = "roads"
         private const val CHANNEL = "drive"
         private const val NOTIF_ID = 1
 
-        fun start(ctx: Context, mode: RunMode, targets: Set<MockTarget>, useQuestionable: Boolean = false, obdAddress: String? = null) {
+        fun start(ctx: Context, mode: RunMode, targets: Set<MockTarget>, useQuestionable: Boolean = false, obdAddress: String? = null, roads: Boolean = false) {
             val i = Intent(ctx, DriveService::class.java).setAction(ACTION_START)
+                .putExtra(EXTRA_ROADS, roads)
                 .putExtra(EXTRA_MODE, mode.name)
                 .putExtra(EXTRA_OBD_ADDRESS, obdAddress)
                 .putExtra(EXTRA_USE_QUESTIONABLE, useQuestionable)
@@ -123,7 +126,10 @@ class DriveService : Service() {
                 val targets = intent.getStringArrayExtra(EXTRA_TARGETS)?.map { MockTarget.valueOf(it) }?.toSet() ?: emptySet()
                 goForeground(mode)
                 val baseline = BaselineConfig(questionableRScale = if (intent.getBooleanExtra(EXTRA_USE_QUESTIONABLE, false)) 4.0 else null)
-                session = Session(this, mode, if (mode.mock) targets else emptySet(), baseline, intent.getStringExtra(EXTRA_OBD_ADDRESS)).also { it.start() }
+                session = Session(
+                    this, mode, if (mode.mock) targets else emptySet(), baseline, intent.getStringExtra(EXTRA_OBD_ADDRESS),
+                    roads = intent.getBooleanExtra(EXTRA_ROADS, false),
+                ).also { it.start() }
             }
             ACTION_STOP -> {
                 session?.stop()
@@ -164,6 +170,7 @@ private class Session(
     private val targets: Set<MockTarget>,
     private val baselineConfig: BaselineConfig,
     private val obdAddress: String?,
+    private val roads: Boolean,
 ) {
     private val id = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
     private val file = File(DriveStorage.dir(ctx), "$id.db")
@@ -178,6 +185,8 @@ private class Session(
     private var pipeline: MeasurementPipeline? = null
     private var estimator: BaselineDrEstimator? = null
     private var publisher: MockLocationPublisher? = null
+    /** Road tiles around the car (Phase 2); only when estimating and the user enabled the road map. */
+    private val roadMap: RoadMapManager? = if (roads && mode.estimate) RoadMapManager(ctx) else null
     private val sensorSource = SensorSource(ctx.getSystemService(SensorManager::class.java), handler)
     private val gnssRaw = GnssRawSource(ctx, handler)
     private val wifi = WifiSource(ctx, handler)
@@ -205,7 +214,11 @@ private class Session(
 
     private val sink: MeasurementSink = MeasurementSink { m: Measurement ->
         writer.write(m)
-        if (m is gpes.core.model.LocationMeasurement && !m.isSynthetic) maybeGeomag(m)
+        if (m is gpes.core.model.LocationMeasurement && !m.isSynthetic) {
+            maybeGeomag(m)
+            // Before the estimator has a position, a network fix is enough to pick road tiles.
+            if (m.source == LocSource.NETWORK && lastEstimate == null) roadMap?.onPosition(m.lat, m.lon, System.currentTimeMillis())
+        }
         when (m) {
             is GnssStatusSnapshot -> lastStatus = m
             is CellScan -> lastCells = m
@@ -226,6 +239,7 @@ private class Session(
             put("imuPeriodUs", 10_000)
             put("estimator", if (mode.estimate) "baseline" else "none")
             put("obdAddress", obdAddress ?: "")
+            put("roads", roadMap != null)
             put("baseline", DriveJson.json.encodeToJsonElement(BaselineConfig.serializer(), baselineConfig))
         }
         writer.write(
@@ -238,7 +252,7 @@ private class Session(
         sensorSource.sensorInfo().forEach(writer::write)
 
         if (mode.estimate) {
-            estimator = BaselineDrEstimator(baselineConfig)
+            estimator = BaselineDrEstimator(baselineConfig, roads = roadMap?.let { rm -> { rm.network } })
             pipeline = MeasurementPipeline(PipelineConfig(), DefaultTrustEvaluator(), estimator).also {
                 it.listener = object : PipelineListener {
                     override fun onTrust(a: TrustAssessment) {
@@ -249,6 +263,7 @@ private class Session(
                     override fun onEstimate(e: PositionEstimate) {
                         writer.write(e)
                         lastEstimate = e
+                        roadMap?.onPosition(e.lat, e.lon, System.currentTimeMillis())
                         publisher?.publish(e)
                     }
 
@@ -315,6 +330,7 @@ private class Session(
                 compass = estimator?.compassStatus,
                 obd = obd?.status,
                 speedScale = estimator?.speedScaleStatus,
+                roadMap = roadMap?.status,
             )
         }
     }
@@ -337,6 +353,7 @@ private class Session(
             done.countDown()
         }
         done.await(3, TimeUnit.SECONDS)
+        roadMap?.stop()
         scheduler.shutdown()
         scheduler.awaitTermination(2, TimeUnit.SECONDS)
         runCatching { writer.flush() }

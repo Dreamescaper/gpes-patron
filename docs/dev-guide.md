@@ -175,6 +175,14 @@ adb pull /storage/emulated/0/Android/data/gpes.patron/files/drives/<id>.db   # p
   let a Doppler-consistent spoofer get honest network fixes rejected, even a minute after GNSS itself
   was rejected (the heading stays wrong). Checks on other sources must not depend on state GNSS could
   have steered recently (D-039: 180 s without trusted GNSS).
+- **P23 A matcher must not see the pose it corrects.** Matching roads on the road-constrained EKF pose
+  confirmed whatever road it had snapped to (R-007: p50 56 → 115 m). Match on an estimator that never
+  uses the road (D-042).
+- **P24 Repeated pseudo-measurements shrink the covariance for free.** Road updates every 40 m are one
+  piece of evidence; without a floor (prior > R) and the road-free radius, within95 fell to 0.18–0.76.
+  Cross-track updates on streets of different orientation also shrink the *along-track* variance.
+- **P25 OSM-based truth flatters OSM-based estimates.** The jammed drives' truth is OSM-matched with
+  along-track tied to OBD; judge the road constraint on GNSS drives with drop scenarios.
 - **P22 Weighting by claimed accuracy rewards liars.** Network hAcc is sometimes far too small (R-007:
   38 m claimed, 180 m off). Inverse-variance votes let one such fix overrule the rest; floor the σ
   (D-040) so weighting only discounts vague fixes.
