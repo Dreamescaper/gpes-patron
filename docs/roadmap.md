@@ -162,9 +162,6 @@ Found on the first real drive (R-007, 2026-09-28):
   Evidence for it (R-018): the Huber-like R × NIS/9.21 still let a fix 1117 m off (drive A 699 s,
   NIS ≈ 37) move the estimate 100 m before D-040 rejected it in trust; a redescending weight
   (Student-t / Cauchy) would give it almost none.
-- **P2 Output smoothing for the mock location.** An EKF correction is an instantaneous jump; navigation
-  apps show it as a zigzag. Blend corrections into the published position over a few seconds (PX4-style
-  output predictor) while keeping the EKF state and the honest r68 unchanged.
 - **P1 Replay ladder on real drives.** *Done 2026-09-28 (D-033).* Add a `drop_vehicle_speed` step (or make `drop_source`
   cover OBD) so gyro-only / phone-only really have no speed source; make `+synthObd` rungs drop the
   recorded OBD first; add `phone+obd` and `phone+network+obd` rungs that use the recorded OBD.
@@ -269,7 +266,9 @@ Road-constraint follow-ups (R-020):
   road constraint and real-drive calibration of the radius (it is the
   road-free one now).
 - **P1** road constraint without OBD: speed from the accelerometer (D-036) would let the matcher work.
-- **P1** road confidence resets at every corner (2026-09-28 +5:30–6:16): `confidentM` drops to 0 whenever
+- **P1 (tried 2026-10-02, D-048: the decisive resets are parallel-road ambiguities on straight road, not
+  the corner; carrying through them fixes the case but locks onto parallel streets when the real road is
+  missing)** road confidence resets at every corner (2026-09-28 +5:30–6:16): `confidentM` drops to 0 whenever
   the road probability dips below 0.9 for one step, so after a turn (new segments) or a brief ambiguity no
   road update applies for ≥ 150 m, and the along-track error carried into the turn stays as a ~22 m
   cross-track offset for ~40 s. Idea: carry `confidentM` through a graph transition that matches the gyro
@@ -280,7 +279,8 @@ Road-constraint follow-ups (R-020):
   Drive B (2026-10-02 visualisation): fires without GNSS at 2:41, 8:08, 8:33, 9:20; when the estimate is
   already good (5–13 m) its own σ (~7 m + map) makes things worse (2:41: 5.5 → 7.7 m over 30 s), with GNSS
   it has no effect. Apply it only when the expected error clearly exceeds its own σ (today the twin-P
-  restore before the update defeats that check).
+  restore before the update defeats that check). Done 2026-10-02 with a 2 σ significance test (D-049, R-024); open: its along shift vs the
+  re-timed truth at 5:43, and 2026-09-28 after 11:40 slightly worse.
 - **P2** R-007 10-min drop with OBD got worse (p95 103 → 126 m): inspect.
 - **P1** parallel carriageways ~20 m apart (R-020b, D-045): the matcher cannot separate them when the
   twin's pose is off; ideas: lane-level evidence (turns into side roads only possible from the side
@@ -314,3 +314,10 @@ Road-constraint follow-ups (R-020):
    might be active?
 4. How quickly does a road-state particle filter converge from a ±800 m start in a dense grid
    city vs on a highway?
+
+## Parked (not a priority, per the user 2026-10-02)
+
+- **Output smoothing for the mock location.** An EKF correction is an instantaneous jump (e.g. 2026-09-28
+  +6:38–6:40: deferred road updates moved the estimate ~50 m in 2 s, a correct correction); navigation
+  apps show it as a jerk. Blend corrections into the published position over a few seconds (PX4-style
+  output predictor) while keeping the EKF state and the honest r68 unchanged.

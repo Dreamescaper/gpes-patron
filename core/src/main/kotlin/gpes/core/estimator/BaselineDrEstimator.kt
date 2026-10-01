@@ -314,6 +314,7 @@ class BaselineDrEstimator(
         val ze = zb.e + over * sin(travel); val zn = zb.n + over * cos(travel)
         val half = gpes.core.road.RoadWidth.halfWidthM(net.segment(h.seg)!!)
         val r = maxOf(res.sigmaM, half).let { it * it } + cfg.road.osmGeometryStdM * cfg.road.osmGeometryStdM
+        if (hypot(ze - x[0], zn - x[1]) <= rc.cornerMinSigmas * sqrt(r)) { lastCornerOdo = odoM; return }
         // Earlier road updates may have shrunk the position covariance without along-track evidence:
         // start from at least the road-free twin's position covariance.
         free?.let { f -> if (f.p[0, 0] + f.p[1, 1] > p[0, 0] + p[1, 1]) for (i in 0..1) for (j in 0..1) p[i, j] = f.p[i, j] }

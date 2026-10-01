@@ -72,6 +72,12 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Log
 
+### 2026-10-02 — Corner fix with significance test, on (D-049, R-024)
+- `RoadConstraintConfig.cornerMinSigmas` 2.0, `cornerFix` true. `CornerFixTest` (2). All tests pass.
+
+### 2026-10-02 — Road confidence dips (P1, D-048, R-023)
+- `RoadMatcherConfig.dipMaxSteps`, `dipMinProb`, `dipNeedsTurnDeg` (default off). Tests pass.
+
 ### 2026-10-02 — M4 on gentle bends (D-047, R-022)
 - `AlongTrackMatch`: ambiguity by local minima; `RoadConstraintConfig.alongMinTurnDeg` 12°.
 - Test `a gentle 15 degree bend still gives the shift, with a wider sigma`. All tests pass.
@@ -311,6 +317,20 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 - Research doc, core module, SQLDelight recording, replay CLI, 11 scenarios. 24 unit tests.
 
 ## Results log
+
+### R-024 (2026-10-02, 0553627 + working tree) — corner fix significance k
+`+osm`, corner fix off / k 0 / 1.5 / 2 / 2.5. 2026-09-28 clean p50/p95 15.6/44 → 15.2/48 (all k), cross-track at
+5:48 +24 → +3 m; A 23.2/58 → 23.9/57, removed-road window 48 → 44 m; R-007 all scenarios ×1.000; B p95 geo
+×1.021 (k 0) → ×1.000 (k ≥ 1.5), p50 ×0.994 (k 1.5–2). Per-interval errors on 2026-09-28: D-049.
+
+### R-023 (2026-10-02, 0553627 + working tree) — carrying road confidence through dips
+`+osm`, all drives (GNSS drives all 13 scenarios; jammed with re-timed truths). Dip carry 0 (current) /
+2 / 3 / 5 steps anywhere, and 3 / 5 steps only around a gyro turn ≥ 20° (5 at ≥ 30°):
+- 2026-09-28 clean p50/p95: 15.6/44, 15.6/44, 15.0/47, 13.1/45; turn-gated 15.6/44. Cross-track at 5:48:
+  +24, +24, +2, 0 m; turn-gated +24 m.
+- A: 23.2/58, 22.5/58, 23.7/60, 25.2/60; removed-road window p95 48, 48, 63, 63 m; turn-gated 22.5/58, 48 m.
+- p95 geo R-007 / B: 2 steps ×0.999 / ×1.022, 3 ×1.030 / ×1.019, 5 ×1.022 / ×1.019; turn-gated ×1.030 / ×1.006
+  (30°: ×1.000 / ×1.011).
 
 ### R-022 (2026-10-02, working tree on bce013c) — M4 on gentle bends
 `+osm` rungs, `alongMinTurnDeg` 20 → 12° (both with the local-minimum ambiguity test), re-timed jammed

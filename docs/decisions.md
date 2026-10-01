@@ -563,3 +563,24 @@ Decision: ambiguity = another *local minimum* ≥ 15 m away within 2× the best 
 Measured (R-022): 2026-09-28 p50/p95 16.9/51 → 15.6/44 m; A unchanged; B all scenarios p95 ×0.95,
 along-track ×0.82 (1-h drop p95 18.7 → 16.2 m, along 7.4 → 4.5 m); R-007 ×0.999; removed-road window no
 worse. 15° ≈ 12° ≈ 10°; B `ramp_capture` p50 3.4 → 5.7 m (p95 same).
+
+## D-048: Keep resetting road confidence on dips (P1 tried) — Rejected (2026-10-02)
+Context: on 2026-09-28 +5:30–6:16 `confidentM` never reached 150 m after the 5:37 turn, so the ~22 m
+cross-track offset stayed for ~40 s. Tried `dipMaxSteps` (keep the confident distance through dips with
+probability ≥ 0.5, inherited through the HMM transition) and `dipNeedsTurnDeg` (only around a gyro turn).
+Measured (R-023): any-dip carry 3 / 5 steps fixes the case (cross-track at 5:48 +24 → +2 / 0 m) but the
+resets that matter were at 5:42 and 5:56 on straight road, next to the parallel lower branch of бульвар
+Міхновського — the parallel-road ambiguity the 150 m rule exists for; with the road removed (M5) the same
+carry locked onto a parallel street (A window p95 48 → 63 m), and GNSS drives p95 ×1.02–1.03. Turn-gated
+carry leaves the case unchanged (+24 m). Both kept, default off (`dipMaxSteps` 0).
+
+## D-049: Corner fix on, with a significance test — Accepted (2026-10-02)
+Context: the corner fix (D-046, off) removed the 2026-09-28 +5:40 cross-track offset (+24 → +3 m) but made
+drive B worse (p95 ×1.021): there the estimate was already good (5–13 m) and the fix added its own noise
+(σ ≈ 7–8 m; B 2:41: 5.5 → 7.7 m over 30 s). Confidence carry-over (D-048) could not fix the case safely.
+Decision: apply the corner fix only if the estimate is more than 2 σ (of the fix) from the target road
+point (`cornerMinSigmas` 2.0); `cornerFix` on.
+Measured (R-024): k = 1.5 / 2 / 2.5 give the same jammed results; B p95 ×1.021 → ×1.000 (k ≥ 1.5), p50 ×0.994;
+R-007 ×1.000; A p50/p95 23.2/58 → 23.9/57 m, removed-road window 48 → 44 m; 2026-09-28 mean error 5:40–6:40
+33.0 → 21.9 m, 6:40–8:00 26.5 → 19.2, 8:00–11:40 10.5 → 6.4, 11:40–end 14.5 → 17.3 m; clean p50/p95 15.6/44 →
+15.2/48 m. Tests: `CornerFixTest` (offset carried into a turn is removed; an accurate estimate is left alone).

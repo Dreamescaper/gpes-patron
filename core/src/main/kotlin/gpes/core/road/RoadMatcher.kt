@@ -53,6 +53,15 @@ data class RoadMatcherConfig(
     val serviceRoadPenalty: Double = 0.0,
     /** A road state with at least this probability counts as confident. */
     val confidentProb: Double = 0.9,
+    /**
+     * Short dips do not reset the confident distance (P1, 2026-09-28 +5:30): for up to this many steps with
+     * probability ≥ [dipMinProb] it is kept (not grown), inherited through the HMM transition, e.g. at a
+     * corner where the mass briefly splits between streets. 0 = reset on any dip (before 2026-10-02).
+     */
+    val dipMaxSteps: Int = 0,
+    val dipMinProb: Double = 0.5,
+    /** Dips are tolerated only around a turn: the gyro turned at least this much over the last 3 steps. */
+    val dipNeedsTurnDeg: Double = 0.0,
     /** Steps of road history kept per hypothesis (M4 shape matching needs ~250 m). */
     val trailSteps: Int = 40,
 )
@@ -100,12 +109,18 @@ data class RoadConstraintConfig(
      * shifted along the road. It needs a confident road *before* the corner (trail ≥ [cornerTrailM]), not
      * 150 m on the new street, and fixes the along-track error that becomes cross-track after the turn.
      */
-    val cornerFix: Boolean = false,
+    val cornerFix: Boolean = true,
     val cornerMinTurnDeg: Double = 45.0,
     val cornerTrailM: Double = 150.0,
     val cornerMinProbability: Double = 0.9,
     /** χ² gate (2 dof) for the corner fix. */
     val cornerGateNis: Double = 9.21,
+    /**
+     * Significance: apply the corner fix only if the estimate is more than this many of its own σ from the
+     * target road point. When the estimate is already good the fix only adds its own noise (drive B 2:41,
+     * 5.5 → 7.7 m). 0 = always.
+     */
+    val cornerMinSigmas: Double = 2.0,
     /** M4: along-track updates from the path shape (turns, bends). */
     val alongTrack: Boolean = true,
     /** At most one along-track update per this much driving (the window overlaps; P5). */
@@ -149,6 +164,8 @@ class RoadMatcher(private val cfg: RoadMatcherConfig, private val net: RoadNetwo
         val seg: Long, val d: Double, val fwd: Boolean, val bearingDeg: Double, val logP: Double, val confidentM: Double,
         /** This hypothesis' recent road positions, oldest first (its most likely predecessors), for M4. */
         val trail: List<TrailPt> = emptyList(),
+        /** Consecutive steps below [RoadMatcherConfig.confidentProb] with the confident distance kept. */
+        val dipSteps: Int = 0,
     )
 
     data class TrailPt(val seg: Long, val fwd: Boolean, val d: Double)
@@ -157,14 +174,16 @@ class RoadMatcher(private val cfg: RoadMatcherConfig, private val net: RoadNetwo
     private var logOff = ln(0.5)
     private var offConfidentM = 0.0
     private var started = false
+    /** Gyro turn of the last 3 steps (rad), for [RoadMatcherConfig.dipNeedsTurnDeg]. */
+    private var recentTurn: List<Double> = emptyList()
 
     val hypotheses: List<Hyp> get() = hyps
 
     fun copy(): RoadMatcher = RoadMatcher(cfg, net).also {
-        it.hyps = hyps; it.logOff = logOff; it.offConfidentM = offConfidentM; it.started = started
+        it.hyps = hyps; it.logOff = logOff; it.offConfidentM = offConfidentM; it.started = started; it.recentTurn = recentTurn
     }
 
-    fun reset() { hyps = emptyList(); logOff = ln(0.5); offConfidentM = 0.0; started = false }
+    fun reset() { hyps = emptyList(); logOff = ln(0.5); offConfidentM = 0.0; started = false; recentTurn = emptyList() }
 
     fun pOffRoad(): Double = exp(logOff)
 
@@ -298,7 +317,7 @@ class RoadMatcher(private val cfg: RoadMatcherConfig, private val net: RoadNetwo
                 // A road predecessor only if it beat entering from off-road.
                 val pred = bestPred?.takeIf { bestPredScore >= fromOff }
                 newHyps += Hyp(c.p.segment.id, c.p.distanceAlongM, c.fwd, c.bearing, lp, pred?.confidentM ?: 0.0,
-                    ((pred?.trail ?: emptyList()) + pt).takeLast(cfg.trailSteps))
+                    ((pred?.trail ?: emptyList()) + pt).takeLast(cfg.trailSteps), pred?.dipSteps ?: 0)
             }
             val roadMass = hyps.fold(Double.NEGATIVE_INFINITY) { a, h -> logAdd(a, h.logP) }
             logOff = logAdd(prevOff + ln(1 - cfg.pEnter), roadMass + ln(pLeave)) + offPath + lOff
@@ -311,9 +330,15 @@ class RoadMatcher(private val cfg: RoadMatcherConfig, private val net: RoadNetwo
         val kept = newHyps.map { it.copy(logP = it.logP - z) }
             .sortedWith(compareByDescending<Hyp> { it.logP }.thenBy { it.seg }.thenBy { it.fwd })
             .take(cfg.maxHypotheses)
+        recentTurn = (recentTurn + u.gyroTurnRad).takeLast(3)
+        val turning = Math.toDegrees(abs(recentTurn.sum())) >= cfg.dipNeedsTurnDeg
         hyps = kept.map { h ->
-            val conf = if (roadProbability(h, kept) >= cfg.confidentProb) h.confidentM + u.distanceM else 0.0
-            h.copy(confidentM = conf)
+            val p = roadProbability(h, kept)
+            when {
+                p >= cfg.confidentProb -> h.copy(confidentM = h.confidentM + u.distanceM, dipSteps = 0)
+                p >= cfg.dipMinProb && h.confidentM > 0 && h.dipSteps < cfg.dipMaxSteps && turning -> h.copy(dipSteps = h.dipSteps + 1)
+                else -> h.copy(confidentM = 0.0, dipSteps = 0)
+            }
         }
     }
 
