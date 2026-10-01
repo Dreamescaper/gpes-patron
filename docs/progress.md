@@ -72,6 +72,17 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Log
 
+### 2026-10-02 — Road map in the app, first run on the emulator
+- Emulator (Medium_Phone, position fixed at Kyiv centre, ESTIMATE_ONLY, fuse QUESTIONABLE on): tiles
+  downloaded from overpass-api.de (≈ 100–250 KB each), network built (4 tiles, 17 928 segments), status
+  line shown; the recording's `config_json.roads` is true. Overpass answered HTTP 504 for several tiles
+  (overloaded server); they are retried after 5 min as designed.
+- Fixed: the network was built only after the whole download loop, so with a slow server there were no
+  roads for minutes although near tiles were on disk. `RoadMapManager` now builds from the tiles on disk
+  first and again after each downloaded tile.
+- Not verified on the emulator: the matcher itself (emulator GNSS has no course and the IMU is static, so
+  the heading stays unknown); replay covers it. Next: a real drive.
+
 ### 2026-10-02 — Corner fix with significance test, on (D-049, R-024)
 - `RoadConstraintConfig.cornerMinSigmas` 2.0, `cornerFix` true. `CornerFixTest` (2). All tests pass.
 

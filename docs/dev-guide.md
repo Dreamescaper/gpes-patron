@@ -186,6 +186,9 @@ adb pull /storage/emulated/0/Android/data/gpes.patron/files/drives/<id>.db   # p
 - **P27 A truth built from the same sensor shares its errors.** The OSM truths placed the car by OBD
   distance, so they shared the adapter's 0.8 s lag with the EKF and hid it (R-021). Check a truth
   against independent evidence (gyro turns, network fixes) before tuning against it.
+- **P28 The public Overpass server is often overloaded (HTTP 504).** Download nearest tiles first, retry
+  later, and publish the network after every tile; never wait for the whole batch. `adb install -r`
+  restarts the app and ends a running session.
 - **P25 OSM-based truth flatters OSM-based estimates.** The jammed drives' truth is OSM-matched with
   along-track tied to OBD; judge the road constraint on GNSS drives with drop scenarios.
 - **P22 Weighting by claimed accuracy rewards liars.** Network hAcc is sometimes far too small (R-007:

@@ -67,20 +67,27 @@ class RoadMapManager(
     private fun refresh(lat: Double, lon: Double, nowMs: Long) {
         val want = RoadTile.around(lat, lon, radiusM)
         var err: String? = status.lastError
+        // Tiles already on disk first, so the estimator gets roads before any (slow) download.
+        rebuild(lat, lon, err, 0)
         val missing = want.filter { !file(it).exists() && (failedAt[it]?.let { t -> nowMs - t > RETRY_MS } ?: true) }
-        status = status.copy(downloading = missing.size)
         for ((i, t) in missing.withIndex()) {
+            status = status.copy(downloading = missing.size - i)
             try {
                 val ways = download(t)
                 file(t).outputStream().use { RoadTileCodec.write(ways, it) }
                 failedAt.remove(t)
                 err = null
+                // Nearest tiles come first: publish the network after each one (a build takes ~0.1 s).
+                rebuild(lat, lon, err, missing.size - i - 1)
             } catch (e: Exception) {
                 failedAt[t] = nowMs
                 err = "${t.key}: ${e.javaClass.simpleName} ${e.message ?: ""}".take(200)
             }
-            status = status.copy(downloading = missing.size - i - 1, lastError = err)
         }
+        rebuild(lat, lon, err, 0)
+    }
+
+    private fun rebuild(lat: Double, lon: Double, err: String?, downloading: Int) {
         val keep = RoadTile.around(lat, lon, keepRadiusM).filter { file(it).exists() }.toSet()
         if (keep != builtFrom) {
             val ways = keep.sortedBy { it.key }.flatMap { t ->
@@ -89,7 +96,7 @@ class RoadMapManager(
             network = if (ways.isEmpty()) null else RoadNetwork.build(ways)
             builtFrom = keep
         }
-        status = RoadMapStatus(keep.size, 0, network?.size ?: 0, err)
+        status = RoadMapStatus(keep.size, downloading, network?.size ?: 0, err)
     }
 
     private fun download(t: RoadTile): List<OsmWay> {

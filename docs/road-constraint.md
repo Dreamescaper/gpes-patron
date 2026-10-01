@@ -1,7 +1,7 @@
 # Road constraint — design plan (Phase 2)
 
-Status (2026-10-01): **M0–M5 implemented and measured in replay** (D-041…D-044, R-020); M6 (app) built but
-not yet run on a device; M7 later. Decisions taken while implementing are in `decisions.md`, results in `progress.md`.
+Status (2026-10-01): **M0–M5 implemented and measured in replay** (D-041…D-044, R-020); M6 (app) runs on the
+emulator (tiles, network, status; matcher not exercised there), not yet in a car; M7 later. Decisions taken while implementing are in `decisions.md`, results in `progress.md`.
 Differences from the plan below: the matcher runs on a road-free twin estimator (D-042); updates need a
 known speed and ≥ 150 m of confident matching; the reported radius stays the road-free one (D-043).
 

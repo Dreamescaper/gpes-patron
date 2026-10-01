@@ -262,8 +262,8 @@ pseudo-measurements; steps M0–M7. The particle filter below becomes M7.
   motion tracker.
 
 Road-constraint follow-ups (R-020):
-- **P1** first run of the app's road map on a device (download path untested), then a live drive with the
-  road constraint and real-drive calibration of the radius (it is the
+- **P1** live drive with the road constraint (download path verified on the emulator 2026-10-02) and
+  real-drive calibration of the radius (it is the
   road-free one now).
 - **P1** road constraint without OBD: speed from the accelerometer (D-036) would let the matcher work.
 - **P1 (tried 2026-10-02, D-048: the decisive resets are parallel-road ambiguities on straight road, not
