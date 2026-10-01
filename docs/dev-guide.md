@@ -171,6 +171,13 @@ adb pull /storage/emulated/0/Android/data/gpes.patron/files/drives/<id>.db   # p
   an outage.
 - **P20 Do not trust a sensor's absolute scale.** The Pixel 8 accelerometer reads ‖a‖ 9.0–10.9 m/s² when
   quiet; gate on the phone's own long-term mean, not on 9.80665 (D-037).
+- **P21 A heading learned from GNSS is GNSS evidence.** Using the EKF heading to check network fixes
+  let a Doppler-consistent spoofer get honest network fixes rejected, even a minute after GNSS itself
+  was rejected (the heading stays wrong). Checks on other sources must not depend on state GNSS could
+  have steered recently (D-039: 180 s without trusted GNSS).
+- **P22 Weighting by claimed accuracy rewards liars.** Network hAcc is sometimes far too small (R-007:
+  38 m claimed, 180 m off). Inverse-variance votes let one such fix overrule the rest; floor the σ
+  (D-040) so weighting only discounts vague fixes.
 - **P12 Real phones are not the emulator:** GnssStatus was silent on the Pixel 8, the Location
   `satellites` extra is always 0, GYRO_UNCAL arrives at twice the requested rate, and the wireless
   charger holder triples the field (≈ 120 µT vs 51 µT). The `compass-report` verdict is the one at the

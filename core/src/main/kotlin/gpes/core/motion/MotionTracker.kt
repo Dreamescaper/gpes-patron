@@ -63,7 +63,18 @@ data class MotionUpdate(
  * [chordM] is the straight-line displacement: it does not depend on the (unknown) absolute heading,
  * so it constrains coarse fixes even when nothing knows which way the car points.
  */
-data class Odometry(val distanceM: Double, val chordM: Double)
+/**
+ * Path driven between two times. [dE], [dN] is the displacement in the gyro's relative frame (bearing =
+ * cumulative gyro bearing, zero at an arbitrary start), and [relBearingEnd] the relative bearing at the
+ * end time: absolute bearing = relative bearing + (estimated heading − [relBearingEnd]).
+ */
+data class Odometry(
+    val distanceM: Double,
+    val chordM: Double,
+    val dE: Double = 0.0,
+    val dN: Double = 0.0,
+    val relBearingEnd: Double? = null,
+)
 
 data class MotionConfig(
     val updatePeriodNs: Long = 50_000_000,
@@ -407,7 +418,8 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
         val a = bracket(t1) ?: return null
         val b = bracket(t2) ?: return null
         if (histGap[a.first] != histGap[b.second]) return null
-        return Odometry(histD.at(b) - histD.at(a), hypot(histE.at(b) - histE.at(a), histN.at(b) - histN.at(a)))
+        val dE = histE.at(b) - histE.at(a); val dN = histN.at(b) - histN.at(a)
+        return Odometry(histD.at(b) - histD.at(a), hypot(dE, dN), dE, dN, histYaw.at(b))
     }
 
     /** Bearing change measured by the gyro between two times (rad, clockwise positive). */

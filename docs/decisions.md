@@ -415,3 +415,36 @@ Alternatives:
 Tests: `QuestionableResetTest` (returning after a 60-s outage → accepted after ~10 s; the same
 disagreement without an outage → stays QUESTIONABLE).
 
+
+## D-039: Coarse-odometry check in vector form when the heading is known without GNSS — Accepted (2026-10-01)
+Context: the D-031 check compares only the *distance* between network fixes with the odometry chord.
+Drive A, 632 s: a fix 400 m off (hAcc 136 m) sat as far from the previous fixes as the car had driven,
+but north-west instead of east; it was TRUSTED. Same for R-008 939 s (306 m off, hAcc 100 m).
+Decision: when the estimator heading std ≤ 15° (`coarseOdoVectorMaxHeadingStdDeg`) and no GNSS/fused fix
+was trusted for 180 s (`coarseOdoVectorNoGnssS`), each voter compares the displacement *vector*: the
+gyro-frame odometry displacement rotated to the estimated heading at the new fix. A voter agrees if
+|z − o| ≤ K_v·√(σ₁²+σ₂²+(chord·σψ)²) + 5%·distance + 10 m, with σψ ≥ 5° and K_v = 2.5. Otherwise the scalar
+form stays. Voting and the "agrees with the previous rejected fix" exit are unchanged.
+Alternatives:
+- K_v = 3 (same as scalar): the 2-D residual is looser at the same K; caught neither 632 s nor 939 s.
+- K_v = 2: also rejected good fixes (A 622 s, 116 m off at hAcc 78; A 760 s, 33 m off) and A p95 77 → 97 m.
+- No GNSS condition / 60 s: in `gnss_ramp_capture_doppler_consistent` (B) the spoofer steers the EKF
+  heading; honest network fixes were rejected and p95 went 657 → 940 m (60 s: 860 m). The heading stays
+  spoofed after GNSS is rejected, so the window is 180 s (= the voter age limit).
+Consequences (R-017): both bad fixes rejected, no false rejections against the driver-checked truth;
+accuracy almost unchanged (the robust weighting D-034 already gave them little weight).
+
+## D-040: Weight coarse-odometry votes by accuracy, with a σ floor — Accepted (2026-10-01)
+Context: drive A, 699 s: a fix 1117 m off (hAcc 157 m) passed the D-031 vote 2:1. The only voter that
+could tell (hAcc 200 m) said no; two voters with hAcc 700 m said yes, because their tolerance is
+> 1.2 km. The accepted fix pulled the estimate 100 m (error 21 → 122 m).
+Decision: each vote weighs 1/(σ₁²+σ₂²) with σ = max(hAcc/1.515, 50 m) (`coarseOdoWeighted`,
+`coarseOdoWeightMinSigmaM`); rejected when the weight against exceeds the weight for.
+Alternatives:
+- Weight without a floor: R-007 109.8 s claimed hAcc 38 m but was 180 m off; its single vote then
+  rejected the good 121.7-s fix (26 m off), and `ramp_capture` net+obd p95 went 166 → 362 m
+  (`ramp_capture_doppler_consistent` 154 → 371 m), though `teleport_country` p50 53 → 1 m and `jump_5km`
+  p95 68 → 34 m improved. Rejected: weighting by claimed accuracy hands power to overconfident fixes.
+- Floors 30 / 50 / 80 m: identical results on all four drives; 50 m chosen (middle).
+- Vague voters abstain above an hAcc threshold: a second threshold with the same effect; not chosen.
+Consequences (R-018): A 699 s rejected, A p50 16.1 → 15.1 m, p95 76.7 → 74.8 m; all other runs unchanged.

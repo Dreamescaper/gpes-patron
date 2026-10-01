@@ -67,6 +67,19 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Log
 
+### 2026-10-01 — Weighted coarse-odometry votes (D-040)
+- Votes weigh 1/(σ₁²+σ₂²), σ floored at 50 m. Test: `vague voters cannot outvote a precise one` (and
+  the old one-vote rule accepts the same fix). All unit tests pass. Measured: R-018.
+
+### 2026-10-01 — Coarse-odometry check in vector form (D-039)
+- `Odometry` carries the gyro-frame displacement and the relative bearing at the end; the trust check
+  rotates it to the predicted heading when that heading is good and not GNSS-derived (180 s without
+  trusted GNSS).
+- Tests: `CoarseOdometryTest` — sideways fix rejected with a known heading; accepted without a heading,
+  with a 40° heading std, or with GNSS trusted 57 s earlier; fixes in the right direction accepted.
+  All unit tests pass.
+- Measured: R-017. Map of drive A regenerated (current fix highlighted at the cursor; local only).
+
 ### 2026-10-01 — Own gravity estimate; questionable-stream reset (D-037, D-038)
 - `MotionTracker`: gyro-carried up with a slow, gated accelerometer correction (self-calibrated ‖a‖).
 - Trust: a consistent QUESTIONABLE (innovation-gate-only) GNSS stream after an outage is accepted
@@ -257,6 +270,42 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 - Research doc, core module, SQLDelight recording, replay CLI, 11 scenarios. 24 unit tests.
 
 ## Results log
+
+### R-018 (2026-10-01, working tree on 296c86e) — weighted votes (D-040), on top of R-017
+Variants file (FUSED dropped, real OBD) on R-007 and B (≤ 700 s) × all scenarios and both jammed
+drives: unweighted vs floor 0 / 30 / 50 / 80 m.
+
+| Run | unweighted | floor 0 | floor 50 (default) |
+|---|---|---|---|
+| Jammed A p50 / p95 m | 16.1 / 76.7 | 15.1 / 74.8 | 15.1 / 74.8 |
+| Jammed 2026-09-28 p50 / p95 m | 17.3 / 51.7 | 17.3 / 51.7 | 17.3 / 51.7 |
+| R-007 ramp_capture p95 m | 166 | 362 | 166 |
+| R-007 ramp_capture_doppler_consistent p95 m | 154 | 371 | 154 |
+| R-007 teleport_country p50 m | 53 | 1 | 53 |
+| R-007 jump_5km p95 m | 68 | 34 | 68 |
+
+Floors 30 and 80 m give the same numbers as 50 m. p95 geo-mean vs unweighted: floor 50 ×1.000 (R-007, B,
+2026-09-28), ×0.975 (A); floor 0 ×1.047 (R-007). Newly rejected with floor 50: A 699 s (1117 m off, hAcc
+157 m). Within95 unchanged (A 1.00, 2026-09-28 0.97).
+
+### R-017 (2026-10-01, working tree on 296c86e) — vector coarse-odometry check (D-039)
+Same set as R-016 (R-007 and B full ladders × all scenarios, B up to 700 s; both jammed drives
+against the driver-checked OSM truths), before = 296c86e.
+
+| Run | p50 m | p95 m | within95 |
+|---|---|---|---|
+| Jammed 2026-09-28 net+obd | 16.8 → 17.3 | 51.3 → 51.7 | 0.97 → 0.97 |
+| Jammed A net+obd | 16.1 → 16.1 | 76.7 → 76.7 | 1.00 → 1.00 |
+| R-007 GNSS absent from start, net+obd | 54.4 → 56.4 | 373 → 365 | 0.69 → 0.69 |
+| R-007 GNSS drop 1 h, net+obd | 66.8 → 66.8 | 383 → 375 | 0.65 → 0.65 |
+| B GNSS absent from start, net+obd | 27.9 → 21.4 | 293 → 293 | 1.00 → 1.00 |
+
+p95 geo-mean over all runs: ×1.000 (R-007), ×1.000 (B), ×1.002 / ×1.000 (jammed). Network fixes newly
+rejected: A 632 s (true error 400 m, hAcc 136 m), 2026-09-28 939 s (306 m, hAcc 100 m) and 358 s (no
+truth there); none of them a good fix. Tuning: K_v = 2 rejected good fixes (A 622 s, 760 s; A p95 77 → 97
+m); without the 180-s GNSS condition B `ramp_capture_doppler_consistent` net+obd p95 657 → 940 m (60 s:
+860 m), because the spoofer had steered the EKF heading. Accuracy hardly moves: robust weighting
+(D-034) already gave these fixes little weight; the gain is that they no longer count as trusted.
 
 ### R-016 (2026-10-01) — own gravity estimate + questionable-stream reset vs `main` (4491791)
 

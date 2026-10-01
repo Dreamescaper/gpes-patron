@@ -82,11 +82,19 @@ unless the **coarse-odometry check** rejects them (D-031, `COARSE_ODOMETRY_MISMA
 - For each of the last 3 TRUSTED network fixes (≤ 180 s old, with odometry available), the fix
   *agrees* if |d − chord| ≤ K·√(σ₁²+σ₂²) + 5%·distance + 10 m, where d is the distance between the two
   fixes, σ = hAcc / 1.515, and K = 3 (`coarseOdoK`, null disables).
-- REJECTED when more voters disagree than agree, unless the fix agrees with the previous
-  (rejected) fix. Voting keeps one bad but accepted reference from rejecting the good fixes after it.
+- REJECTED when the voters against outweigh those for, unless the fix agrees with the previous
+  (rejected) fix. Each vote weighs 1/(σ₁²+σ₂²) with σ floored at 50 m (D-040,
+  `coarseOdoWeightMinSigmaM`): a voter with hAcc 700 m agrees with almost anything, so it counts little,
+  but no single fix claiming a small hAcc can outvote the rest. Voting keeps one bad but accepted reference from rejecting the good fixes after it.
 - It catches fixes that jump much further than the car drove, and fixes that stay put while it
-  drives. It cannot catch a fix at the right distance in the wrong direction; that needs a heading
-  (roadmap). Measured effect is small (R-009).
+  drives. Measured effect is small (R-009).
+- **Vector form (D-039).** When the predicted heading std ≤ 15° (`coarseOdoVectorMaxHeadingStdDeg`, null
+  disables) and no GNSS/fused fix was TRUSTED in the last 180 s (`coarseOdoVectorNoGnssS`), a voter
+  compares vectors instead: o = the odometry displacement in the gyro frame (`Odometry.dE/dN`) rotated by
+  ψ_pred − relative bearing at the new fix; it agrees if |z − o| ≤ K_v·√(σ₁²+σ₂²+(chord·σψ)²) + 5%·distance
+  + 10 m, σψ = max(heading std, 5°), K_v = 2.5 (`coarseOdoVectorK`). This catches a fix at the right
+  distance in the wrong direction. With recent GNSS the heading may be a spoofer's, so only the scalar
+  form is used (R-017).
 
 ### Hysteresis and reset (inspired by PX4 GPS checks and reset-on-glitch)
 

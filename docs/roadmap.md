@@ -86,8 +86,9 @@ Found on the jammed drive (R-008, 2026-09-28):
   gyro does better. Retune (gyro-led, accel as a loose upper bound), and never infer a stop from
   OBD = 0 alone (R-008 reversed at OBD = 0).
 - **P1 Coarse fixes vs "how far have we driven".** *Magnitude part done 2026-09-28 (D-031, R-009):
-  catches far jumps and some stale fixes, small effect; a fix at the right distance in the wrong
-  direction still passes. The rest needs a heading.* Original note: After that stop, Google network fixes stayed near
+  catches far jumps and some stale fixes, small effect. Direction part done 2026-10-01 (D-039, R-017):
+  vector form once the heading is known without GNSS. Open: stale fixes that stay within tolerance, and
+  the case with GNSS (heading possibly spoofed).* Original note: After that stop, Google network fixes stayed near
   the stop for ~25 s (939 s: 44 m *behind* the previous fix, hAcc 100 m, while OBD says the car had
   driven ~280 m nearly straight — gyro heading change < 10°). Without a heading the EKF models the
   displacement as a growing disk, so it accepted the stale fix and pulled the estimate back. Gyro +
@@ -155,6 +156,9 @@ Found on the first real drive (R-007, 2026-09-28):
   should shrink both. *Robust weighting done (D-034, R-012): the 358-s snap only 42 → 37 m at the
   default threshold (18 m at 5.99); the heading still rotates. Next: a heavier-tailed error model
   instead of the ×1.5 inflation, which dilutes outlier detection (the 358-s fix is only ~3.2σ).*
+  Evidence for it (R-018): the Huber-like R × NIS/9.21 still let a fix 1117 m off (drive A 699 s,
+  NIS ≈ 37) move the estimate 100 m before D-040 rejected it in trust; a redescending weight
+  (Student-t / Cauchy) would give it almost none.
 - **P2 Output smoothing for the mock location.** An EKF correction is an instantaneous jump; navigation
   apps show it as a zigzag. Blend corrections into the published position over a few seconds (PX4-style
   output predictor) while keeping the EKF state and the honest r68 unchanged.

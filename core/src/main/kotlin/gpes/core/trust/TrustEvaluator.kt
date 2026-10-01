@@ -16,6 +16,9 @@ import gpes.core.model.VehicleSpeedMeasurement
 import gpes.core.motion.Odometry
 import kotlinx.serialization.Serializable
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.sin
 import kotlin.math.max
 import kotlin.math.sqrt
 
@@ -115,6 +118,28 @@ data class TrustConfig(
     val coarseOdoMaxAgeS: Double = 180.0,
     /** Number of recent trusted coarse fixes that vote. */
     val coarseOdoVoters: Int = 3,
+    /** Weight each vote by 1/(σ₁²+σ₂²) instead of one vote each (D-040). */
+    val coarseOdoWeighted: Boolean = true,
+    /**
+     * Floor on each σ in the vote weight (m), so a fix that claims a small hAcc but is wrong cannot
+     * outvote the others alone; the weighting only takes weight away from vague voters.
+     */
+    val coarseOdoWeightMinSigmaM: Double = 50.0,
+    /**
+     * Vector form (D-039): when the estimator's heading std is at most this (degrees), the displacement
+     * between fixes is compared with the odometry displacement rotated to the estimated heading, not only
+     * its length, so a fix the right distance away in the wrong direction is caught. null disables.
+     */
+    val coarseOdoVectorMaxHeadingStdDeg: Double? = 15.0,
+    /** Floor on the heading std used in the vector tolerance (degrees): the EKF heading std is optimistic. */
+    val coarseOdoVectorMinHeadingStdDeg: Double = 5.0,
+    /** K for the vector form; its residual is 2-D, so the same K is looser than for the scalar form. */
+    val coarseOdoVectorK: Double = 2.5,
+    /**
+     * Use the vector form only when no GNSS/fused fix was trusted for this long (s). With GNSS the EKF
+     * heading comes from GNSS, so a spoofer could steer it and get honest coarse fixes rejected.
+     */
+    val coarseOdoVectorNoGnssS: Double = 180.0,
 )
 
 /**
@@ -190,7 +215,7 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
                 val acc = m.hAccM
                 if (acc == null) hits += Hit(TrustReason.NO_ACCURACY, TrustState.REJECTED)
                 else if (acc > cfg.networkMaxAccM) hits += Hit(TrustReason.POOR_ACCURACY, TrustState.REJECTED)
-                checkCoarseOdometry(m, st, ctx.motion, hits)
+                checkCoarseOdometry(m, st, ctx.motion, ctx.predicted, hits)
             }
             LocSource.GNSS, LocSource.FUSED -> {
                 if (latencyS > cfg.staleRejectS) hits += Hit(TrustReason.STALE, TrustState.REJECTED)
@@ -401,26 +426,60 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
      * only when most of them disagree, so one bad (but accepted) reference cannot reject the good fixes
      * after it. A fix that agrees with the previous, rejected fix is also accepted.
      */
-    private fun checkCoarseOdometry(m: LocationMeasurement, st: SourceState, motion: MotionView?, hits: MutableList<Hit>) {
+    private fun checkCoarseOdometry(
+        m: LocationMeasurement, st: SourceState, motion: MotionView?, pred: PositionEstimate?, hits: MutableList<Hit>,
+    ) {
         if (motion == null || cfg.coarseOdoK == null) return
         val votes = st.trustedRecent
             .filter { (m.tNs - it.tNs) / 1e9 <= cfg.coarseOdoMaxAgeS }
-            .mapNotNull { odometryAgrees(it, m, motion) }
-        if (votes.isEmpty() || votes.count { !it } <= votes.count { it }) return
+            .mapNotNull { odometryAgrees(it, m, motion, pred) }
+        // Weighted by 1/(σ₁²+σ₂²) (D-040): a vague voter (hAcc 700 m) agrees with almost anything.
+        val wFor = votes.filter { it.agrees }.sumOf { it.weight }
+        val wAgainst = votes.filter { !it.agrees }.sumOf { it.weight }
+        if (votes.isEmpty() || wAgainst <= wFor) return
         val prev = st.prev
-        if (prev != null && prev !== st.lastTrusted && odometryAgrees(prev, m, motion) == true) return
+        if (prev != null && prev !== st.lastTrusted && odometryAgrees(prev, m, motion, pred)?.agrees == true) return
         hits += Hit(TrustReason.COARSE_ODOMETRY_MISMATCH, TrustState.REJECTED)
     }
 
-    /** true / false, or null when odometry or accuracy is unavailable. */
-    private fun odometryAgrees(a: LocationMeasurement, b: LocationMeasurement, motion: MotionView): Boolean? {
+    /**
+     * The vote of fix [a] on fix [b], or null when odometry or accuracy is unavailable. [pred] is the estimate at [b]'s time;
+     * with a known heading and no recent GNSS the displacement vector is compared (D-039), otherwise only
+     * its length.
+     */
+    private class Vote(val agrees: Boolean, val weight: Double)
+
+    private fun odometryAgrees(a: LocationMeasurement, b: LocationMeasurement, motion: MotionView, pred: PositionEstimate?): Vote? {
         val k = cfg.coarseOdoK ?: return null
         val odo = motion.odometry(a.tNs, b.tNs) ?: return null
         val sa = (a.hAccM ?: return null) / Cov2.R68_PER_SIGMA
         val sb = (b.hAccM ?: return null) / Cov2.R68_PER_SIGMA
+        val slack = cfg.coarseOdoRel * odo.distanceM + cfg.coarseOdoAbsM
+        val weight = if (cfg.coarseOdoWeighted) {
+            val wa = max(sa, cfg.coarseOdoWeightMinSigmaM); val wb = max(sb, cfg.coarseOdoWeightMinSigmaM)
+            1.0 / (wa * wa + wb * wb)
+        } else 1.0
+        val heading = pred?.headingRad
+        val headingStd = pred?.headingStdRad
+        val maxStd = cfg.coarseOdoVectorMaxHeadingStdDeg
+        if (heading != null && headingStd != null && maxStd != null && odo.relBearingEnd != null &&
+            headingStd <= Math.toRadians(maxStd) && !gnssTrustedWithin(b.tNs, cfg.coarseOdoVectorNoGnssS)
+        ) {
+            // Rotate the gyro-frame displacement onto the estimated heading.
+            val off = heading - odo.relBearingEnd
+            val oe = odo.dE * cos(off) + odo.dN * sin(off)
+            val on = -odo.dE * sin(off) + odo.dN * cos(off)
+            val z = LocalFrame(a.lat, a.lon).toEnu(b.lat, b.lon)
+            val sPsi = odo.chordM * max(headingStd, Math.toRadians(cfg.coarseOdoVectorMinHeadingStdDeg))
+            return Vote(hypot(z.e - oe, z.n - on) <= cfg.coarseOdoVectorK * sqrt(sa * sa + sb * sb + sPsi * sPsi) + slack, weight)
+        }
         val d = Geo.haversineM(a.lat, a.lon, b.lat, b.lon)
-        val allow = k * sqrt(sa * sa + sb * sb) + cfg.coarseOdoRel * odo.distanceM + cfg.coarseOdoAbsM
-        return abs(d - odo.chordM) <= allow
+        return Vote(abs(d - odo.chordM) <= k * sqrt(sa * sa + sb * sb) + slack, weight)
+    }
+
+    private fun gnssTrustedWithin(tNs: Long, s: Double) = listOf(LocSource.GNSS, LocSource.FUSED).any { src ->
+        val t = sources[src]?.lastTrusted?.tNs
+        t != null && (tNs - t) / 1e9 <= s
     }
 
     private fun checkStationary(m: LocationMeasurement, motion: MotionView?, hits: MutableList<Hit>) {

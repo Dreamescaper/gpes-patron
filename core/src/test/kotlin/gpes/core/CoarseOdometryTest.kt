@@ -2,7 +2,10 @@ package gpes.core
 
 import gpes.core.TestSupport.fix
 import gpes.core.geo.Geo
+import gpes.core.model.Cov2
+import gpes.core.model.EstimatorMode
 import gpes.core.model.LocSource
+import gpes.core.model.PositionEstimate
 import gpes.core.model.Measurement
 import gpes.core.model.TrustReason
 import gpes.core.model.TrustState
@@ -14,6 +17,7 @@ import gpes.core.sim.Leg
 import gpes.core.sim.SimConfig
 import gpes.core.trust.DefaultTrustEvaluator
 import gpes.core.trust.MotionView
+import gpes.core.trust.TrustConfig
 import gpes.core.trust.TrustContext
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -79,6 +83,23 @@ class CoarseOdometryTest {
         assertEquals(TrustState.REJECTED, ev.assess(net(17.0, 1100.0, acc = 140.0), ctx).state)
     }
 
+    /** Voters with hAcc 200, 700, 700 m; then a fix 1600 m on where the car drove 507 m. */
+    private fun vagueVoters(cfg: TrustConfig): TrustState {
+        val ev = DefaultTrustEvaluator(cfg)
+        val ctx = TrustContext(null, StraightRoad(13.0))
+        ev.assess(net(0.0, 0.0, acc = 200.0), ctx)
+        ev.assess(net(13.0, 169.0, acc = 700.0), ctx)
+        ev.assess(net(26.0, 338.0, acc = 700.0), ctx)
+        return ev.assess(net(39.0, 1600.0, acc = 157.0), ctx).state
+    }
+
+    @Test
+    fun `vague voters cannot outvote a precise one`() {
+        assertEquals(TrustState.REJECTED, vagueVoters(TrustConfig()))
+        // One vote each (the old rule): the two 700-m voters agree, so it was accepted.
+        assertEquals(TrustState.TRUSTED, vagueVoters(TrustConfig(coarseOdoWeighted = false)))
+    }
+
     @Test
     fun `one bad reference cannot lock the source out`() {
         val ev = DefaultTrustEvaluator()
@@ -87,6 +108,59 @@ class CoarseOdometryTest {
         assertEquals(TrustState.REJECTED, ev.assess(net(13.0, 130.0), ctx).state)
         // The next good fix agrees with the previous (rejected) good one → accepted.
         assertEquals(TrustState.TRUSTED, ev.assess(net(26.0, 260.0), ctx).state)
+    }
+
+    /** Heading-free straight road for the vector check: the gyro frame starts at relative bearing 0. */
+    private class StraightRoadVec(val speed: Double) : MotionView {
+        override fun stationaryForS() = 0.0
+        override fun bearingChange(t1: Long, t2: Long) = 0.0
+        override fun odometry(t1: Long, t2: Long) = ((t2 - t1) / 1e9 * speed).let { Odometry(it, it, 0.0, it, 0.0) }
+    }
+
+    private fun predicted(tS: Double, headingDeg: Double?, stdDeg: Double) = PositionEstimate(
+        (tS * 1e9).toLong(), "test", lat0, lon0, Cov2(1e4, 0.0, 1e4),
+        headingRad = headingDeg?.let { Math.toRadians(it) }, headingStdRad = Math.toRadians(stdDeg),
+        mode = EstimatorMode.DEAD_RECKONING, confidence = 0.5,
+    )
+
+    /** A fix the right distance away but 300 m to the side (east) of a car driving north. */
+    private fun sideways(ev: DefaultTrustEvaluator, heading: Double?, std: Double): TrustState {
+        val road = StraightRoadVec(10.0)
+        for (i in 0..2) ev.assess(net(13.0 * i, 130.0 * i, acc = 60.0), TrustContext(predicted(13.0 * i, heading, std), road))
+        // The car is 260 m north of the last fix; this fix is 260 m from it too, but due east.
+        val bad = fix(52.0, north(260.0), lon0 + 260.0 / (111_195.0 * kotlin.math.cos(Math.toRadians(lat0))),
+            acc = 130.0, speed = null, bearing = null, source = LocSource.NETWORK)
+        return ev.assess(bad, TrustContext(predicted(52.0, heading, std), road)).state
+    }
+
+    @Test
+    fun `with a known heading a fix in the wrong direction is rejected`() {
+        assertEquals(TrustState.REJECTED, sideways(DefaultTrustEvaluator(), heading = 0.0, std = 5.0))
+    }
+
+    @Test
+    fun `without a reliable heading only the distance is checked`() {
+        assertEquals(TrustState.TRUSTED, sideways(DefaultTrustEvaluator(), heading = null, std = 5.0))
+        assertEquals(TrustState.TRUSTED, sideways(DefaultTrustEvaluator(), heading = 0.0, std = 40.0))
+    }
+
+    @Test
+    fun `with recently trusted GNSS the heading may be spoofed, so only the distance is checked`() {
+        val ev = DefaultTrustEvaluator()
+        // A trusted GNSS fix 5 s before the coarse fixes, 57 s before the tested one (the EKF heading follows GNSS).
+        val g = fix(-5.0, north(-50.0), lon0, acc = 5.0, speed = 10.0, bearing = 0.0)
+        assertEquals(TrustState.TRUSTED, ev.assess(g, TrustContext(null, StraightRoadVec(10.0))).state)
+        assertEquals(TrustState.TRUSTED, sideways(ev, heading = 0.0, std = 5.0))
+    }
+
+    @Test
+    fun `with a known heading a fix in the right direction is accepted`() {
+        val ev = DefaultTrustEvaluator()
+        val road = StraightRoadVec(10.0)
+        for (i in 0..3) {
+            val st = ev.assess(net(13.0 * i, 130.0 * i + 50.0 * (i % 2), acc = 60.0), TrustContext(predicted(13.0 * i, 0.0, 5.0), road)).state
+            assertEquals(TrustState.TRUSTED, st, "fix $i")
+        }
     }
 
     @Test
