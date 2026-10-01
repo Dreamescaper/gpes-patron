@@ -508,3 +508,58 @@ most every 150 m. A lane change (out-and-back, net ≈ 0) never qualifies.
 Measured (R-020, GNSS-truth drives): along-track p50 48.9 → 46.3 m (R-007 GNSS absent), B 1-h drop p95
 22.4 → 20.8 m. Fires a few times per drive. On the jammed drives the truth's along-track position is tied
 to OBD distance (osm_match), so it cannot judge M4.
+
+## D-045: Small prior against parallel residential carriageways; no fix hold — Accepted (2026-10-02)
+Context (R-020b): with a geometric right-road metric, the matcher on 2026-09-28 was confidently on a
+parallel carriageway ~20 m from the main one for minutes: a residential "Голосіївський проспект" (9:25–
+11:53) and, after a bad fix at 6:22 (130 m off, 107 m sideways, plausible for its hAcc 88 m), a primary
+local carriageway (6:26–7:03), pulling the estimate ~20–30 m sideways. Parallel carriageways have the
+same shape and turns, so nothing the matcher sees separates them when the twin's pose is 20–50 m off.
+Decision: emission penalty 0.3 nats per step for residential / living_street / unclassified candidates
+(`minorRoadPenalty`); none for service (`serviceRoadPenalty` 0).
+Alternatives:
+- Penalties 1.0/2.0, 0.3/0.6, 0.1/0.3, 0.05/0.15 (minor/service): any service penalty, even 0.15, made
+  R-007 GNSS absent p50 47.8 → 66 m (that route uses service ways). Minor only 0.3: 2026-09-28 right
+  when confident 0.71 → 0.88, p50 7.8 → 8.0; R-007, A, B unchanged.
+- Cheaper entry from off-road (`pEnter` 0.05 → 0.01): no effect; the jump to the side carriageway went
+  through real graph links, not through the off-road state.
+- Hold a fix > 40/60/80 m to the side of a confidently matched straight road until the next fix confirms
+  (`holdOffRoadFixM`, kept, default off): no effect at 6:22 (the matcher was already unsure there, 0.64,
+  because the side carriageway had appeared), and R-007 GNSS absent p95 168 → 188 m. Rejected.
+Open: the primary side carriageway case (6:26–7:03) remains.
+
+## D-046: Re-time OSM truths with OBD latency and gyro corners; OBD latency compensation and corner fix stay off — Accepted (2026-10-02)
+Context: on 2026-09-28 +5:32–5:42 the gyro turned 2–3 s before the OSM truth. `osm_match.py` places the
+car by cumulative OBD distance without the adapter's ~0.8 s latency, and the EKF shares that lag, so the
+old truth hid it.
+Decision:
+- `tools/truth/align_turns.py`: shift the truth distance by 0.8 s, then anchor along-track at isolated
+  route corners (≥ 30°, no other corner within 100 m) by matching the gyro heading profile (shift ±8 s,
+  RMS < 8°, unique), interpolating between anchors. The route does not change. Both jammed truths are
+  re-timed (old ones kept as `*.truth.unaligned.json`, local only). Residual corner shifts after the
+  latency: +15 / −20 m (2026-09-28), +20 / +13 / 0 m (A).
+- `BaselineConfig.obdLatencyS` (advance the reading by latency × LS slope over 1.5 s) stays 0.
+- `RoadConstraintConfig.cornerFix` (2-D road-point update right after a completed turn ≥ 45°) stays off.
+Alternatives / measurements (R-021):
+- Without the latency shift, corners alone gave +26 / −17 m and S-bends slid onto the neighbour corner
+  (−72 m), hence the isolation rule.
+- Latency compensation: GNSS drives better (all scenarios, p95 geo, no road / road: R-007 ×0.86 / ×0.92
+  at 0.5 s, ×0.93 / ×0.96 at 0.8 s; B ×0.83 / ×0.70 at 0.5 s, ×0.80 / ×0.65 at 0.8 s; within95 up), jammed
+  drives worse (2026-09-28 p50 23.9 → 31.2 m at 0.8 s; A 21.4 → 36.9 m) and more behind along-track
+  (−10 → −23 m). Without GNSS the EKF does not apply the speedometer scale (EKF distance 2.2 % below the
+  scaled OBD distance on 2026-09-28) and the compensated reading is clipped near stops, so the net effect
+  depends on GNSS. Not resolved; see roadmap.
+- Corner fix: 2026-09-28 p50 16.8 → 13.7, p95 51 → 45 m (cross-track after the 5:37 turn 22 → 3 m), A
+  neutral; GNSS drives R-007 ×1.000, B ×1.038 (worse). Its along-track shift disagrees with the re-timed
+  truth (−8 m vs about +30 m at 5:43). Kept for experiments.
+
+## D-047: M4 uses gentle bends (≥ 12°) with a local-minimum ambiguity test — Accepted (2026-10-02)
+Context: on 2026-09-28 gentle bends (2:27–2:31, 20°; 5:04–5:08, 18°) carried the along-track error
+(loose matching: +22…+26 m, σ 16–18 m, RMS 2°, while the estimate ran 21–28 m behind the re-timed truth),
+but M4 rejected them every step: the ambiguity test ("no shift ≥ 15 m away within 2× the best cost")
+fails on any wide valley, which is what a gentle bend gives.
+Decision: ambiguity = another *local minimum* ≥ 15 m away within 2× the best cost; `alongMinTurnDeg` 12°
+(was 20°, fixed). The valley width still sets σ, so gentle bends get small weight.
+Measured (R-022): 2026-09-28 p50/p95 16.9/51 → 15.6/44 m; A unchanged; B all scenarios p95 ×0.95,
+along-track ×0.82 (1-h drop p95 18.7 → 16.2 m, along 7.4 → 4.5 m); R-007 ×0.999; removed-road window no
+worse. 15° ≈ 12° ≈ 10°; B `ramp_capture` p50 3.4 → 5.7 m (p95 same).

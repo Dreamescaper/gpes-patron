@@ -181,6 +181,11 @@ adb pull /storage/emulated/0/Android/data/gpes.patron/files/drives/<id>.db   # p
 - **P24 Repeated pseudo-measurements shrink the covariance for free.** Road updates every 40 m are one
   piece of evidence; without a floor (prior > R) and the road-free radius, within95 fell to 0.18–0.76.
   Cross-track updates on streets of different orientation also shrink the *along-track* variance.
+- **P26 Street names do not identify a carriageway.** Kyiv side carriageways (дублери) carry the main
+  road's name; a name-based "right road" metric hid minutes on the wrong one (R-020b). Compare geometry.
+- **P27 A truth built from the same sensor shares its errors.** The OSM truths placed the car by OBD
+  distance, so they shared the adapter's 0.8 s lag with the EKF and hid it (R-021). Check a truth
+  against independent evidence (gyro turns, network fixes) before tuning against it.
 - **P25 OSM-based truth flatters OSM-based estimates.** The jammed drives' truth is OSM-matched with
   along-track tied to OBD; judge the road constraint on GNSS drives with drop scenarios.
 - **P22 Weighting by claimed accuracy rewards liars.** Network hAcc is sometimes far too small (R-007:

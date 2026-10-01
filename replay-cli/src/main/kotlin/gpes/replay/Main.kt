@@ -107,10 +107,19 @@ private fun writeResult(r: ReplayResult, s: ReplaySummary, dir: File, roadsIn: g
                     e.road?.roadName?.replace(',', ' ')?.replace('"', ' '),
                     if (tr != null && e.road != null && roads != null) roads.projectOnto(e.road!!.segmentId, tr.lat, tr.lon).distanceM else null,
                     if (tr != null && e.road != null && roads != null) {
-                        // Same road = same OSM way or same street name as a road within 15 m of the truth.
+                        // Right road = the matched segment, its OSM way, or a directly connected segment of similar
+                        // bearing lies within 10 m of the truth. Not by name: a parallel service carriageway often
+                        // shares the street name (R-020b).
                         val seg = roads.segment(e.road!!.segmentId)!!
-                        val near = roads.project(tr.lat, tr.lon, 15.0).map { it.segment }
-                        if (near.any { it.osmWayId == seg.osmWayId || (seg.name.isNotEmpty() && it.name == seg.name) }) 1 else 0
+                        val segBearing = roads.bearingAt(seg.id, e.road!!.distanceAlongM)
+                        val near = roads.project(tr.lat, tr.lon, 10.0)
+                        if (near.any { p ->
+                                val s2 = p.segment
+                                s2.id == seg.id || s2.osmWayId == seg.osmWayId ||
+                                    ((s2.id in seg.successorsFromEnd || s2.id in seg.successorsFromStart ||
+                                        seg.id in s2.successorsFromEnd || seg.id in s2.successorsFromStart) &&
+                                        kotlin.math.abs(gpes.core.geo.Geo.wrapDeg(p.bearingDeg - segBearing)) % 180.0 < 30.0)
+                            }) 1 else 0
                     } else null,
                 ).joinToString(",") { it?.toString() ?: "" } + "\n",
             )

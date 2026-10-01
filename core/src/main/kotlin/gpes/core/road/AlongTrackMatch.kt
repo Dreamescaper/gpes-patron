@@ -89,7 +89,12 @@ object AlongTrackMatch {
         val best = shifts.minBy { it.second }
         val rms = Math.toDegrees(sqrt(best.second))
         if (rms > cfg.maxRmsDeg) return null
-        val rival = shifts.filter { abs(it.first - best.first) >= cfg.ambiguityM }.minOfOrNull { it.second }
+        // Ambiguity: another *local minimum* at least ambiguityM away that is nearly as good. Not any shift on
+        // the slope of a wide valley: a gentle bend gives a wide but single valley (its σ says so).
+        val localMins = shifts.indices.filter { i ->
+            (i == 0 || shifts[i].second < shifts[i - 1].second) && (i == shifts.size - 1 || shifts[i].second <= shifts[i + 1].second)
+        }.map { shifts[it] }
+        val rival = localMins.filter { abs(it.first - best.first) >= cfg.ambiguityM }.minOfOrNull { it.second }
         if (rival != null && rival < cfg.ambiguityRatio * best.second) return null
         // Width of the valley where the cost stays below twice the minimum (+ a small absolute floor).
         val lim = 2 * best.second + Math.toRadians(1.0).let { it * it }

@@ -45,6 +45,12 @@ data class RoadMatcherConfig(
     val slowMps: Double = 4.2,
     /** Per-step probability of joining a road from off-road. */
     val pEnter: Double = 0.05,
+    /**
+     * Per-step log-prior against minor roads (nats): most driving is on the main carriageway, and a
+     * parallel residential or service carriageway ~20 m away is otherwise indistinguishable (R-020b).
+     */
+    val minorRoadPenalty: Double = 0.3,
+    val serviceRoadPenalty: Double = 0.0,
     /** A road state with at least this probability counts as confident. */
     val confidentProb: Double = 0.9,
     /** Steps of road history kept per hypothesis (M4 shape matching needs ~250 m). */
@@ -81,10 +87,31 @@ data class RoadConstraintConfig(
     val gateNis: Double = 9.0,
     /** After this many consecutive cross-track rejections, take the road-free twin's state. */
     val resyncAfterRejects: Int = 2,
+    /**
+     * Hold a coarse fix that lies more than this far (m) to the side of a confidently matched straight road,
+     * until the next fix confirms the offset (same side, beyond [holdConfirmM]); otherwise drop it. Limits a
+     * single bad fix that is plausible by its own hAcc (R-020b, 2026-09-28 6:22). null disables.
+     */
+    val holdOffRoadFixM: Double? = null,
+    val holdConfirmM: Double = 60.0,
+    /**
+     * Corner fix (R-021): right after a completed turn ≥ [cornerMinTurnDeg], align the gyro turn with the
+     * road corner on the hypothesis' trail and apply a 2-D position update to the matched road point
+     * shifted along the road. It needs a confident road *before* the corner (trail ≥ [cornerTrailM]), not
+     * 150 m on the new street, and fixes the along-track error that becomes cross-track after the turn.
+     */
+    val cornerFix: Boolean = false,
+    val cornerMinTurnDeg: Double = 45.0,
+    val cornerTrailM: Double = 150.0,
+    val cornerMinProbability: Double = 0.9,
+    /** χ² gate (2 dof) for the corner fix. */
+    val cornerGateNis: Double = 9.21,
     /** M4: along-track updates from the path shape (turns, bends). */
     val alongTrack: Boolean = true,
     /** At most one along-track update per this much driving (the window overlaps; P5). */
     val alongEveryM: Double = 150.0,
+    /** Smallest persistent road bearing change that M4 uses (degrees). */
+    val alongMinTurnDeg: Double = 12.0,
     /** Cross-track updates only this far (+ 2σ of the pose) from the ends of the segment (m). */
     val endMarginM: Double = 15.0,
     val endMarginSigmas: Double = 1.0,
@@ -218,6 +245,11 @@ class RoadMatcher(private val cfg: RoadMatcherConfig, private val net: RoadNetwo
                 if (u.headingRad != null && headingVar != null) {
                     val dh = Geo.wrapRad(u.headingRad - rad(bearing))
                     le += -0.5 * dh * dh / headingVar - 0.5 * ln(2 * PI * headingVar)
+                }
+                le -= when (p.segment.roadClass) {
+                    "service" -> cfg.serviceRoadPenalty
+                    "residential", "living_street", "unclassified", "road" -> cfg.minorRoadPenalty
+                    else -> 0.0
                 }
                 cands += Cand(p, fwd, bearing, le)
             }

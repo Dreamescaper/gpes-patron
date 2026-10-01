@@ -46,8 +46,9 @@ These are part of "done". A change is not finished until the docs reflect it.
    `docs/recording-format.md` or `docs/replay-and-scenarios.md`. Bump `DRIVE_SCHEMA_VERSION` for
    incompatible SQLite changes.
 7. Use absolute dates (YYYY-MM-DD). Be honest about what was and was not verified on a real device.
-   **Current state: one real drive recorded on a Pixel 8 in RECORD_ONLY and analysed offline (R-007,
-   2026-09-28). Live estimation and mock output have not run in a car yet.**
+   **Current state: four real drives recorded on a Pixel 8 in RECORD_ONLY and analysed offline (R-007,
+   R-008, R-014; 2026-09-28/29). Live estimation, mock output and the app's road map have not run in a
+   car yet.**
 
 8. Before committing, run the tests and check the **exit code** (don't pipe Gradle through
    `grep`/`head` in a way that hides failures).
@@ -57,6 +58,15 @@ These are part of "done". A change is not finished until the docs reflect it.
 10. **UI text** goes in `app/src/main/res/values/strings.xml` *and* `values-uk/strings.xml`
    (with Ukrainian plural forms for counts). Never hardcode user-visible strings in Kotlin. Never
    localize values that are written to recordings.
+
+11. **Real-drive cases become tests.** Recordings are not in the repository (`recordings/` is local and
+   gitignored), so a fix or improvement found on a real drive is lost to CI unless you capture it. For
+   every such case add a unit test that reproduces the situation in miniature: synthetic measurements or
+   a small hand-built road network with the same geometry and numbers as the real case (for example "a
+   network fix 107 m to the side of a straight road, plausible for its hAcc 88 m", "a parallel side
+   carriageway 20 m away", "a 20° bend taken 25 m earlier than the matched point"). Name the real case
+   in a comment (drive id, time, D-/R- number), and check that the test fails without the change. Never
+   copy real coordinates or traces into tests; use local offsets from an arbitrary origin.
 
 ## Invariants — do not break
 

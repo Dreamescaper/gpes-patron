@@ -299,7 +299,7 @@ replay rungs `+osm`).
   summed over the same street and direction; `confidentM` is the distance driven with it ≥ 0.9.
 - **Updates in the constrained EKF** (D-043), with the conditions listed there: heading = travel bearing
   (σ 3°) on straight road with a straight gyro; cross-track (1-D along the normal); along-track from the
-  path shape (D-044). Each is skipped when the prior variance in that direction is already below the
+  path shape (D-044; gentle bends ≥ 12° since D-047, ambiguity judged by other local minima). Each is skipped when the prior variance in that direction is already below the
   measurement variance (repeated road evidence is one piece, P5), and gated at χ² 9. Two cross-track
   rejections in a row → take the twin's state.
 - **Output**: position from the constrained EKF; covariance = the twin's when larger (honest radius);

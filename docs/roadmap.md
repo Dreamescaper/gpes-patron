@@ -176,6 +176,9 @@ Found on the first real drive (R-007, 2026-09-28):
   while NMEA and raw measurements worked. Check logcat / GPSTest on the device; until fixed, derive
   satellites-used from NMEA GSA.
 - **P1 OBD latency** (raised from P2 by R-014: with GNSS, adding OBD worsened tracking p95 1.6 → 9.5 m).
+  *2026-10-02 (D-046, R-021): compensation implemented (`obdLatencyS`, off): helps GNSS drives a lot, hurts
+  jammed ones; first make the speedometer scale persist across sessions (the EKF runs 2 % short without
+  GNSS) and avoid clipping the advanced reading near stops, then re-test.*
   *Original P2 note:* The real adapter lags GNSS by ~0.8 s (not the 0.15 s the synthetic OBD
   assumes). Estimate the lag online (cross-correlation against trusted GNSS speed) and time-shift
   speed updates; update the synthetic OBD to match.
@@ -266,8 +269,22 @@ Road-constraint follow-ups (R-020):
   road constraint and real-drive calibration of the radius (it is the
   road-free one now).
 - **P1** road constraint without OBD: speed from the accelerometer (D-036) would let the matcher work.
-- **P2** along-track: M4 fires rarely; try turn events at intersections as explicit along-track fixes.
+- **P1** road confidence resets at every corner (2026-09-28 +5:30–6:16): `confidentM` drops to 0 whenever
+  the road probability dips below 0.9 for one step, so after a turn (new segments) or a brief ambiguity no
+  road update applies for ≥ 150 m, and the along-track error carried into the turn stays as a ~22 m
+  cross-track offset for ~40 s. Idea: carry `confidentM` through a graph transition that matches the gyro
+  turn, and through 1–2-step dips (decay instead of reset). Test on all drives and on the removed-road
+  scenario (lock-in risk).
+- **P2** along-track: M4 fires rarely; a corner fix exists (`cornerFix`, off, D-046): it fixes cross-track
+  after turns but its along shift disagrees with the re-timed truth; understand why before enabling.
+  Drive B (2026-10-02 visualisation): fires without GNSS at 2:41, 8:08, 8:33, 9:20; when the estimate is
+  already good (5–13 m) its own σ (~7 m + map) makes things worse (2:41: 5.5 → 7.7 m over 30 s), with GNSS
+  it has no effect. Apply it only when the expected error clearly exceeds its own σ (today the twin-P
+  restore before the update defeats that check).
 - **P2** R-007 10-min drop with OBD got worse (p95 103 → 126 m): inspect.
+- **P1** parallel carriageways ~20 m apart (R-020b, D-045): the matcher cannot separate them when the
+  twin's pose is off; ideas: lane-level evidence (turns into side roads only possible from the side
+  carriageway), entry/exit ramps as explicit transitions, or a better lateral pose (compass, bank).
 - **P2** use the road state for spoofing detection (GNSS leaving all roads while the gyro shows none of its turns).
 
 ## Phase 3 — more evidence

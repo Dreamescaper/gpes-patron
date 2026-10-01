@@ -72,6 +72,20 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Log
 
+### 2026-10-02 — M4 on gentle bends (D-047, R-022)
+- `AlongTrackMatch`: ambiguity by local minima; `RoadConstraintConfig.alongMinTurnDeg` 12°.
+- Test `a gentle 15 degree bend still gives the shift, with a wider sigma`. All tests pass.
+
+### 2026-10-02 — Re-timed jammed truths, OBD latency and corner-fix experiments (D-046, R-021)
+- `tools/truth/align_turns.py` (new); both jammed truths re-timed (local files).
+- `BaselineConfig.obdLatencyS`, `RoadConstraintConfig.cornerFix` added, both off; tests pass.
+
+### 2026-10-02 — Matcher vs parallel carriageways (D-045, R-020b)
+- `road_right` in `ticks.csv` is now geometric (matched segment, its way or a connected segment of
+  similar bearing within 10 m of truth), not by street name, which a side carriageway often shares.
+- `minorRoadPenalty` 0.3 (default); `serviceRoadPenalty`, `holdOffRoadFixM` (off) kept for experiments.
+- Tests pass; full regression below.
+
 ### 2026-10-01 — Road constraint M6: app
 - `RoadMapManager`: on each estimate (or network fix before the first estimate), at most every 1 km,
   downloads missing tiles within 6 km from the Overpass API (POST, User-Agent set, retry after 5 min) and
@@ -297,6 +311,32 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 - Research doc, core module, SQLDelight recording, replay CLI, 11 scenarios. 24 unit tests.
 
 ## Results log
+
+### R-022 (2026-10-02, working tree on bce013c) — M4 on gentle bends
+`+osm` rungs, `alongMinTurnDeg` 20 → 12° (both with the local-minimum ambiguity test), re-timed jammed
+truths: 2026-09-28 clean p50/p95 16.9/51 → 15.6/44 m, along-track median 19 → 16 m; A 23.7/58 → 23.2/58 m.
+Full matrix p95 geo: R-007 ×0.999, B ×0.950 (along-track ×0.822; 10-min and 1-h drops p95 18.7 → 16.2 m,
+teleport 15.9 → 12.9 m). Removed-road window p95: R-007 ×1.000, B ×0.935, jammed unchanged.
+
+### R-021 (2026-10-02, working tree on bce013c) — re-timed truths; latency and corner experiments
+Re-timed truths vs independent evidence: network-fix along-track offset median +3.2 → +0.7 m
+(2026-09-28), +17.7 → +3.2 m (A); |truth heading − estimate heading| p95 11.7 → 9.2°, 21.5 → 16.8°.
+New jammed baselines (clean, same code): 2026-09-28 phone+network+obd p50/p95 23.9 / 51 m (was 17.3 / 52
+against the old truth), +osm 16.8 / 51 m (was 8.0 / 52); A 21.4 / 76 m (15.1 / 75), +osm 22.2 / 58 m
+(16.7 / 54). The estimate runs 7–17 m behind along-track (median) without GNSS. Earlier jammed numbers
+(R-008…R-020b) are against the old truth. Latency and corner-fix numbers: D-046.
+
+### R-020b (2026-10-02, working tree on bce013c) — geometric right-road metric, minor-road prior
+Matcher right when confident (≥ 100 m), old name-based → geometric metric (R-020 code, with OBD):
+2026-09-28 0.989 → 0.714, R-007 GNSS absent 0.960 → 0.887, A 1.000 → 0.996, B 0.993 → 0.962. The name
+metric counted parallel carriageways named like the main road as right.
+
+With `minorRoadPenalty` 0.3 (geometric metric): 2026-09-28 right when confident 0.71 → 0.88, p50
+7.8 → 8.0, p95 51.7 → 52.9 m; R-007 0.89 → 0.89; A, B unchanged. Full matrix (13 scenarios, R-007 and B
+≤ 700 s), all rungs vs R-020: p95 geo ×1.000; jammed A ×1.000, 2026-09-28 ×1.024. Removed-road window
+(M5) unchanged (42 / 31 / 57 / 19 / 163 m). Rejected variants: see D-045.
+Remaining case: 2026-09-28 6:26–7:03 on a primary side carriageway after the 6:22 fix (error ~30–38 m vs
+the no-road EKF's ~50 m).
 
 ### R-020 (2026-10-01, working tree on de60a52) — road constraint (M1–M5)
 Road tiles from the two Overpass extracts already used for the OSM truths (cover all four drives).

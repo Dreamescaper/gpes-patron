@@ -40,6 +40,18 @@ class AlongTrackMatchTest {
     }
 
     @Test
+    fun `a gentle 15 degree bend still gives the shift, with a wider sigma`() {
+        val bend = { pos: Double -> when { pos < 200 -> 0.0; pos < 240 -> (pos - 200) / 40 * Math.toRadians(15.0); else -> Math.toRadians(15.0) } }
+        val road = (0..150).map { val b = it * 2.0; Sample(b, bend(260.0 - b)) }
+        val gyro = (0..150).map { val b = it * 2.0; Sample(b, bend(280.0 - b) + 0.2) }
+        val res = AlongTrackMatch.match(gyro, road, AlongTrackMatch.Config(minTurnDeg = 12.0))
+        assertNotNull(res)
+        assertEquals(20.0, res!!.shiftM, 4.1)
+        val sharp = AlongTrackMatch.match(profiles(260.0, 280.0).first, profiles(260.0, 280.0).second)!!
+        assert(res.sigmaM >= sharp.sigmaM) { "gentle ${res.sigmaM} vs sharp ${sharp.sigmaM}" }
+    }
+
+    @Test
     fun `a straight road gives no along-track information`() {
         val road = (0..150).map { Sample(it * 2.0, 0.0) }
         val gyro = (0..150).map { Sample(it * 2.0, 0.1) }

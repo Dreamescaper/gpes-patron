@@ -30,7 +30,8 @@ Outputs per run (`<out>/<drive>/<scenario>__<variant>/`):
 - `ticks.csv`: one row per 1 Hz estimate (estimate, truth, error, r68, mode, degraded window, and
   estimated/true speed and heading). With `--roads`: `road_p_off, road_prob, road_confident_m,
   road_lat, road_lon` (matched point), `road_name`, `road_truth_dist_m` (truth to the matched segment)
-  and `road_right` (1 if an OSM way or street of that name lies within 15 m of the truth). Empty for
+  and `road_right` (1 if the matched segment, another segment of its OSM way, or a directly connected
+  segment within 30° lies within 10 m of the truth; not by name, since side carriageways share names). Empty for
   variants with `roadEdits` (their segment ids differ).
 - `trust.csv`: every GNSS assessment with its injected offset label.
 - `error_vs_time.csv`: p50/p95 error by time since degradation began (10 s bins).
@@ -132,6 +133,10 @@ Custom variants go in a JSON list passed with `--variants`; `"roads": true` turn
 and `"roadEdits"` alters the map for robustness tests (M5):
 `{"type":"remove_roads_along_truth","fromS":300,"toS":480,"bufferM":30}` (a road missing from OSM) and
 `{"type":"shift_roads","eastM":15,"northM":0}` (misaligned OSM). Future rung: `+route`.
+
+**Re-timing a truth** (`tools/truth/align_turns.py drive.db in.truth.json out.truth.json`): shifts the
+along-track position by the OBD latency (0.8 s) and anchors it at isolated route corners by the gyro
+(D-046). Run it after `osm_match.py`; the route stays the same.
 
 **Circularity:** the jammed drives' truth comes from OSM (`osm_match.py`), with along-track position
 tied to OBD distance, so `+osm` rungs score unfairly well there; use the GNSS drives with drop

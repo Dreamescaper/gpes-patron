@@ -100,6 +100,12 @@ data class BaselineConfig(
     /** Road matcher (Phase 2, docs/road-constraint.md); active only when a road network is supplied. */
     val road: RoadMatcherConfig = RoadMatcherConfig(),
     val roadConstraint: RoadConstraintConfig = RoadConstraintConfig(),
+    /**
+     * Vehicle-speed latency (s): an ELM327 reading describes the speed ~0.8 s earlier (R-007). The reading is
+     * advanced by latency × the slope of the recent readings (least squares over [obdSlopeWindowS]). 0 = off.
+     */
+    val obdLatencyS: Double = 0.0,
+    val obdSlopeWindowS: Double = 1.5,
 )
 
 /**
@@ -139,6 +145,7 @@ class BaselineDrEstimator(
         val recentTurns: List<Double>, val lastRoadHeadingOdo: Double, val lastRoadCrossOdo: Double,
         val roadSteps: Int, val seenFreeSteps: Int, val roadRejects: Int, val free: Any?,
         val gyroHist: List<Pair<Double, Double>>, val cumGyro: Double, val lastRoadAlongOdo: Double,
+        val heldOffset: Double?, val heldT: Long, val obdHist: List<Pair<Long, Double>>, val lastCornerOdo: Double,
     )
 
     /** A coarse fix that disagreed strongly with the prediction. */
@@ -189,6 +196,11 @@ class BaselineDrEstimator(
     private var roadSteps = 0
     private var seenFreeSteps = 0
     private var roadRejects = 0
+    /** A coarse fix held because it lies far to the side of a confidently matched road (its offset, m). */
+    private var heldOffset: Double? = null
+    /** Recent vehicle-speed readings (t, m/s) for the latency slope. */
+    private var obdHist: List<Pair<Long, Double>> = emptyList()
+    private var heldT = Long.MIN_VALUE
     private var lastRoadOdo = 0.0
     /** Heading change from the gyro alone since the last road step (rad, clockwise positive). */
     private var gyroTurn = 0.0
@@ -198,6 +210,7 @@ class BaselineDrEstimator(
     private var gyroHist: List<Pair<Double, Double>> = emptyList()
     private var cumGyro = 0.0
     private var lastRoadAlongOdo = Double.NEGATIVE_INFINITY
+    private var lastCornerOdo = Double.NEGATIVE_INFINITY
     private var lastRoadHeadingOdo = Double.NEGATIVE_INFINITY
     private var lastRoadCrossOdo = Double.NEGATIVE_INFINITY
     /** Road updates applied / gated out, for diagnostics. */
@@ -234,6 +247,89 @@ class BaselineDrEstimator(
             compassStatus = CompassStatus(u.tNs, compass.quality(), r)
         }
         roadStep()
+    }
+
+    /**
+     * Road check for a coarse fix (see [RoadConstraintConfig.holdOffRoadFixM]). Both the twin and this
+     * estimator decide from the twin's matcher, which onMeasurement does not change, so they agree.
+     */
+    private fun roadAllowsFix(m: LocationMeasurement): Boolean {
+        val thr = cfg.roadConstraint.holdOffRoadFixM ?: return true
+        val off = roadOffset(m)
+        val held = heldOffset?.takeIf { (m.tNs - heldT) / 1e9 <= 60.0 }
+        if (off != null && abs(off) > thr) {
+            if (held != null && held * off > 0 && abs(held) > cfg.roadConstraint.holdConfirmM) {
+                heldOffset = null; return true // confirmed: the car really is off that road
+            }
+            heldOffset = off; heldT = m.tNs; return false
+        }
+        heldOffset = null
+        return true
+    }
+
+    /** Signed offset of a fix from the matched road, when the matcher is confident and the road is straight. */
+    private fun roadOffset(m: LocationMeasurement): Double? {
+        val mm = (if (isFreeTwin) matcher else free?.matcher) ?: return null
+        val h = mm.bestHyp() ?: return null
+        val rc = cfg.roadConstraint
+        if (mm.probabilityOf(h) < 0.95 || h.confidentM < rc.minConfidentM || mm.pOffRoad() > rc.maxPOffRoad) return null
+        val net = mm.network
+        val len = net.lengthOf(h.seg)
+        val b = net.bearingAt(h.seg, h.d)
+        val w = 60.0
+        if (abs(Geo.wrapDeg(net.bearingAt(h.seg, maxOf(0.0, h.d - w)) - b)) > rc.straightMaxDeg ||
+            abs(Geo.wrapDeg(net.bearingAt(h.seg, minOf(len, h.d + w)) - b)) > rc.straightMaxDeg) return null
+        val p = net.projectOnto(h.seg, m.lat, m.lon)
+        if (p.distanceM > abs(p.crossTrackM) + 1.0) return null // beyond the segment ends: cannot judge
+        return p.crossTrackM
+    }
+
+    /** Corner fix (see [RoadConstraintConfig.cornerFix]). */
+    private fun cornerFix(m: RoadMatcher, h: RoadMatcher.Hyp, gHist: List<Pair<Double, Double>>, gOdo: Double) {
+        val rc = cfg.roadConstraint
+        if (!rc.cornerFix || gHist.size < 10 || odoM - lastCornerOdo < 100.0) return
+        if (m.probabilityOf(h) < rc.cornerMinProbability || m.pOffRoad() > rc.maxPOffRoad) return
+        val sMax = sqrt(maxOf(p[0, 0], p[1, 1]) + abs(p[0, 1]))
+        if (sMax > 2 * rc.maxPoseSigmaM || abs(x[IDX_V]) < rc.minSpeedMps || sqrt(p[IDX_V, IDX_V]) > rc.maxSpeedStdMps) return
+        // A completed turn: ≥ cornerMinTurnDeg over the last 8 steps, the last 2 steps straight.
+        val n = gHist.size
+        val turn = Math.toDegrees(abs(gHist[n - 1].second - gHist[maxOf(0, n - 9)].second))
+        val tail = Math.toDegrees(abs(gHist[n - 1].second - gHist[n - 3].second))
+        if (turn < rc.cornerMinTurnDeg || tail > 5.0) return
+        val profile = m.roadProfile(h)
+        if (profile.isEmpty() || profile.last().back < rc.cornerTrailM) return
+        val gyro = gHist.reversed().map { (o, c) -> gpes.core.road.AlongTrackMatch.Sample(gOdo - o, c) }
+        val res = gpes.core.road.AlongTrackMatch.match(gyro, profile, gpes.core.road.AlongTrackMatch.Config(turnInsetM = 20.0, minTurnDeg = rc.cornerMinTurnDeg))
+            ?: return
+        val net = m.network
+        val len = net.lengthOf(h.seg)
+        val dir = if (h.fwd) 1.0 else -1.0
+        val dTarget = h.d + dir * res.shiftM
+        val segBearing = Math.toRadians(net.bearingAt(h.seg, h.d.coerceIn(0.0, len)))
+        val travel = if (h.fwd) segBearing else segBearing + PI
+        // Road point at the shifted position (extrapolated straight beyond the segment ends).
+        val base = net.toLatLon(gpes.core.model.RoadState(h.seg, dTarget.coerceIn(0.0, len), h.fwd))
+        val over = when { dTarget < 0 -> dTarget; dTarget > len -> dTarget - len; else -> 0.0 } * dir
+        val zb = frame!!.toEnu(base.lat, base.lon)
+        val ze = zb.e + over * sin(travel); val zn = zb.n + over * cos(travel)
+        val half = gpes.core.road.RoadWidth.halfWidthM(net.segment(h.seg)!!)
+        val r = maxOf(res.sigmaM, half).let { it * it } + cfg.road.osmGeometryStdM * cfg.road.osmGeometryStdM
+        // Earlier road updates may have shrunk the position covariance without along-track evidence:
+        // start from at least the road-free twin's position covariance.
+        free?.let { f -> if (f.p[0, 0] + f.p[1, 1] > p[0, 0] + p[1, 1]) for (i in 0..1) for (j in 0..1) p[i, j] = f.p[i, j] }
+        if (nis2(ze, zn, r) <= rc.cornerGateNis) { updatePos(ze, zn, r); roadStats[1] += 1_000_000 }
+        lastCornerOdo = odoM
+    }
+
+    /** Least-squares slope (m/s²) of the recent vehicle-speed readings; 0 with fewer than 3. */
+    private fun obdSlope(): Double {
+        if (cfg.obdLatencyS == 0.0 || obdHist.size < 3) return 0.0
+        val t0 = obdHist.first().first
+        val ts = obdHist.map { (it.first - t0) / 1e9 }; val vs = obdHist.map { it.second }
+        val mt = ts.average(); val mv = vs.average()
+        val den = ts.sumOf { (it - mt) * (it - mt) }
+        if (den <= 1e-6) return 0.0
+        return ts.indices.sumOf { (ts[it] - mt) * (vs[it] - mv) } / den
     }
 
     /** Take the road-free twin's navigation state (after repeated road-update rejections). */
@@ -284,6 +380,7 @@ class BaselineDrEstimator(
     private fun applyRoad(m: RoadMatcher, turns: List<Double>, gHist: List<Pair<Double, Double>>, gOdo: Double) {
         val rc = cfg.roadConstraint
         val h = m.bestHyp() ?: return
+        cornerFix(m, h, gHist, gOdo)
         if (m.probabilityOf(h) < rc.minProbability || h.confidentM < rc.minConfidentM || m.pOffRoad() > rc.maxPOffRoad) return
         val sMax = sqrt(maxOf(p[0, 0], p[1, 1]) + abs(p[0, 1]))
         if (sMax > rc.maxPoseSigmaM || abs(x[IDX_V]) < rc.minSpeedMps || sqrt(p[IDX_V, IDX_V]) > rc.maxSpeedStdMps) return
@@ -310,7 +407,7 @@ class BaselineDrEstimator(
         }
         if (rc.alongTrack && odoM - lastRoadAlongOdo >= rc.alongEveryM && gHist.size >= 3) {
             val gyro = gHist.reversed().map { (o, c) -> gpes.core.road.AlongTrackMatch.Sample(gOdo - o, c) }
-            val res = gpes.core.road.AlongTrackMatch.match(gyro, m.roadProfile(h))
+            val res = gpes.core.road.AlongTrackMatch.match(gyro, m.roadProfile(h), gpes.core.road.AlongTrackMatch.Config(minTurnDeg = rc.alongMinTurnDeg))
             if (res != null) {
                 val pt = net.toLatLon(gpes.core.model.RoadState(h.seg, h.d, h.fwd))
                 val z = frame!!.toEnu(pt.lat, pt.lon)
@@ -386,10 +483,12 @@ class BaselineDrEstimator(
             is PowerState -> compass.onPower(m)
             is VehicleSpeedMeasurement -> {
                 propagateTo(m.tNs, lastYawRate)
+                obdHist = (obdHist + (m.tNs to m.speedMps)).filter { (m.tNs - it.first) / 1e9 <= cfg.obdSlopeWindowS }
+                val zSpeed = m.speedMps + cfg.obdLatencyS * obdSlope()
                 // Speedometer model: z = v·(1 + s). The scale error s (tyre wear, tyre size, OEM
                 // over-reading) is learned while trusted GNSS speed is available, then kept during outages.
                 val h = DoubleArray(N).also { it[IDX_V] = 1 + x[IDX_S]; it[IDX_S] = x[IDX_V] }
-                updateH(h, m.speedMps - x[IDX_V] * (1 + x[IDX_S]), max(m.stdMps, 0.05).let { it * it })
+                updateH(h, zSpeed - x[IDX_V] * (1 + x[IDX_S]), max(m.stdMps, 0.05).let { it * it })
                 clampSpeed()
                 speedScaleStatus = x[IDX_S] to sqrt(p[IDX_S, IDX_S])
             }
@@ -433,6 +532,8 @@ class BaselineDrEstimator(
                 return
             }
         }
+
+        if (isCoarse && !roadAllowsFix(m)) return
 
         val z = frame!!.toEnu(m.lat, m.lon)
         if (isCoarse) {
@@ -726,6 +827,7 @@ class BaselineDrEstimator(
         compass.copy(), nextCompassT, odoM, lastNetT, lastNetOdo, bank.copy(), relE, relN, candidates,
         matcher?.copy(), lastRoadOdo, gyroTurn, recentTurns, lastRoadHeadingOdo, lastRoadCrossOdo,
         roadSteps, seenFreeSteps, roadRejects, free?.snapshot(), gyroHist, cumGyro, lastRoadAlongOdo,
+        heldOffset, heldT, obdHist, lastCornerOdo,
     )
 
     override fun restore(snapshot: Any) {
@@ -742,6 +844,7 @@ class BaselineDrEstimator(
         recentTurns = s.recentTurns; lastRoadHeadingOdo = s.lastRoadHeadingOdo; lastRoadCrossOdo = s.lastRoadCrossOdo
         roadSteps = s.roadSteps; seenFreeSteps = s.seenFreeSteps; roadRejects = s.roadRejects
         gyroHist = s.gyroHist; cumGyro = s.cumGyro; lastRoadAlongOdo = s.lastRoadAlongOdo
+        heldOffset = s.heldOffset; heldT = s.heldT; obdHist = s.obdHist; lastCornerOdo = s.lastCornerOdo
         if (free != null && s.free != null) free.restore(s.free)
     }
 

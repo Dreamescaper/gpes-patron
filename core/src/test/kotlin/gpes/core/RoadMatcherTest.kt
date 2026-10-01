@@ -72,6 +72,28 @@ class RoadMatcherTest {
         assertTrue(m.pOffRoad() < 0.05)
     }
 
+    /**
+     * Real case: 2026-09-28 +9:25–11:53 (R-020b, D-045). A residential side carriageway with the main road's
+     * name runs ~20 m from the main carriageway; the pose was biased towards it, and the matcher sat on it
+     * for minutes. With the small minor-road prior the main road wins; without it the side one does.
+     */
+    @Test
+    fun `a parallel residential side carriageway does not take over the main road`() {
+        val net2 = RoadNetwork.build(listOf(
+            way(10, listOf(20L to (0.0 to -200.0), 21L to (0.0 to 1200.0)), cls = "trunk", name = "Main"),
+            way(11, listOf(22L to (20.0 to -200.0), 23L to (20.0 to 1200.0)), cls = "residential", name = "Main"),
+        ))
+        fun run(cfg: RoadMatcherConfig): Long {
+            val m = RoadMatcher(cfg, net2)
+            // Pose 12 m east of the main carriageway, i.e. only 8 m from the side one (pose σ 20 m).
+            for (k in 0..60) m.step(RoadStepInput(lat0 + k * 10 * mLat, lon0 + 12.0 * mLon, Cov2(400.0, 0.0, 400.0),
+                0.0, Math.toRadians(5.0), 10.0, 0.0, 12.0))
+            return net2.segment(m.best()!!.segmentId)!!.osmWayId
+        }
+        assertEquals(10L, run(RoadMatcherConfig()), "main carriageway with the minor-road prior")
+        assertEquals(11L, run(RoadMatcherConfig(minorRoadPenalty = 0.0)), "side carriageway without it (the real failure)")
+    }
+
     /** A road along the simulated drive's truth path, so the pipeline has something to match. */
     private fun roadAlongTruth(): RoadNetwork {
         val t = TestSupport.defaultDrive.truth.filterIndexed { i, _ -> i % 20 == 0 }
