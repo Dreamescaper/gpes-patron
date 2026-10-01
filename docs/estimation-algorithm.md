@@ -30,7 +30,11 @@ Output: a `MotionUpdate` at 20 Hz.
 3. **Stationary detection** over a 1 s window: std(|accel|) < 0.12 m/s² and mean |gyro| < 0.03 rad/s.
    It reports `stationaryForS`.
 4. **Cumulative bearing history** (10 min) answers `bearingChange(t1, t2)` for trust checks,
-   independently of GNSS.
+   independently of GNSS. The same history integrates vehicle speed (OBD, if fresh ≤ 1.5 s) along
+   the cumulative bearing, so `odometry(t1, t2)` returns the distance driven and the **chord** (the
+   straight-line displacement). The chord does not depend on the absolute heading. It is null when
+   vehicle speed was missing for any part of the interval. OBD has no sign, so reversing counts as
+   forward motion (short manoeuvres only).
 5. **Vehicle forward axis in the phone frame (mount yaw)**, learned from turns. In a turn the
    centripetal acceleration points to the turn centre, so `sign(ω_up)·a_horizontal` is the vehicle's
    *left*, and forward = left × up. This needs no speed and has no sign ambiguity. It is used when
@@ -68,7 +72,17 @@ by the estimator).
 | Network disagreement | fresh network fix (≤ 120 s): d > 2·(accNet+accGnss) + 30 m/s·age → Q; beyond that by 20 km → R (`GEOGRAPHICALLY_IMPOSSIBLE`) | Q / R |
 | Raw GNSS | sats used < 4 → Q. Used-sat C/N0 std < 1 dB with ≥ 6 sats → `CN0_UNIFORM`, which only lowers confidence (low weight in Phase 1) | Q / info |
 
-Network fixes: synthetic → R, missing accuracy or > 5 km → R, latency > 30 s → Q, otherwise TRUSTED.
+Network fixes: synthetic → R, missing accuracy or > 5 km → R, latency > 30 s → Q, otherwise TRUSTED,
+unless the **coarse-odometry check** rejects them (D-031, `COARSE_ODOMETRY_MISMATCH`, R):
+
+- For each of the last 3 TRUSTED network fixes (≤ 180 s old, with odometry available), the fix
+  *agrees* if |d − chord| ≤ K·√(σ₁²+σ₂²) + 5%·distance + 10 m, where d is the distance between the two
+  fixes, σ = hAcc / 1.515, and K = 3 (`coarseOdoK`, null disables).
+- REJECTED when more voters disagree than agree, unless the fix agrees with the previous
+  (rejected) fix. Voting keeps one bad but accepted reference from rejecting the good fixes after it.
+- It catches fixes that jump much further than the car drove, and fixes that stay put while it
+  drives. It cannot catch a fix at the right distance in the wrong direction; that needs a heading
+  (roadmap). Measured effect is small (R-009).
 
 ### Hysteresis and reset (inspired by PX4 GPS checks and reset-on-glitch)
 
@@ -131,7 +145,7 @@ s ← s                       (random walk σ = 2e−5 /√s; speedometer scale)
 | GNSS position | TRUSTED (QUESTIONABLE only if `questionableRScale` is set, R × scale) | H = [I₂ 0], R = σ²I, σ = hAcc/1.51; NIS > 25 on a TRUSTED fix → reset position |
 | GNSS speed | with the position update | R = max(sAcc, 0.2)² |
 | GNSS course | speed ≥ 5 m/s | wrapped innovation, R = max(bAcc, 1°)²; the first course, or a jump > 60°, re-initializes ψ |
-| Network fix | TRUSTED/QUESTIONABLE, if our σ > 0.5·σ_net **or** ≥ 15 s and ≥ 150 m of odometry since the last fused one (D-021) | σ_net = 1.5·hAcc/1.51; NIS > 50 → reset to the network fix |
+| Network fix | TRUSTED/QUESTIONABLE, if our σ > 0.5·σ_net **or** ≥ 15 s and ≥ 150 m of odometry since the last fused one (D-021) | σ_net = 1.5·hAcc/1.51. **Robust (D-034):** NIS ≤ 9.21 → normal update; above → *candidate*, updated with R × NIS/9.21 (so it barely moves position and heading). 3 candidates in a row over ≥ 20 s whose spacing matches the odometry chord (\|d − chord\| ≤ 3·√(σ₁²+σ₂²) + 5%·distance + 10 m) → reset onto the latest; if no GNSS was used for 60 s, also restart the heading search (bank). A normal update clears the candidates. (`coarseRobustNis = null` restores the old NIS > 50 → reset.) |
 | Compass heading | 1 Hz, gated (see §3b), only if σ_ψ > σ_compass (correlated errors must not average down) | wrapped innovation, R = σ_compass²; NIS > 9 → skip; initializes ψ when heading is unknown |
 | Vehicle speed (OBD/synthetic) | always | z = v·(1+s), H = [0,0,0,1+s,0,v], R = max(std, 0.05)² (ELM327: 0.3 m/s). s starts at 0 ± 3% with a 2e-5/√s random walk, is learned while GNSS speed is trusted, and is kept during outages (D-029) |
 | ZUPT | IMU stationary | **local** updates (only v and b move, Joseph form): v = 0 (R = 0.05²), b = ω_up (R = 0.003²). A full update let one noisy bias sample move the position by the bias-to-heading-to-position lever after a long outage (D-028) |
@@ -144,8 +158,8 @@ Updates use the Joseph form, and P is symmetrized after each step.
 - Network only → mode COARSE_ONLY, position = network fix, covariance = network accuracy × 1.5.
   The coarse fix is **never** turned into a confident point.
 - Heading without GNSS comes from the compass once it has a reading (UNCORRECTED σ ≈ 35°, then
-  FORWARD_ALIGNED after enough turns). With OBD speed this starts real dead reckoning between
-  coarse fixes (R-006: start without GNSS, p50 ≈ 190 m).
+  FORWARD_ALIGNED after enough turns), or from the heading bank (§3c) once coarse fixes and the
+  driven path agree on one heading. Either starts real dead reckoning between coarse fixes.
 - Nothing → no estimate (UNINITIALIZED); mock output publishes nothing.
 
 ### Output (every 1 s tick)
@@ -223,11 +237,35 @@ Simulation, measured:
 - Uncalibrated p50 < 20°.
 - Real cars and holders may be much worse, so this needs validation (see progress).
 
+## 3c. Heading bank (`HeadingBank`, D-032)
+
+Absolute heading without GNSS or compass, from coarse fixes + gyro + speed. A Gaussian-sum filter
+after PX4's EKF-GSF yaw estimator, with coarse positions instead of GNSS velocity.
+
+- Runs only while the EKF heading is unknown. It starts at the first coarse fix with **12**
+  hypotheses spread over 360° (σψ = half the spacing, 15°), each a 3-state EKF [e, n, ψ] in its own
+  local frame.
+- Propagation (every EKF propagation step): ψ ← ψ − (ω_up − b)·dt with the EKF gyro bias; position
+  along ψ with the EKF speed. Process noise: heading random walk 0.01 rad/√s plus 2% gyro scale on
+  turns; position 0.5 m/√s; along-track **correlated** error ∫(σ_v + 3%·|v|)dt since the last fix,
+  entered as its squared growth (a wrong speed stays wrong, so the error grows ∝ t, not √t).
+- Each accepted coarse fix (R = (hAcc/1.515·1.5)²) updates every hypothesis (Joseph form) and adds
+  −½·NIS − ½·ln det S to its log-weight. Weights are floored at 10⁻⁴ of the best, so a hypothesis can
+  recover.
+- Mixture heading = weighted circular mean; σ² = Σw(Pψψ + Δψ²). **Hand-over** when σ ≤ 15°, ≥ 4 fixes
+  and ≥ 300 m driven: the EKF takes the mixture heading, position and their joint 3×3 covariance
+  (position std ×2, because coarse errors are correlated and the bank treats them as independent),
+  decorrelated from v, b, s. Then the bank resets; the EKF runs as usual (coarse fixes update all
+  states). GNSS course or a compass reading also reset the bank.
+- The heading is observable without speed (fixes line up along the direction of travel), so the
+  bank may hand over without OBD; the speed then stays unknown (tests: no harm, p95 better).
+
+Measured: R-011.
+
 ## 4. What the baseline cannot do (by design)
 
-- Absolute heading without GNSS relies on the compass (§3b), which is untested on real cars yet.
-  Magnetic holders and local anomalies may defeat it; the gates make it drop out rather than lie.
-  EKF-GSF yaw remains a roadmap item.
+- Absolute heading without GNSS relies on the compass (§3b), untested on real cars yet, or on the
+  heading bank (§3c), which needs coarse fixes and a few hundred metres of driving.
 - Distance without GNSS or OBD is poorly constrained, because speed is a random walk. That is why
   `synthObd` improves the 10-min outage p95 from about 1.4 km to about 250 m in simulation.
 - No map: errors grow without bound during hours-long outages. Phase 2 road-state estimation is

@@ -31,6 +31,8 @@ enum class TrustReason {
     FEW_SATELLITES,
     RECOVERING,
     RESET_AFTER_CONSISTENT_STREAM,
+    /** Coarse fix displacement disagrees with the distance driven (OBD + gyro chord). */
+    COARSE_ODOMETRY_MISMATCH,
 }
 
 /** The trust verdict for one location measurement. Recorded for every fix, including rejected ones. */

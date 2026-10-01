@@ -84,6 +84,7 @@ class MeasurementPipeline(
     private val motionView = object : MotionView {
         override fun stationaryForS() = motion.stationaryForS()
         override fun bearingChange(t1: Long, t2: Long) = motion.bearingChange(t1, t2)
+        override fun odometry(t1: Long, t2: Long) = motion.odometry(t1, t2)
     }
 
     override fun emit(m: Measurement) {

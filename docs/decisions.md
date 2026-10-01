@@ -259,3 +259,101 @@ Decision: QUESTIONABLE when |v_gnss − v_obd| > 1.5 m/s + 8%. A spoofer can fak
 track, including Doppler, but not the car's speedometer. Simulated Doppler-consistent 2 m/s drift:
 missed detection 99% → 36% (10-min drive) and 99.6% → 80% (1-hour drive, where the drift direction
 varies relative to motion). Clean data: 0 false rejections.
+
+## D-031: Coarse fixes vs distance driven (odometry chord, voting) — Accepted (2026-09-28)
+Context: on the jammed drive (R-008) the estimator had no heading, so it followed every Google network
+fix: a fix 1.1 km off after 170 m of driving, and fixes that stayed at a traffic light for ~25 s after
+the car left. OBD + gyro know how far the car moved and whether the path was straight, without knowing
+the absolute heading.
+Decision: `MotionTracker.odometry(t1, t2)` gives the distance and the straight-line chord from OBD speed
+along the gyro bearing. A network fix is REJECTED (`COARSE_ODOMETRY_MISMATCH`) when most of the last 3
+trusted network fixes disagree: |d − chord| > K·√(σ₁²+σ₂²) + 5%·distance + 10 m, K = 3.
+Alternatives:
+- Compare with the last trusted fix only (first version): cascades. A stale fix that passes becomes the
+  reference and the correct fix after it is rejected (R-008: max jump 578 → 908 m). Rejected.
+- K = 2: rejects 3 fixes on R-007 (all truly 160–290 m off) and the stale fix on R-008, but the
+  downstream metrics are mixed (R-007 GNSS absent from start p95 810 → 932 m; 1-h drop 380 → 357 m).
+  Kept as a config value, not the default, until more drives exist.
+- A directional check (triangle/shape of several fixes vs the dead-reckoned shape): stronger, but it is
+  shape fitting, which the user parked; it belongs with the heading work.
+- Put it in the estimator (inflate R instead of rejecting): the dirless EKF already accepts these fixes
+  as "inside a growing disk"; the flaw is the disk, not R. A ring constraint needs a heading bank or a
+  particle filter (roadmap).
+Consequences: small, safe gain (R-009). The real fix for R-008 is an absolute heading; this check stays
+useful as a sanity gate afterwards. Revisit K with more drives.
+
+## D-032: Heading bank (Gaussian-sum filter over heading) for starts without GNSS — Accepted (2026-09-28)
+Context: on the jammed drive (R-008) the EKF never had a heading, so it ignored the gyro and OBD for
+position and hopped between network fixes. The gyro bearing is very stable (R-010: −0.12°/min), so
+only one unknown offset is missing, and an offline rigid fit of the driven path to network fixes
+recovered it (R-010).
+Decision: `HeadingBank`, 12 heading hypotheses weighted by coarse-fix likelihood, handing heading,
+position and joint covariance to the EKF when σψ ≤ 15° after ≥ 4 fixes and ≥ 300 m (§3c).
+Alternatives:
+- Rigid fit per fix (the script): jumps of up to 81 m in 2 s when a new fix swings the rotation
+  about a centroid ~1 km away; thinning fixes did not help; fixed-gain smoothing of the rotation cut
+  jumps but hurt accuracy (p50 30 → 79 m). Rejected: the heading must be a state with its own
+  uncertainty.
+- Initialise the EKF heading from the bearing between two fixes: one pair is noisy, and a single
+  EKF with σψ ≈ 60° is badly non-linear. Rejected.
+- Keep the bank running after hand-over and make coarse fixes position-only in the EKF: measured
+  worse (R-007 GNSS absent: p50 47 → 108 m, within95 0.79 → 0.21), because the position gets
+  confident while heading errors stay uncorrected. Rejected.
+- Hand-over position std ×1/×2/×3: within95 0.76/0.78/0.81 with the same errors; ×2 kept. The real
+  calibration problem is the coarse-fix error model (roadmap).
+Consequences: R-011. Calibration after hand-over is optimistic when network fixes are correlated or
+wrong (within95 0.79 on R-007). The bank does not help once a heading is known (drops after GNSS).
+
+## D-033: Honest OBD handling in the replay ladder — Accepted (2026-09-28)
+Context: `drop_source` could not remove OBD, so on real drives every rung used the recorded OBD and the
+`+synthObd` rungs added a second speed source. Without GNSS, speed v and speedometer scale s enter only
+as v·(1+s); two conflicting sources (−2.9% and +3%, 0.8 s vs 0.15 s latency) drove v to 1.9× truth.
+This stayed hidden until the heading bank made the EKF move along its speed.
+Decision: `drop_vehicle_speed` step (keeps synthetic speed). Every rung drops recorded OBD except the
+new `phone+obd` and `phone+network+obd`; `+synthObd` rungs replace the recorded OBD.
+Alternatives: a per-variant flag in the estimator (rejected: the replay layer owns the input); keep
+the old ladder and document it (rejected: it produced a false 4.6-km regression).
+Consequences: real-drive numbers before 2026-09-28 for gyro-only / phone-only / phone+network include
+OBD; compare with `phone+obd` / `phone+network+obd` now.
+
+## D-034: Robust coarse updates with a consistent-stream reset — Accepted (2026-09-28)
+Context: after the heading bank, a single bad network fix (R-008 at 358 s: 365 m off at hAcc 110 m)
+moved the estimate and rotated the heading by 9°, and the DR then zigzagged for 40 s. The old rule
+updated with full weight up to NIS 50 and **reset onto the fix** above it, so one far outlier made the
+estimate jump (sim: 5 → 378 m). But ignoring far fixes is dangerous when it is *our* estimate that
+drifted.
+Decision: NIS ≤ 9.21 → normal; above → candidate with R × NIS/9.21. Three candidates in a row
+(≥ 20 s) whose spacing matches the odometry chord → reset onto them; restart the heading bank if no
+GNSS for 60 s (a big DR drift means a wrong heading; with recent GNSS it was spoofing and the heading
+is fine).
+Alternatives (measured on R-007, 13 scenarios × 2 rungs, p95 geo-mean vs plain):
+- Also require the candidates to show the same offset from us: 1.00 / 0.89, but ramp capture
+  106 → 668 m, because under spoofing our estimate is dragged between fixes and the stream never forms.
+  Rejected.
+- Clear candidates on every GNSS update: the stream never forms under spoofing (p95 up to 757 m).
+  Rejected.
+- Always restart the heading on a stream reset: ramp capture 106 → 266 m (2 min without heading after
+  a spoof). Rejected; only after 60 s without GNSS.
+- Two candidates over 10 s: geo-mean 0.84 / 0.85, but the 1-h drop 387 → 536 m. Rejected for now.
+- Threshold 5.99 (95%): the 358-s snap 42 → 18 m (9.21: → 37 m), geo-mean 0.86 / 0.96, but the 10-min
+  and 1-h drops +28% / +19%. Kept as a config option.
+Consequences: R-012. Recovery from a real drift now takes 3 agreeing fixes (~50–60 s) instead of one.
+The 09:05 zigzag on R-008 is only slightly smaller; its later snaps are correct corrections of a
+heading that the first fix had already rotated. Spoofing scenarios are mixed (ramp capture 106 → 165,
+Doppler-consistent ramp 255 → 185 with OBD).
+
+## D-035: Limit the heading correction from coarse fixes — Rejected (2026-09-28)
+Context: the user observed on R-008 that from 09:05:32 to 09:05:41 the track followed the road's shape
+exactly but was offset to the right: the heading was right, only the position was off. The fix at 358 s
+corrected in the right direction, but the EKF explained part of the lateral offset as a heading error
+(−8°), and the track then turned off the road (snap of 78 m at 383 s).
+Tried: `coarseHeadingGain` = fraction of the Kalman heading/bias correction that a coarse fix may apply
+(Joseph form keeps P consistent).
+Measured: R-008 snaps at 358 / 383 s: gain 1.0 → 37 / 78 m, 0.5 → 49 / 78, 0.25 → 81 / 93, 0 → 180 /
+153 m; snaps > 50 m over the drive 7 / 7 / 8 / 12. R-007 p95 geo-mean vs 1.0: 1.05 / 1.06 / 1.05 (with
+OBD), worst ×2.6 (Doppler-consistent ramp); within95 improves (GNSS absent 0.77 → 0.86 / 0.88 / 0.92).
+The heading does turn less at 358 s (−5° at 0.5), but coarse fixes are needed to keep refining the
+heading, so the DR drifts more between fixes and the snaps grow.
+Decision: keep 1.0 (parameter kept for experiments). The parallel-offset case is what the Phase 2 road
+constraint solves directly (a track with the road's shape is snapped onto the road).
+

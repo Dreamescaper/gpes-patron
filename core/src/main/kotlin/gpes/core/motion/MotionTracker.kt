@@ -5,9 +5,13 @@ import gpes.core.model.ImuSample
 import gpes.core.model.Measurement
 import gpes.core.model.OrientationKind
 import gpes.core.model.OrientationSample
+import gpes.core.model.VehicleSpeedMeasurement
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.exp
+import kotlin.math.hypot
 import kotlin.math.sign
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 /** Small immutable 3-vector (phone frame unless stated otherwise). */
@@ -54,6 +58,13 @@ data class MotionUpdate(
     val upFromOrientation: Boolean = false,
 )
 
+/**
+ * Dead-reckoned path between two times from vehicle speed (OBD) and the gyro bearing change.
+ * [chordM] is the straight-line displacement: it does not depend on the (unknown) absolute heading,
+ * so it constrains coarse fixes even when nothing knows which way the car points.
+ */
+data class Odometry(val distanceM: Double, val chordM: Double)
+
 data class MotionConfig(
     val updatePeriodNs: Long = 50_000_000,
     val windowNs: Long = 1_000_000_000,
@@ -74,6 +85,8 @@ data class MotionConfig(
     /** Net non-yaw rotation within [remountWindowNs] that counts as re-mounting the phone (rad). */
     val remountTiltRad: Double = 0.35,
     val remountWindowNs: Long = 3_000_000_000,
+    /** Vehicle speed older than this does not count for odometry; the interval then has a gap. */
+    val odoMaxSpeedAgeNs: Long = 1_500_000_000,
 )
 
 /**
@@ -83,7 +96,8 @@ data class MotionConfig(
  *  - learns the vehicle forward axis in the phone frame from turns. The centripetal acceleration
  *    points to the turn centre, so sign(yawRate)·a_horizontal is the vehicle's *left*, and
  *    forward = left × up. This needs no speed and has no sign ambiguity;
- *  - detects re-mounting (a large net rotation that is not about the up axis).
+ *  - detects re-mounting (a large net rotation that is not about the up axis);
+ *  - integrates vehicle speed along the gyro bearing into a relative path ([odometry]).
  */
 class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
 
@@ -98,6 +112,8 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
         val leftSum: Vec3, val leftWeight: Double, val leftCount: Int,
         val tiltWindow: List<Pair<Long, Vec3>>, val mountEpoch: Int, val remountAt: Long,
         val tiltRateWindow: List<Pair<Long, Double>>,
+        val lastSpeed: Double, val lastSpeedT: Long,
+        val odoE: Double, val odoN: Double, val odoDist: Double, val odoGaps: Int,
     )
 
     // Gravity (specific force at rest points up) in the phone frame, low-passed accelerometer.
@@ -129,9 +145,21 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
     private var remountAt = Long.MIN_VALUE
     private val tiltRateWindow = ArrayDeque<Pair<Long, Double>>()
 
-    // Cumulative bearing change history: parallel arrays, appended at each update.
+    // Odometry: vehicle speed integrated along the cumulative gyro bearing (relative frame).
+    private var lastSpeed = 0.0
+    private var lastSpeedT = Long.MIN_VALUE
+    private var odoE = 0.0
+    private var odoN = 0.0
+    private var odoDist = 0.0
+    private var odoGaps = 0
+
+    // History (cumulative bearing change and odometry): parallel arrays, appended at each update.
     private var histT = LongArray(1024)
     private var histYaw = DoubleArray(1024)
+    private var histE = DoubleArray(1024)
+    private var histN = DoubleArray(1024)
+    private var histD = DoubleArray(1024)
+    private var histGap = IntArray(1024)
     private var histStart = 0
     private var histEnd = 0
 
@@ -153,6 +181,11 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
                 orientUp = Vec3(2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y))
                 orientT = m.tNs
             }
+            null
+        }
+        is VehicleSpeedMeasurement -> {
+            lastSpeed = m.speedMps
+            lastSpeedT = m.tNs
             null
         }
         else -> null
@@ -242,6 +275,12 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
         val rate = if (yawAccumDt > 0) yawAccum / yawAccumDt else 0.0
         cumYawBearing -= rate * dtS
         yawAccum = 0.0; yawAccumDt = 0.0
+        if (lastSpeedT != Long.MIN_VALUE && tNs - lastSpeedT <= cfg.odoMaxSpeedAgeNs) {
+            val ds = lastSpeed * dtS
+            odoE += ds * sin(cumYawBearing); odoN += ds * cos(cumYawBearing); odoDist += ds
+        } else if (dtS > 0) {
+            odoGaps++
+        }
         lastEmitT = tNs
 
         val accStd = std(accWindow)
@@ -253,7 +292,7 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
         } else {
             stationarySinceNs = null
         }
-        appendHistory(tNs, cumYawBearing)
+        appendHistory(tNs)
         val up = up(tNs)
         val ah = if (up != null) lastAccel?.perp(up)?.norm ?: 0.0 else 0.0
         val tiltRms = if (tiltRateWindow.isEmpty()) 0.0 else sqrt(tiltRateWindow.sumOf { it.second } / tiltRateWindow.size)
@@ -273,36 +312,52 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
         return sqrt(w.sumOf { (it.second - mean) * (it.second - mean) } / (w.size - 1))
     }
 
-    private fun appendHistory(t: Long, yaw: Double) {
+    private fun appendHistory(t: Long) {
         if (histEnd == histT.size) {
             // Compact or grow.
             val live = histEnd - histStart
-            if (histStart > histT.size / 2) {
-                System.arraycopy(histT, histStart, histT, 0, live)
-                System.arraycopy(histYaw, histStart, histYaw, 0, live)
-            } else {
-                histT = histT.copyOf(histT.size * 2).also { System.arraycopy(histT, histStart, it, 0, live) }
-                histYaw = histYaw.copyOf(histYaw.size * 2).also { System.arraycopy(histYaw, histStart, it, 0, live) }
-            }
+            val cap = if (histStart > histT.size / 2) histT.size else histT.size * 2
+            fun move(a: LongArray) = (if (cap == a.size) a else a.copyOf(cap)).also { System.arraycopy(a, histStart, it, 0, live) }
+            fun move(a: DoubleArray) = (if (cap == a.size) a else a.copyOf(cap)).also { System.arraycopy(a, histStart, it, 0, live) }
+            fun move(a: IntArray) = (if (cap == a.size) a else a.copyOf(cap)).also { System.arraycopy(a, histStart, it, 0, live) }
+            histT = move(histT); histYaw = move(histYaw); histE = move(histE); histN = move(histN)
+            histD = move(histD); histGap = move(histGap)
             histStart = 0; histEnd = live
         }
-        histT[histEnd] = t; histYaw[histEnd] = yaw; histEnd++
+        histT[histEnd] = t; histYaw[histEnd] = cumYawBearing
+        histE[histEnd] = odoE; histN[histEnd] = odoN; histD[histEnd] = odoDist; histGap[histEnd] = odoGaps
+        histEnd++
         while (histStart < histEnd && histT[histStart] < t - cfg.historyNs) histStart++
     }
 
-    /** Cumulative bearing change (rad, clockwise positive) interpolated at [tNs], or null if outside history. */
-    fun cumulativeBearingAt(tNs: Long): Double? {
+    /** History bracket for [tNs]: (lo, hi, fraction), or null if outside history. */
+    private fun bracket(tNs: Long): Triple<Int, Int, Double>? {
         if (histEnd == histStart) return null
         if (tNs < histT[histStart] || tNs > histT[histEnd - 1] + cfg.updatePeriodNs * 4) return null
         var lo = histStart
         var hi = histEnd - 1
-        if (tNs >= histT[hi]) return histYaw[hi]
+        if (tNs >= histT[hi]) return Triple(hi, hi, 0.0)
         while (hi - lo > 1) {
             val mid = (lo + hi) ushr 1
             if (histT[mid] <= tNs) lo = mid else hi = mid
         }
-        val f = (tNs - histT[lo]).toDouble() / (histT[hi] - histT[lo]).coerceAtLeast(1)
-        return histYaw[lo] + f * (histYaw[hi] - histYaw[lo])
+        return Triple(lo, hi, (tNs - histT[lo]).toDouble() / (histT[hi] - histT[lo]).coerceAtLeast(1))
+    }
+
+    private fun DoubleArray.at(b: Triple<Int, Int, Double>) = this[b.first] + b.third * (this[b.second] - this[b.first])
+
+    /** Cumulative bearing change (rad, clockwise positive) interpolated at [tNs], or null if outside history. */
+    fun cumulativeBearingAt(tNs: Long): Double? = bracket(tNs)?.let { histYaw.at(it) }
+
+    /**
+     * Path travelled between [t1] and [t2] from vehicle speed and the gyro, or null when outside
+     * history or when vehicle speed was missing for any part of the interval.
+     */
+    fun odometry(t1: Long, t2: Long): Odometry? {
+        val a = bracket(t1) ?: return null
+        val b = bracket(t2) ?: return null
+        if (histGap[a.first] != histGap[b.second]) return null
+        return Odometry(histD.at(b) - histD.at(a), hypot(histE.at(b) - histE.at(a), histN.at(b) - histN.at(a)))
     }
 
     /** Bearing change measured by the gyro between two times (rad, clockwise positive). */
@@ -319,6 +374,7 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
         g, gravityInit, orientUp, orientT, lastAccel, lastAccelT, lastGyroT, yawAccum, yawAccumDt,
         lastEmitT, cumYawBearing, stationarySinceNs, seenCalibratedGyro, accWindow.toList(), gyroWindow.toList(),
         leftSum, leftWeight, leftCount, tiltWindow.toList(), mountEpoch, remountAt, tiltRateWindow.toList(),
+        lastSpeed, lastSpeedT, odoE, odoN, odoDist, odoGaps,
     )
 
     /** Restore state; history entries newer than the snapshot are discarded (they will be regenerated). */
@@ -336,6 +392,8 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
         tiltSum = s.tiltWindow.fold(Vec3.ZERO) { acc, p -> acc + p.second }
         mountEpoch = s.mountEpoch; remountAt = s.remountAt
         tiltRateWindow.clear(); tiltRateWindow.addAll(s.tiltRateWindow)
+        lastSpeed = s.lastSpeed; lastSpeedT = s.lastSpeedT
+        odoE = s.odoE; odoN = s.odoN; odoDist = s.odoDist; odoGaps = s.odoGaps
         while (histEnd > histStart && histT[histEnd - 1] > s.lastEmitT) histEnd--
         latest = null
     }

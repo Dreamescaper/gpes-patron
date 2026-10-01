@@ -86,8 +86,16 @@ private fun writeResult(r: ReplayResult, s: ReplaySummary, dir: File) {
     val rows = Metrics.rows(r)
     File(dir, "summary.json").writeText(pretty.encodeToString(ReplaySummary.serializer(), s))
     File(dir, "ticks.csv").bufferedWriter().use { w ->
-        w.write("t_s,est_lat,est_lon,r68_m,mode,truth_lat,truth_lon,err_m,heading_err_deg,degraded,since_degraded_s\n")
-        for (x in rows) w.write(listOf(x.tS, x.estLat, x.estLon, x.r68, x.mode, x.truthLat, x.truthLon, x.errM, x.headingErrDeg, x.degradedKind, x.sinceDegradedStartS).joinToString(",") { it?.toString() ?: "" } + "\n")
+        w.write("t_s,est_lat,est_lon,r68_m,mode,truth_lat,truth_lon,err_m,heading_err_deg,degraded,since_degraded_s,est_speed_mps,est_heading_deg,truth_speed_mps,truth_heading_deg\n")
+        for ((x, e) in rows.zip(r.estimates)) {
+            val tr = r.truth.at(e.tNs)
+            w.write(
+                listOf(
+                    x.tS, x.estLat, x.estLon, x.r68, x.mode, x.truthLat, x.truthLon, x.errM, x.headingErrDeg, x.degradedKind, x.sinceDegradedStartS,
+                    e.speedMps, e.headingRad?.let { Math.toDegrees(it) }, tr?.speedMps, tr?.bearingDeg?.takeIf { !it.isNaN() },
+                ).joinToString(",") { it?.toString() ?: "" } + "\n",
+            )
+        }
     }
     File(dir, "error_vs_time.csv").bufferedWriter().use { w ->
         w.write("since_degraded_s,p50_err_m,p95_err_m,n\n")

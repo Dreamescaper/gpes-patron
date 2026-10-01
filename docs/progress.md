@@ -20,25 +20,43 @@ Newest first. Each entry: what was done, how it was verified, and what remains u
 | Mock output (fused), feedback guard | ✅ done | emulator: fused last location = our mock; our input rejected as SYNTHETIC_INPUT |
 | Compass (iron fit, alignment, gates) + mount forward axis + re-mount detection | ✅ done | sim tests (7 new), R-003/R-004; emulator: WMM reference recorded |
 | Compass self-assessment (verdict + reasons), shake gate, power recording, `replay compass-report` | ✅ done | 6 new sim tests (holder magnet, saturation, shielding, wireless, wobble); emulator: power table + UI line |
-| OBD (ELM327 Bluetooth) source, speed-scale state, OBD spoof check, obd_raw recording | ✅ code + tests (fake adapter) | **not yet tested with a real adapter/car** |
+| OBD (ELM327 Bluetooth) source, speed-scale state, OBD spoof check, obd_raw recording | ✅ done | fake adapter tests; **real ELM327 v2.1 clone, 1 drive** (≈7 Hz, 0 failed requests, 2026-09-28) |
 | Raw cell + Wi-Fi recording | ✅ done (recorded only; not used yet) | emulator: NR serving cell with identity/signal, Wi-Fi AP scans; CSV export |
 | Ukrainian localization (UI, notification, errors; per-app language on Android 13+) | ✅ done | emulator with the app locale set to `uk`; lint: no missing translations |
 | CI (GitHub Actions: tests, lint, APK artifact, releases) | ✅ done | green runs; CI APK signature = local debug key |
-| Real-device drive | ⏳ not yet | — |
+| Heading bank (heading without GNSS/compass from coarse fixes + gyro + speed) | ✅ done (D-032) | 3 tests; R-011 on both real drives |
+| Real-device drive | 🟡 2 drives recorded (RECORD_ONLY), analysed offline | Pixel 8, 2026-09-28: 27 min with GNSS (R-007); 23 min under jamming, no GNSS fix at all (R-008). Live ESTIMATE/MOCK not yet run in a car |
 | Platform `gps` override keeps raw GNSS flowing | ⏳ unverified | needs a real device |
 
 Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Known limitations
 
-- **No real-world data yet.** All accuracy numbers come from the simulator.
+- **Almost no real-world data.** Two drives (Pixel 8, R-007 with GNSS, R-008 jammed); all other
+  numbers come from the simulator. Live ESTIMATE/MOCK modes have not run in a car yet.
+- **Chip dead-reckoning fixes pass as GNSS.** The Pixel 8 keeps emitting `gps` fixes with hAcc
+  3–10 m for ~50 s after losing all satellites (NMEA GGA quality 6). The trust evaluator TRUSTS them
+  and replay truth includes them.
+- Without GNSS and compass the heading now comes from the heading bank (D-032) after ~100–170 s of
+  driving; before that the output is the network fixes. After hand-over the calibration is optimistic
+  when network fixes are correlated or wrong (R-007 GNSS absent: within95 0.79).
+- Real-drive numbers before 2026-09-28 for gyro-only / phone-only / phone+network include the
+  recorded OBD (D-033).
+- **Pull-away assumes the phone is in a moving car.** After the engine is off and the phone is
+  handled, the estimator drives off at 8 m/s (R-007: 577 m in 100 s).
+- `gnss_status` was empty on the Pixel 8 (the GnssStatus callback delivered nothing); NMEA GSA/GSV
+  and raw measurements were recorded.
 - **Slow Doppler-consistent spoofing is essentially undetected** by phone sensors alone (R-002).
-- Trust thresholds and stationary-detection thresholds are untuned for real car vibration.
+- Trust thresholds and stationary-detection thresholds are untuned for real car vibration (on the
+  first real drive, 7% of truth-quality clean fixes were not TRUSTED, mostly in the first 9 min of
+  poor urban sky).
 - A slow drift or ramp capture (≤ 2 m/s) is only partly detected (about 50% missed); a patient,
   consistent spoofer without contradicting network evidence is accepted after 120 s (D-011).
 - Without GNSS or OBD, speed is a random walk. The 10-min outage p95 is about 1.4 km
   (phone-only, simulated).
-- OBD is validated only against a scripted fake adapter and synthetic speed.
+- OBD is validated on one real drive only. The real adapter reads 2.9% *low* and lags GNSS by about
+  0.8 s; latency is not modelled. The replay ladder keeps the recorded OBD in every rung, so on
+  real drives "gyro-only"/"phone-only" include OBD and the `+synthObd` rungs double-count it.
 - The compass is validated only in simulation. Real in-car distortion, magnetic holders and
   EV/hybrid motor fields are unknown.
 - The emulator is only useful for plumbing: its GNSS is inconsistent with its static IMU
@@ -48,6 +66,82 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 - The GnssLogger export is a best-effort subset (no carrier-phase derived fields).
 
 ## Log
+
+### 2026-09-28…10-01 — OSM route as truth for the jammed drive
+- `tools/truth/osm_match.py`: offline HMM map matching onto OSM roads (Overpass download of the
+  bounding box only, 6.4 MB), OBD-distance transitions, one-way rules with a penalized fallback,
+  ambiguous intervals excluded. Verified only by consistency (below); the user's Waze screenshot is the
+  pending check.
+
+### 2026-09-28 — Robust coarse updates (D-034)
+- Coarse fixes above NIS 9.21 are candidates with inflated R; a stream of 3 odometry-consistent
+  candidates resets the position (and the heading search after 60 s without GNSS). Replaces the
+  NIS > 50 → reset rule.
+- Tests: `RobustCoarseTest` (a 400-m outlier: error 5 → 22 m, plain 5 → 378 m; a 500-m drift with
+  correct fixes: recovered to 22 m within 70 s). All core tests pass.
+- Measured: R-012. Five alternatives rejected by measurement (D-034).
+
+### 2026-09-28 — Heading bank; honest OBD in the ladder (D-032, D-033)
+- `HeadingBank` (Gaussian-sum filter over heading) in the baseline EKF; hand-over of heading, position
+  and joint covariance; correlated along-track speed error in the bank.
+- Replay: `drop_vehicle_speed` step; ladder rungs drop recorded OBD except `phone+obd` and
+  `phone+network+obd`; `ticks.csv` gains est/truth speed and heading.
+- Tests: `HeadingBankTest` (straight drive converges within 10°; start without GNSS/compass: p95
+  −30% or better and within95 > 0.6; without speed: no harm), `ScenarioStepTest`; `CompassTest`
+  isolates the compass (bank off). All core tests pass.
+- Found on the way: the double-OBD ladder bug (v → 1.9× truth) and that the heading is observable
+  without speed (a test premise was wrong).
+- Measured: R-011. Not verified live in the app.
+
+### 2026-09-28 — Coarse fixes vs distance driven (D-031)
+- `MotionTracker.odometry(t1, t2)`: OBD speed integrated along the gyro bearing → distance and chord
+  (heading-free). Exposed to trust through `MotionView.odometry`.
+- New network-fix check `COARSE_ODOMETRY_MISMATCH` with voting over the last 3 trusted fixes.
+- Tests: 5 new (`CoarseOdometryTest`: chord through a 90° turn within 3%, null without speed; stale
+  fix rejected; far jump rejected; a bad first reference does not lock the source out; skipped
+  without speed). 44 core tests pass, including determinism.
+- Measured on both real drives (R-009): precise but catches little; the first single-reference
+  version cascaded and was replaced by voting.
+- Not verified live in the app.
+
+### 2026-09-28 — Second real drive: persistent jamming (Pixel 8, RECORD_ONLY)
+- Recording `20260928-085946.db` (not in git; 98 MB): 23 min, 11.2 km by OBD, urban Kyiv, **no GNSS
+  fix at all** (NMEA GGA quality 0 for the whole drive). Details: R-008.
+- Jamming signature confirmed in two independent places: Android AGC (first 272 s) and the chip's
+  proprietary `$PGLOR,3,AGC` NMEA sentence (whole drive). Tracking states show almost no time decoding
+  (TOW decoded 0.4% vs 30% on R-007), so the occasional C/N0 of 40–50 dB-Hz are false/short locks,
+  not spoofing.
+- Raw GNSS measurements (and AGC) stopped at 272 s while NMEA continued; this coincided with the
+  chip switching to search mode and ending a SUPL session (`$PGLOR` PWR/SPS). Cause unknown.
+- The trust evaluator had nothing to judge (no GNSS fixes were produced, so nothing was spoofed).
+- The compass was UNUSABLE for the whole drive (NOISY_FIT 17°, OFTEN_DISTURBED 72%, hard iron
+  118 µT, wireless charger), so there was no absolute heading source at all.
+- Offline experiment `tools/experiments/shape_fit.py`: the gyro + OBD path shape, rigidly fitted to
+  network fixes, recovers the heading (fitted rotation stable at −24…−30° for most of the drive).
+  Validated on R-007 against GNSS; numbers in R-008. Not in the pipeline yet (roadmap P1).
+
+### 2026-09-28 — First real drive analysed (Pixel 8, RECORD_ONLY)
+- Recording `20260928-103211-with-gps.db` (not in git; 140 MB): 27 min, 14.2 km by OBD, urban, ending
+  with ~80 s (~340 m) inside an underground car park. After that the car was parked, the phone was
+  taken off the holder (13 g shock at 1486 s), the engine turned off (OBD `NO DATA` from 1489 s), and
+  it was carried for 2 min. Details and numbers: R-007.
+- Verified on the device: all 11 sensors (IMU 100 Hz; GYRO_UNCAL arrives at ~200 Hz), raw GNSS
+  measurements + AGC + NMEA, gps/network/fused locations, cell (LTE serving with TA, ~5 cells per
+  scan), Wi-Fi (a scan every ~14 s, 1222 BSSIDs), power (wireless charging), WMM, the real ELM327 (setup
+  `ATSP0` → protocol A6 CAN, 11 395 speed requests, mean latency 139 ms, 0 failures), timebase offset
+  66 ms (not corrected, as designed).
+- Found (all recorded in the roadmap and dev-guide pitfalls):
+  - Pixel chip DR fixes (GGA quality 6) look like good GNSS and become replay truth;
+  - two natural GNSS runaways in the urban part (Pixel GNSS speed up to 44 m/s while OBD said
+    9–12 m/s, hAcc 1–9 m). Both were REJECTED by INNOVATION_GATE + SPEED_OBD_MISMATCH: the first real
+    evidence for the OBD cross-check;
+  - pull-away after the engine is off → 8 m/s phantom motion;
+  - `gnss_status` empty; `sats_used`/`satellites` extras are always 0 on this phone;
+  - the compass worked, but weakly: MARGINAL for the whole drive and available ~10% of the time
+    (see R-007). The report's final verdict UNKNOWN is misleading: it is the state at the end of the
+    recording, after the phone was taken off the holder and the fit was reset;
+  - neighbour-cell TA is recorded as 0 rather than null.
+- Not verified: live estimation, mock output, the `gps` override, jamming (none was observed).
 
 ### 2026-09-28 — CI
 - GitHub Actions: tests + lint + debug APK + replay CLI on push/PR; APK artifact; Release on `v*`
@@ -146,6 +240,200 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 - Research doc, core module, SQLDelight recording, replay CLI, 11 scenarios. 24 unit tests.
 
 ## Results log
+
+### R-013b (2026-10-01) — R-008 against the OSM route **corrected by the driver**
+
+The driver checked the first route against Waze and corrected three places (constraints file): straight
+on Holosiivskyi prospekt at Demiivska square (no right exit; 355–395 s), main carriageway, not the
+parallel local road named the same (590–640 s), no cloverleaf at Odeska square (1070–1100 s). Route
+11.29 km vs OBD 11.16 km (+1.2%), no breaks, truth for 1343 of 1355 s (none at 113–118, 358–363 s).
+
+| version | p50 m | p95 m | max m | within68 / within95 |
+|---|---|---|---|---|
+| raw network fixes | 30 | 155 | 997 | 0.60 within own hAcc |
+| Google fused | 30 | 137 | 997 | 0.59 within own hAcc |
+| EKF initial (no heading bank, plain coarse, no odometry check) | 57 | 243 | 547 | 0.68 / 0.96 |
+| EKF + heading bank | 16 | 52 | 108 | 0.90 / 0.97 |
+| EKF + heading bank + robust coarse (current) | 16 | 52 | 108 | 0.90 / 0.97 |
+| current, without OBD | 44 | 199 | 558 | 0.69 / 0.87 |
+
+The circularity caveat below still applies, but much less: the route is now fixed by the driver's
+corrections plus OBD distance; where the matcher disagreed with the driver, the estimator track had
+pulled it onto wrong branches.
+
+### R-013 (2026-10-01, working tree on 33d0f49) — R-008 scored against the OSM route (first, uncorrected)
+
+Truth: OSM route matched from the current `phone+network+obd` track; route 12.45 km vs OBD 11.16 km
+(loops at two interchanges); 1322 of 1355 s covered (no truth at 113–118, 373–383, 1072–1077,
+1087–1092, 1147–1152 s). A second route matched from raw network fixes only (sparser, 15.2 km) follows
+the same roads: distance between the two p50 28 m, p90 64 m, max 149 m.
+
+| version | p50 m | p95 m | max m |
+|---|---|---|---|
+| raw network fixes | 32 | 298 | 997 |
+| Google fused | 31 | 137 | 997 |
+| EKF initial (no heading bank, plain coarse updates, no odometry check) | 59 | 230 | 547 |
+| EKF + heading bank | 18 | 51 | 77 |
+| EKF + heading bank + robust coarse (current) | 18 | 51 | 72 |
+| current, without OBD | 47 | 195 | 558 |
+
+**Caveat:** the truth was matched from the current version's track, so its numbers are optimistic;
+the raw-fix and initial-EKF rows are independent of it. Raw network fixes were within their own hAcc
+59% of the time (Google fused 57%).
+
+### R-012 (2026-09-28, working tree on 33d0f49) — robust coarse updates (default: NIS 9.21, 3-fix stream)
+
+R-007, p95 m, plain (old NIS > 50 reset) → robust; unchanged scenarios omitted:
+
+| scenario | phone+network+obd | phone+network (no OBD) |
+|---|---|---|
+| clean | 9 → 9 | 192 → 64 |
+| drop 30 s / 2 min | 10 → 10 / 82 → **17** | 192 → 59 / 190 → 139 |
+| drop 10 min / 1 h | 106 → 106 / 387 → 381 | 136 → 149 / 561 → 561 |
+| GNSS absent from start | 380 → 373 | 561 → 561 |
+| jump 5 km / teleport | 133 → 128 / 133 → 128 | 178 → 141 / 133 → 149 |
+| overconfident noise | 36 → 34 | 195 → 158 |
+| drift gradual / Doppler-consistent | 280 → 305 / 288 → 305 | 261 → 317 / 178 → 324 |
+| ramp capture / Doppler-consistent | 106 → 165 / 255 → 185 | 193 → 168 / 202 → 384 |
+| geo-mean ratio | 0.89 | 0.89 |
+
+- R-008 09:05:39–09:06:12: the snap after the bad fix at 358 s 42 → 37 m (5.99 threshold: 18 m); the
+  later snaps (78 m at 383 s) are corrections of the heading error, unchanged. Snaps > 50 m over the
+  drive: 7 → 7.
+- Simulation: single 400-m outlier 5 → 22 m (plain 378 m); 500-m drift recovered in 40–70 s.
+
+### R-011 (2026-09-28, working tree on 33d0f49) — heading bank, corrected ladder
+
+R-007, scenario **GNSS absent from start**, bank off → on (only this scenario changes; drops after GNSS
+already have a heading):
+
+| rung | p50 m | p95 m | max m | within95 |
+|---|---|---|---|---|
+| phone+network+obd (recorded network + OBD) | 138 → **47** | 799 → **380** | 1795 → 661 | 0.87 → 0.79 |
+| phone+network (no OBD) | 123 → 68 | 647 → 561 | 1566 → 974 | 1.00 → 0.88 |
+| phone+synthNetwork+synthObd (σ 500 m) | 705 → 252 | 1163 → 622 | 1420 → 1067 | 0.87 → 1.00 |
+| phone+synthNetwork (σ 500 m) | 417 → 288 | 906 → 744 | 1164 → 1067 | 1.00 → 1.00 |
+
+- Heading error after hand-over mostly 1–17°. Worst stretch (1183–1291 s) followed network fixes that
+  were 290–862 m off (some honestly hAcc 300–800 m; one 381 m off at hAcc 122 m).
+- R-008 (jammed, no truth), phone+network+obd: heading handed over at **115 s**; DEAD_RECKONING for
+  1225 of 1368 ticks (before: COARSE_ONLY throughout); steps > 100 m: 1 (before 22–40); path
+  11.74 km vs 11.16 km by OBD; distance to the causal shape fit p50 42 m / p95 95 m. Without OBD
+  (phone+network): hand-over at 167 s, but speed stays unknown (DR only 201 ticks, path 15.5 km).
+- Simulation (`HeadingBankTest`): start without GNSS/compass with network σ 40 m + OBD, p95 improved by
+  > 30%; without speed p95 212 → 124 m, within95 1.00 → 1.00.
+
+### R-010 (2026-09-28) — heading from the path shape, corrected (`tools/experiments/shape_fit.py`)
+
+R-007, error against GNSS, past data only (real-time usable), n = 127 points (the fit needs ≥ 6 fixes
+spanning ≥ 150 m, so the first ~2 min are not covered):
+
+| method | p50 m | p95 m | max m |
+|---|---|---|---|
+| raw network fixes | 35 | 290 | 862 |
+| EKF phone+network, GNSS absent from start (all ticks) | 138 | 810 | 1804 |
+| first shape-fit version, causal 300 s | 62 | 506 | 943 |
+| **corrected, causal 300 s** | **29** | **131** | 361 |
+| corrected, causal 600 / 900 s | 42 / 48 | 154 / 170 | 335 |
+| corrected, all past fixes | 59 | 115 | 335 |
+
+- Gyro bearing vs GNSS course over 21 min: drift −0.12°/min; offset stable at −11…−16° after the
+  first 6 min; scatter p50 2.3°, p95 19° (GNSS course lags in turns).
+- Caveats: the OBD scale and lag were measured on R-007 itself; OBD has no sign (reverse); not yet an
+  estimator, just a fit. The user judged the offline fit on R-008 to be close to the real route near
+  the bus station (visual comparison with Waze).
+
+### R-009 (2026-09-28, working tree on 33d0f49) — coarse-odometry check, real drives
+
+`phone+network` (drop FUSED) with the check off / K = 3 (default) / K = 2.
+
+| drive · scenario | metric | off | K = 3 | K = 2 |
+|---|---|---|---|---|
+| R-007 · clean | network fixes rejected (error vs GNSS) | – | 1 (290 m) | 3 (290, 198, 161 m) |
+| R-007 · GNSS absent from start | p50 / p95 / max m | 138 / 810 / 1804 | 138 / 799 / 1795 | 139 / 932 / 1795 |
+| R-007 · drop 1 h | p50 / p95 / max m | 58 / 380 / 670 | 57 / 387 / 679 | 58 / 357 / 616 |
+| R-007 · drop 10 min, 2 min, noise | p95 m | 106 / 82 / 36 | same | 107 / 82 / 36 |
+| R-008 · clean (no truth) | rejected fixes | – | 345 s | 345, 939, 1260 s |
+| R-008 | path km (OBD 11.16) / jumps > 200 m / max jump m | 11.85 / 22 / 578 | 11.33 / 21 / 535 | 11.29 / 21 / 560 |
+
+- R-008 bus-station case: the 1.1-km fix at 345 s is rejected (K = 3 and 2); the next bad fix at 358 s
+  is at the right distance in the wrong direction and passes. Traffic-light case: the stale fix at
+  939 s (hAcc 100 m) is rejected only with K = 2.
+- First version (single reference, no voting) on R-008: rejected 345, 369 (a good fix) and 954 (the
+  correct fix after the stale one); max jump 578 → 908 m. Hence voting.
+- Calibration within68/within95 changed by ≤ 0.04 everywhere (largest: GNSS absent from start, within95 0.84 → 0.88 with K = 2).
+
+### R-008 (2026-09-28, commit 33d0f49 + uncommitted docs) — jammed drive, Pixel 8, no truth
+
+Drive `20260928-085946` (23 min, 11.2 km by OBD). No GNSS fix, so there is no truth and no error
+metrics; below are consistency checks and the jamming signature.
+
+| AGC (dB, higher = quieter) | GPS L1 | GLONASS G1 | BeiDou B1 | L5/E5a |
+|---|---|---|---|---|
+| R-007, open road (1000 s) | 33 | 53 | 52 | 25 |
+| R-008, `$PGLOR` over the drive | 1–12 | 14–24 | 20–44 | 3–26 |
+| R-008, Android AGC mean (0–272 s) | 6.5 | 18.7 | 26.1 | 21.6 |
+
+- Tracking (first 272 s): code lock in 15% of measurements (R-007: 64%), TOW decoded 0.4% (30%).
+- `phone+network` (real network + real OBD): COARSE_ONLY 98% of ticks, r68 30–156 m; distance to the
+  network fixes p50 19 m, p95 92 m; to Google fused p50 33 m, p95 219 m. Path length 11.9 km vs 11.2 km
+  by OBD (fused: 17.8 km, jumpy). `phone-only` and `gyro-only` never initialise (no position source).
+- **Heading from the path shape** (`shape_fit.py`, 300 s window). On R-008: residual of network fixes
+  to the fitted shape p50 43 m, p95 189 m (network hAcc p50 42 m). Validated on R-007 against GNSS:
+
+  | method (R-007) | p50 m | p95 m |
+  |---|---|---|
+  | raw network fixes | 35 | 290 |
+  | EKF phone+network, GNSS absent from start (matrix) | 138 | 811 |
+  | shape fit, causal (past 300 s only) | 62 | 506 |
+  | shape fit, centred (offline smoothing) | 22 | 123 |
+
+  The script is crude (bias learned only at stops; the fitted rotation drifted ~70° over R-007), so
+  these are indicative, not a design result.
+
+### R-007 (2026-09-28, commit 33d0f49) — first real drive, Pixel 8, standard matrix
+
+Drive `20260928-103211-with-gps` (27 min, urban, real OBD, real network). Truth = TRUSTED GNSS with
+hAcc ≤ 10 m, so it **includes ~45 s of chip DR in the car park** and excludes the two GNSS runaways.
+Scenario times are from the start; the car park starts at ~1372 s, so 10-min and 1-h drops start at
+120 s and cover most of the drive. **Caveat:** the recorded OBD is present in every baseline rung (see
+Known limitations). The compass gave readings (σ ≈ 20–38°) but never updated the EKF, whose heading
+σ stayed smaller, so gyro-only = phone-only to the last digit.
+
+| scenario | variant | p50 m | p95 m | max m | within68 / within95 | false rej. | missed det. |
+|---|---|---|---|---|---|---|---|
+| clean | hold-last-fix | 5.7 | 10.7 | 30 | 1.00 / 1.00 | 0.007 | – |
+| clean | phone-only (+real OBD) | 0.9 | 7.8 | 34 | 0.66 / 0.82 | 0.068 | – |
+| drop 2 min | phone-only (+real OBD) | 0.9 | 12 | 99 | 0.65 / 0.83 | – | – |
+| drop 10 min | phone-only (+real OBD) | 1.5 | 682 | 768 | 0.78 / 0.91 | – | – |
+| drop 10 min | phone+network | 1.7 | 107 | 178 | 0.47 / 0.72 | – | – |
+| drop 1 h (rest of drive) | phone-only (+real OBD) | 780 | 3691 | 3782 | 0.92 / 0.98 | – | – |
+| drop 1 h (rest of drive) | **phone+network** | 58 | 381 | 670 | 0.26 / 0.66 | – | – |
+| absent from start | phone+network | 138 | 811 | 1804 | 0.48 / 0.85 | – | – |
+| jump 5 km | phone+network | 46 | 133 | 271 | 0.34 / 0.61 | 0.576 | 0.000 |
+| Doppler-consistent drift | phone-only (+real OBD) | 1.1 | 550 | 681 | 0.57 / 0.78 | 0.079 | 0.004 |
+
+Other measurements on this drive:
+- **OBD vs GNSS speed** (600–1370 s, v > 3 m/s, 624 pairs): OBD = 0.971 × GNSS (reads 2.9% low),
+  best alignment when OBD lags 0.8 s (RMS 0.21 m/s vs 0.38 m/s at zero lag).
+- **Recorded network** vs truth (62 fixes): p50 35 m, p95 290 m, max 862 m; 63% within the reported
+  hAcc. In the car park, Wi-Fi-based fixes had hAcc 16–30 m and agreed with the chip DR within 15–50 m.
+- **Car park without GNSS** (custom scenario: drop GNSS from 1372 s): our DR stayed within 3–28 m of
+  the chip DR for 340 m of driving (phone-only and phone+network). After the engine was off, phone-only
+  drifted 577 m in 100 s at a clamped 8 m/s (pull-away), r68 330 m; phone+network ended 26 m from the
+  last chip DR fix.
+- **Compass (`compass-report`, 0–1372 s):** verdict MARGINAL (WIRELESS_CHARGING), with readings
+  (GNSS_ALIGNED) in 141 of 1352 s. Heading error vs GNSS course over 79 readings: mostly 1–12°,
+  with 18–30° at 234–246 s; the reported σ (20–38°) covered all of them. Causes of the low
+  availability: raw |B| is 113–139 µT (p5–p95) against 51 µT from WMM (holder/charger iron), and
+  the vertical component jumps (1-min std up to 14 µT), so the 3 µT anomaly gate leaves ~47% of the
+  time clean. Re-mount detection fired 15 times: at 10 and 13 s (mounting), **twice on the car-park
+  ramps (1396, 1400 s, a false re-mount that reset the fit exactly when the compass was needed)**,
+  and 11 times while the phone was handled after the drive.
+- **Findings for calibration:** within95 0.82 on clean data is overconfident: 0.69 in the first
+  9 min (poor urban sky, GNSS anomalies, 63 DR ticks) and still 0.86 in 540–1372 s of plain GNSS
+  tracking (r68 ≈ 1–1.5 m is smaller than the fix-to-fix noise of the truth itself); phone+network is badly overconfident in long drops (0.26 / 0.66)
+  because network errors up to 860 m are not covered by `networkInflation` 1.5.
 
 ### R-006 (2026-09-28) — 1-hour simulated drive after D-028/D-029, realistic synthetic OBD
 

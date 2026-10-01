@@ -45,7 +45,8 @@ These are part of "done". A change is not finished until the docs reflect it.
    `docs/recording-format.md` or `docs/replay-and-scenarios.md`. Bump `DRIVE_SCHEMA_VERSION` for
    incompatible SQLite changes.
 7. Use absolute dates (YYYY-MM-DD). Be honest about what was and was not verified on a real device.
-   **Current state: nothing has been verified on a real car or phone yet (simulation + emulator only).**
+   **Current state: one real drive recorded on a Pixel 8 in RECORD_ONLY and analysed offline (R-007,
+   2026-09-28). Live estimation and mock output have not run in a car yet.**
 
 8. Before committing, run the tests and check the **exit code** (don't pipe Gradle through
    `grep`/`head` in a way that hides failures).

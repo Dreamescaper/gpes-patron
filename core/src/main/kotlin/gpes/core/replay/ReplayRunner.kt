@@ -63,12 +63,15 @@ data class Variant(
     }
 
     companion object {
-        /** The standard ablation ladder. OSM and route variants join here in later phases. */
+        /**
+         * The standard ablation ladder. OSM and route variants join here in later phases. Recorded OBD is
+         * dropped except in the `+obd` rungs, and the `+synthObd` rungs replace it (never both, P11).
+         */
         fun standard(): List<Variant> {
-            val noNetFused = listOf(
-                ScenarioStep.DropSource(LocSource.NETWORK, dropRawGnss = false),
-                ScenarioStep.DropSource(LocSource.FUSED, dropRawGnss = false),
-            )
+            val noFused = listOf(ScenarioStep.DropSource(LocSource.FUSED, dropRawGnss = false))
+            val noObd = ScenarioStep.DropVehicleSpeed()
+            val noNetFusedKeepObd = noFused + ScenarioStep.DropSource(LocSource.NETWORK, dropRawGnss = false)
+            val noNetFused = noNetFusedKeepObd + noObd
             val synthNet = ScenarioStep.SyntheticNetwork(sigmaM = 500.0, periodS = 20.0)
             // Like a cheap ELM327: integer km/h, ~0.15 s reporting delay, speedometer reading 3% high.
             val synthObd = ScenarioStep.SyntheticVehicleSpeed(sigmaMps = 0.3, scaleError = 0.03, quantizeKmh = true, latencyS = 0.15)
@@ -77,10 +80,13 @@ data class Variant(
                 Variant("hold-last-fix", estimator = "passthrough"),
                 Variant("gyro-only", extraSteps = noNetFused, baseline = noCompass),
                 Variant("phone-only", extraSteps = noNetFused),
-                Variant("phone+network", extraSteps = listOf(ScenarioStep.DropSource(LocSource.FUSED, dropRawGnss = false))),
+                Variant("phone+network", extraSteps = noFused + noObd),
                 Variant("phone+synthNetwork", extraSteps = noNetFused + synthNet),
                 Variant("gyro+synthNetwork+synthObd", extraSteps = noNetFused + synthNet + synthObd, baseline = noCompass),
                 Variant("phone+synthNetwork+synthObd", extraSteps = noNetFused + synthNet + synthObd),
+                // Recorded OBD (real drives; identical to the rungs above on simulated drives without OBD).
+                Variant("phone+obd", extraSteps = noNetFusedKeepObd),
+                Variant("phone+network+obd", extraSteps = noFused),
             )
         }
     }

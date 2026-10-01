@@ -1,6 +1,7 @@
 package gpes.core
 
 import gpes.core.estimator.BaselineConfig
+import gpes.core.estimator.HeadingBankConfig
 import gpes.core.estimator.Compass
 import gpes.core.estimator.CompassConfig
 import gpes.core.estimator.CompassMode
@@ -123,8 +124,10 @@ class CompassTest {
             ScenarioStep.SyntheticNetwork(500.0, 20.0),
             ScenarioStep.SyntheticVehicleSpeed(0.3, scaleError = 0.01),
         )
-        val (_, off) = TestSupport.run(sc, Variant("off", extraSteps = extra, baseline = BaselineConfig(compass = CompassConfig(enabled = false))))
-        val (_, on) = TestSupport.run(sc, Variant("on", extraSteps = extra))
+        // The heading bank is off in both, so this measures the compass alone.
+        val noBank = HeadingBankConfig(enabled = false)
+        val (_, off) = TestSupport.run(sc, Variant("off", extraSteps = extra, baseline = BaselineConfig(compass = CompassConfig(enabled = false), headingBank = noBank)))
+        val (_, on) = TestSupport.run(sc, Variant("on", extraSteps = extra, baseline = BaselineConfig(headingBank = noBank)))
         assertTrue(on.p95M!! < off.p95M!! * 0.8, "compass on p95 ${on.p95M} vs off ${off.p95M}")
         assertTrue(on.within95!! > 0.8, "calibration within95 ${on.within95}")
     }

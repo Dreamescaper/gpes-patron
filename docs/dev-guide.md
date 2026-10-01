@@ -135,10 +135,44 @@ adb pull /storage/emulated/0/Android/data/gpes.patron/files/drives/<id>.db   # p
   CI needs explicit SDK packages (setup-android's default `tools` package no longer exists).
 - **P9 Debug signing:** `GPES_DEBUG_KEYSTORE` controls it. AGP ignored a restored
   `~/.android/debug.keystore` on CI.
+- **P10 Chip DR looks like GNSS.** On the Pixel 8, `gps` fixes keep coming after the car enters a
+  car park, with hAcc 3–10 m and plausible speed, and no satellites at all. Check NMEA `$GPGGA`
+  field 6 (quality 6 = dead reckoning) and raw C/N0 before trusting real-drive "truth" near tunnels
+  and car parks.
+- **P11 Recorded OBD was in every replay rung** (fixed 2026-09-28, D-033: `drop_vehicle_speed`).
+  Real-drive numbers before that date for gyro-only / phone-only / phone+network include OBD, and the
+  `+synthObd` rungs had two speed sources.
+- **P15 Without GNSS, speed and speedometer scale are one unknown.** The EKF sees only v·(1+s). Two
+  speed sources that disagree by a few percent (or one with a latency the model ignores) let v drift:
+  1.9× truth on R-007. It was invisible while the heading was unknown (position did not follow v) and
+  exploded once the heading bank made the EKF dead-reckon. When a change makes a state *used*, re-check
+  it: print est vs truth speed (`ticks.csv` has both now).
+- **P16 Check the test premise, not only the code.** "No heading without speed" was wrong: fixes line up
+  along the direction of travel. The failing test was right to fail, but the assertion was wrong.
+- **P13 Under jamming, C/N0 lies.** Short false locks report 40–50 dB-Hz. Check the tracking state
+  (`state & 8` = TOW decoded) and AGC before reading anything into C/N0. On the Pixel 8 the chip's
+  `$PGLOR,3,AGC` NMEA sentence carries AGC even when Android measurements stop.
+- **P14 Android GRAVITY, LINEAR_ACCEL and the rotation vectors swallow sustained lateral
+  acceleration.** In turns the fused "up" leans towards the apparent gravity, so the centripetal part
+  mostly disappears from the horizontal projection (R-007, correlation of a_lat with v·ω: GRAVITY 0.36,
+  GAME_RV 0.44, ROTATION_VECTOR 0.45, slope ≈ 0.12–0.18). With "up" = mean of raw ACCEL over ±60 s
+  (the mount is fixed) it is 0.93. Fine for projecting the yaw rate; **wrong for anything that measures
+  horizontal acceleration** — including `MotionTracker.learnMount` (see roadmap). The simulator's
+  rotation vector is ideal, so sim tests cannot catch this.
+- **P17 The EKF skips most coarse fixes once it is confident** (≥ 15 s and ≥ 150 m apart, D-021). A test
+  with network fixes every 13 s silently dropped every other fix, including the injected outlier. Space
+  test fixes ≥ 16 s apart, or check that the fix was actually fused.
+- **P12 Real phones are not the emulator:** GnssStatus was silent on the Pixel 8, the Location
+  `satellites` extra is always 0, GYRO_UNCAL arrives at twice the requested rate, and the wireless
+  charger holder triples the field (≈ 120 µT vs 51 µT). The `compass-report` verdict is the one at the
+  *end* of the drive; read `compass_timeline.csv` for what happened while driving. Check each table's row count first
+  (`select count(*)` per table) before analysing a new device.
 
 ## User context
 
 - The user writes in Ukrainian. Replies are in Ukrainian; code, docs and commits are in English.
 - The user's OBD adapter is a cheap "Mini Bluetooth ELM327 v1.5/v2.1" clone (Bluetooth Classic).
-- No real drive has been recorded yet (as of 2026-09-28). Next step: real drives (RECORD_ONLY, with
-  network + OBD), then tuning with `compass-report` and the matrix.
+- The user's phone is a Pixel 8 on a wireless-charging holder. First real drive recorded 2026-09-28
+  (R-007). Recordings go to `recordings/` (not in git). A second drive under jamming (no GNSS fix at
+  all) was recorded the same day (R-008). Kyiv has persistent GNSS jamming, so real jammed data is
+  easy to get.

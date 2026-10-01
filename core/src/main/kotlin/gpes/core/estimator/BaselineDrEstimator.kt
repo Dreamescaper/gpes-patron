@@ -57,6 +57,25 @@ data class BaselineConfig(
     val networkMinIntervalS: Double = 15.0,
     val networkMinDistanceM: Double = 150.0,
     val networkResetNis: Double = 50.0,
+    /**
+     * Robust coarse updates (D-034): above this NIS (χ², 2 dof; 9.21 = 99%) a coarse fix is a
+     * *candidate*; its R is scaled by NIS/threshold, so it moves position and heading only a little.
+     * null = plain updates with the old reset at [networkResetNis].
+     */
+    val coarseRobustNis: Double? = 9.21,
+    /** Candidates in a row whose spacing matches the odometry chord → reset onto them. */
+    val coarseStreamMin: Int = 3,
+    val coarseStreamMinSpanS: Double = 20.0,
+    val coarseStreamK: Double = 3.0,
+    /**
+     * Fraction of the Kalman heading (and gyro-bias) correction that a coarse fix may apply (1 = full).
+     * A lateral offset of a correctly shaped track is otherwise mostly explained as a heading error after
+     * a long DR stretch, which turns the track off the road (R-008 at 358 s). The covariance stays
+     * consistent for the reduced gain (Joseph form).
+     */
+    val coarseHeadingGain: Double = 1.0,
+    /** A stream reset keeps the heading if GNSS was used this recently (s). */
+    val coarseStreamGnssRecentS: Double = 60.0,
     /** Use QUESTIONABLE GNSS with R inflated by this factor; null = don't use. */
     val questionableRScale: Double? = null,
     val useFused: Boolean = false,
@@ -70,6 +89,8 @@ data class BaselineConfig(
     val speedScaleRandomWalk: Double = 2e-5,
     /** Magnetometer heading (deviation-card calibrated, gated). See [Compass]. */
     val compass: CompassConfig = CompassConfig(),
+    /** Absolute heading from coarse fixes + gyro + speed while no other heading source exists. See [HeadingBank]. */
+    val headingBank: HeadingBankConfig = HeadingBankConfig(),
 )
 
 /**
@@ -84,8 +105,8 @@ data class BaselineConfig(
  *
  * While heading is unknown (for example at startup from a network fix only), position is not
  * propagated along a direction. Instead its covariance grows by the worst-case distance
- * travelled in an unknown direction, which is honest but not useful. That is the point: the
- * baseline shows what the phone alone can do.
+ * travelled in an unknown direction. Meanwhile a [HeadingBank] tests heading hypotheses against the
+ * coarse fixes; once it converges, the EKF takes its heading and position and dead-reckons (D-032).
  */
 class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : PositionEstimator {
     override val name = "baseline"
@@ -94,7 +115,14 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
         val initialized: Boolean, val frame: LocalFrame?, val x: DoubleArray, val p: DoubleArray,
         val headingKnown: Boolean, val lastT: Long, val lastYawRate: Double, val stationary: Boolean,
         val lastGnssT: Long, val dirlessDist: Double, val compass: Compass, val nextCompassT: Long,
-        val odoM: Double, val lastNetT: Long, val lastNetOdo: Double,
+        val odoM: Double, val lastNetT: Long, val lastNetOdo: Double, val bank: HeadingBank,
+        val relE: Double, val relN: Double, val candidates: List<Candidate>,
+    )
+
+    /** A coarse fix that disagreed strongly with the prediction. */
+    private data class Candidate(
+        val tNs: Long, val lat: Double, val lon: Double, val r: Double,
+        val relE: Double, val relN: Double, val odo: Double,
     )
 
     private var initialized = false
@@ -123,6 +151,11 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
     private var odoM = 0.0
     private var lastNetT = Long.MIN_VALUE
     private var lastNetOdo = 0.0
+    private var bank = HeadingBank(cfg.headingBank)
+    /** Dead-reckoned path in the estimator's heading frame (for candidate consistency; only differences matter). */
+    private var relE = 0.0
+    private var relN = 0.0
+    private var candidates: List<Candidate> = emptyList()
 
     // ------------------------------------------------------------------------------------------
 
@@ -163,6 +196,7 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
             p[IDX_PSI, IDX_PSI] = r2
             headingKnown = true
             dirlessDist = 0.0
+            bank.reset()
             return
         }
         if (sqrt(p[IDX_PSI, IDX_PSI]) < cfg.compass.usefulFraction * r.sigmaRad) return
@@ -219,6 +253,14 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
             return
         }
 
+        if (isCoarse && !headingKnown && cfg.headingBank.enabled) {
+            bank.onFix(m.lat, m.lon, r)
+            if (bank.converged()) {
+                takeBankHeading()
+                return
+            }
+        }
+
         val z = frame!!.toEnu(m.lat, m.lon)
         if (isCoarse) {
             val posSigma = sqrt((p[0, 0] + p[1, 1]) / 2)
@@ -227,7 +269,12 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
             if (posSigma < cfg.networkUsefulFraction * sigma && !spaced) return
             lastNetT = m.tNs; lastNetOdo = odoM
             val nis = nis2(z.e, z.n, r)
-            if (nis > cfg.networkResetNis) resetPosition(m.lat, m.lon, r) else updatePos(z.e, z.n, r)
+            val robust = cfg.coarseRobustNis
+            when {
+                robust == null -> if (nis > cfg.networkResetNis) resetPosition(m.lat, m.lon, r) else updatePos(z.e, z.n, r)
+                nis <= robust -> { candidates = emptyList(); updatePos(z.e, z.n, r, coarse = true) }
+                else -> onCoarseCandidate(m, z.e, z.n, r, nis, robust)
+            }
         } else {
             val nis = nis2(z.e, z.n, r)
             if (nis > cfg.gnssResetNis && state == TrustState.TRUSTED) resetPosition(m.lat, m.lon, r)
@@ -255,9 +302,68 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
             p[IDX_PSI, IDX_PSI] = bAcc * bAcc * rScale
             headingKnown = true
             dirlessDist = 0.0
+            bank.reset()
         } else {
             update1(IDX_PSI, zPsi, bAcc * bAcc * rScale, angular = true)
         }
+    }
+
+    /** Adopt the bank's mixture: heading, position and their joint covariance; decorrelate from the rest. */
+    private fun takeBankHeading() {
+        val (lat, lon, c) = bank.mixture() ?: return
+        val z = frame!!.toEnu(lat, lon)
+        x[0] = z.e; x[1] = z.n
+        x[IDX_PSI] = bank.heading()!!.first
+        val idx = intArrayOf(0, 1, IDX_PSI)
+        for (i in idx) for (j in 0 until N) { p[i, j] = 0.0; p[j, i] = 0.0 }
+        val k = cfg.headingBank.handoverPosStdScale
+        val scale = doubleArrayOf(k, k, 1.0)
+        for (a in 0..2) for (b in 0..2) p[idx[a], idx[b]] = c[a * 3 + b] * scale[a] * scale[b]
+        headingKnown = true
+        dirlessDist = 0.0
+        bank.reset()
+    }
+
+    /**
+     * A coarse fix far from the prediction. One such fix is most likely wrong: update with R scaled by
+     * NIS/threshold (Huber-like), so it barely moves position or heading. But if several in a row agree
+     * with each other (their spacing matches the odometry chord), it is our estimate that is off: reset
+     * onto the latest fix (and, after a long GNSS-free stretch, restart the heading search). The offset
+     * from us is deliberately not required to be constant: under GNSS spoofing our estimate is dragged
+     * between fixes, and that criterion blocked the recovery (R-012).
+     */
+    private fun onCoarseCandidate(m: LocationMeasurement, ze: Double, zn: Double, r: Double, nis: Double, threshold: Double) {
+        val c = Candidate(m.tNs, m.lat, m.lon, r, relE, relN, odoM)
+        var list = candidates + c
+        // Keep only the tail in which consecutive candidates agree.
+        var start = 0
+        for (i in 1 until list.size) if (!agree(list[i - 1], list[i])) start = i
+        list = list.drop(start)
+        if (list.size >= cfg.coarseStreamMin && (list.last().tNs - list.first().tNs) / 1e9 >= cfg.coarseStreamMinSpanS) {
+            candidates = emptyList()
+            resetPosition(m.lat, m.lon, r)
+            // After a long dead-reckoning stretch, a drift this large almost always means a wrong heading:
+            // search again. With recent GNSS the drift came from GNSS (spoofing), and the heading is fine.
+            val gnssRecent = lastGnssT != Long.MIN_VALUE && (m.tNs - lastGnssT) / 1e9 <= cfg.coarseStreamGnssRecentS
+            if (cfg.headingBank.enabled && !gnssRecent) {
+                headingKnown = false
+                for (i in 0 until N) { p[IDX_PSI, i] = 0.0; p[i, IDX_PSI] = 0.0 }
+                p[IDX_PSI, IDX_PSI] = PI * PI
+                bank.reset()
+                bank.onFix(m.lat, m.lon, r)
+            }
+            return
+        }
+        candidates = list
+        updatePos(ze, zn, r * nis / threshold, coarse = true)
+    }
+
+    private fun agree(a: Candidate, b: Candidate): Boolean {
+        val sig = sqrt(a.r + b.r)
+        val odo = b.odo - a.odo
+        val d = Geo.haversineM(a.lat, a.lon, b.lat, b.lon)
+        val chord = hypot(b.relE - a.relE, b.relN - a.relN)
+        return kotlin.math.abs(d - chord) <= cfg.coarseStreamK * sig + 0.05 * odo + 10.0
     }
 
     // ------------------------------------------------------------------------------------------
@@ -275,6 +381,8 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
         val psi = x[IDX_PSI]
         val v = x[IDX_V]
         odoM += abs(v) * dt
+        relE += v * sin(psi) * dt
+        relN += v * cos(psi) * dt
         val f = Mat.identity(N)
         val q = Mat(N, N)
 
@@ -297,6 +405,7 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
         p = (f * p * f.t() + q).symmetrize()
 
         if (initialized && !headingKnown) {
+            bank.propagate(dt, yawRate - x[IDX_B], v, p[IDX_V, IDX_V])
             // Unknown direction: grow isotropically with a conservative distance bound.
             val ds = (abs(v) + 2 * sqrt(p[IDX_V, IDX_V])) * dt
             val d0 = dirlessDist
@@ -304,7 +413,7 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
             val dVar = (dirlessDist * dirlessDist - d0 * d0) / 2
             p[0, 0] += dVar; p[1, 1] += dVar
         }
-        if (headingKnown && p[IDX_PSI, IDX_PSI] > PI * PI) headingKnown = false
+        if (headingKnown && p[IDX_PSI, IDX_PSI] > PI * PI) { headingKnown = false; bank.reset() }
     }
 
     // ------------------------------------------------------------------------------------------
@@ -356,10 +465,13 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
         return (v.t() * s.inv() * v)[0, 0]
     }
 
-    private fun updatePos(ze: Double, zn: Double, r: Double) {
+    private fun updatePos(ze: Double, zn: Double, r: Double, coarse: Boolean = false) {
         val h = Mat(2, N).also { it[0, 0] = 1.0; it[1, 1] = 1.0 }
         val s = h * p * h.t() + Mat.diag(r, r)
         val k = p * h.t() * s.inv()
+        if (coarse && cfg.coarseHeadingGain != 1.0) {
+            for (c in 0..1) { k[IDX_PSI, c] *= cfg.coarseHeadingGain; k[IDX_B, c] *= cfg.coarseHeadingGain }
+        }
         val innov = Mat(2, 1, doubleArrayOf(ze - x[0], zn - x[1]))
         val dx = k * innov
         for (i in 0 until N) x[i] += dx[i, 0]
@@ -424,7 +536,7 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
 
     override fun snapshot(): Any = Snap(
         initialized, frame, x.copyOf(), p.a.copyOf(), headingKnown, lastT, lastYawRate, stationary, lastGnssT, dirlessDist,
-        compass.copy(), nextCompassT, odoM, lastNetT, lastNetOdo,
+        compass.copy(), nextCompassT, odoM, lastNetT, lastNetOdo, bank.copy(), relE, relN, candidates,
     )
 
     override fun restore(snapshot: Any) {
@@ -435,6 +547,8 @@ class BaselineDrEstimator(private val cfg: BaselineConfig = BaselineConfig()) : 
         stationary = s.stationary; lastGnssT = s.lastGnssT; dirlessDist = s.dirlessDist
         compass = s.compass.copy(); nextCompassT = s.nextCompassT
         odoM = s.odoM; lastNetT = s.lastNetT; lastNetOdo = s.lastNetOdo
+        bank = s.bank.copy()
+        relE = s.relE; relN = s.relN; candidates = s.candidates
     }
 
     private companion object {

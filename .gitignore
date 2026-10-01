@@ -23,3 +23,6 @@ replay-out/
 # Python
 __pycache__/
 .venv/
+
+# Real drive recordings (large, personal location data)
+recordings/

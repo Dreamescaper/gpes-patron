@@ -13,6 +13,7 @@ import gpes.core.model.TrustAssessment
 import gpes.core.model.TrustReason
 import gpes.core.model.TrustState
 import gpes.core.model.VehicleSpeedMeasurement
+import gpes.core.motion.Odometry
 import kotlinx.serialization.Serializable
 import kotlin.math.abs
 import kotlin.math.max
@@ -23,6 +24,8 @@ interface MotionView {
     fun stationaryForS(): Double
     /** Bearing change measured by the gyro between t1 and t2 (rad, clockwise positive), or null. */
     fun bearingChange(t1: Long, t2: Long): Double?
+    /** Path driven between t1 and t2 from vehicle speed and the gyro, or null without vehicle speed. */
+    fun odometry(t1: Long, t2: Long): Odometry? = null
 }
 
 data class TrustContext(
@@ -91,6 +94,17 @@ data class TrustConfig(
     val obdSpeedAbsMps: Double = 1.5,
     val obdSpeedRel: Double = 0.08,
     val obdMaxAgeS: Double = 1.5,
+    /**
+     * Coarse fix vs distance driven: the displacement from the last trusted coarse fix must match the
+     * odometry chord (vehicle speed along the gyro bearing) within
+     * K·√(σ₁²+σ₂²) + rel·distance + abs, with σ = hAcc / 1.515. null disables the check.
+     */
+    val coarseOdoK: Double? = 3.0,
+    val coarseOdoRel: Double = 0.05,
+    val coarseOdoAbsM: Double = 10.0,
+    val coarseOdoMaxAgeS: Double = 180.0,
+    /** Number of recent trusted coarse fixes that vote. */
+    val coarseOdoVoters: Int = 3,
 )
 
 /**
@@ -108,6 +122,8 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
         val streamLast: LocationMeasurement? = null,
         /** Recent fixes of this source (any trust), newest last, for window consistency checks. */
         val recent: List<LocationMeasurement> = emptyList(),
+        /** Recent TRUSTED fixes of this source, newest last (coarse odometry voting). */
+        val trustedRecent: List<LocationMeasurement> = emptyList(),
     )
 
     private data class Snap(
@@ -156,6 +172,7 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
                 val acc = m.hAccM
                 if (acc == null) hits += Hit(TrustReason.NO_ACCURACY, TrustState.REJECTED)
                 else if (acc > cfg.networkMaxAccM) hits += Hit(TrustReason.POOR_ACCURACY, TrustState.REJECTED)
+                checkCoarseOdometry(m, st, ctx.motion, hits)
             }
             LocSource.GNSS, LocSource.FUSED -> {
                 if (latencyS > cfg.staleRejectS) hits += Hit(TrustReason.STALE, TrustState.REJECTED)
@@ -217,7 +234,7 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
             }
         }
 
-        if (state == TrustState.TRUSTED) newSt = newSt.copy(lastTrusted = m)
+        if (state == TrustState.TRUSTED) newSt = newSt.copy(lastTrusted = m, trustedRecent = (st.trustedRecent + m).takeLast(cfg.coarseOdoVoters))
         newSt = newSt.copy(lastState = state)
         sources[m.source] = newSt
         if (m.source == LocSource.NETWORK && state != TrustState.REJECTED && !m.isSynthetic) lastNetwork = m
@@ -338,6 +355,36 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
         if (abs(v - obd.speedMps) > cfg.obdSpeedAbsMps + cfg.obdSpeedRel * obd.speedMps) {
             hits += Hit(TrustReason.SPEED_OBD_MISMATCH, TrustState.QUESTIONABLE, 0.5)
         }
+    }
+
+    /**
+     * A coarse fix must be about as far from recent trusted ones as the car actually drove. The
+     * odometry chord needs no absolute heading, so this works with no GNSS and no compass. It catches
+     * fixes that jump too far and stale fixes that stay put while the car moves; a fix at the right
+     * distance in the wrong direction passes. The last few trusted fixes vote, and the fix is rejected
+     * only when most of them disagree, so one bad (but accepted) reference cannot reject the good fixes
+     * after it. A fix that agrees with the previous, rejected fix is also accepted.
+     */
+    private fun checkCoarseOdometry(m: LocationMeasurement, st: SourceState, motion: MotionView?, hits: MutableList<Hit>) {
+        if (motion == null || cfg.coarseOdoK == null) return
+        val votes = st.trustedRecent
+            .filter { (m.tNs - it.tNs) / 1e9 <= cfg.coarseOdoMaxAgeS }
+            .mapNotNull { odometryAgrees(it, m, motion) }
+        if (votes.isEmpty() || votes.count { !it } <= votes.count { it }) return
+        val prev = st.prev
+        if (prev != null && prev !== st.lastTrusted && odometryAgrees(prev, m, motion) == true) return
+        hits += Hit(TrustReason.COARSE_ODOMETRY_MISMATCH, TrustState.REJECTED)
+    }
+
+    /** true / false, or null when odometry or accuracy is unavailable. */
+    private fun odometryAgrees(a: LocationMeasurement, b: LocationMeasurement, motion: MotionView): Boolean? {
+        val k = cfg.coarseOdoK ?: return null
+        val odo = motion.odometry(a.tNs, b.tNs) ?: return null
+        val sa = (a.hAccM ?: return null) / Cov2.R68_PER_SIGMA
+        val sb = (b.hAccM ?: return null) / Cov2.R68_PER_SIGMA
+        val d = Geo.haversineM(a.lat, a.lon, b.lat, b.lon)
+        val allow = k * sqrt(sa * sa + sb * sb) + cfg.coarseOdoRel * odo.distanceM + cfg.coarseOdoAbsM
+        return abs(d - odo.chordM) <= allow
     }
 
     private fun checkStationary(m: LocationMeasurement, motion: MotionView?, hits: MutableList<Hit>) {
