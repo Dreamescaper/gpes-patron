@@ -357,3 +357,61 @@ heading, so the DR drifts more between fixes and the snaps grow.
 Decision: keep 1.0 (parameter kept for experiments). The parallel-offset case is what the Phase 2 road
 constraint solves directly (a track with the road's shape is snapped onto the road).
 
+## D-036: OBD is optional; accelerometer speed with bounded error — Accepted direction (2026-10-01)
+Context (product decision by the user): the app must work at least somehow without an OBD adapter.
+Today, without OBD the speed is a random walk and the output is close to the coarse fixes themselves:
+on the jammed drives the current estimator gives p50 14–16 m / p95 52–77 m with OBD, but p50 44–50 m /
+p95 199–263 m without it (R-013b, R-015b). Open-loop accelerometer integration is not an option: 32–44
+km/h speed error within 1–5 min and hundreds of metres of distance error (R-014).
+Decision: rely more on the accelerometer when OBD is absent, but never open-loop. Accelerometer speed is
+a filter state whose error is bounded by everything else:
+- ZUPT at stops (speed = 0, the strongest anchor; a city drive stops every 1–3 min);
+- centripetal speed in turns, |a_lat| / |ω| (correlation with OBD speed 0.93–0.98 with a proper "down");
+- the distance between coarse fixes vs the dead-reckoned chord (D-031 logic, now as a speed constraint);
+- GNSS speed when present, OBD when present (then the accelerometer only fills short gaps, e.g. the
+  ~0.8 s OBD latency);
+- forward/reverse from accelerometer + gyro (validated on a 3-point turn).
+With OBD, nothing changes in principle: OBD stays the speed source and the accelerometer is auxiliary.
+Alternatives: keep "speed from GNSS/OBD/ZUPT only" (rejected by the user: no-OBD would stay near the
+coarse-fix accuracy); open-loop integration (rejected by measurement).
+Consequences: the invariant in AGENTS.md is reworded from "no accelerometer double-integration" to "no
+open-loop accelerometer integration". Prerequisites: a correct gravity estimate ("down"; Android's
+leans in turns, P14), the forward axis, stop detection that works on an idling car. Roadmap P1.
+
+## D-037: Own gravity ("down") estimate from gyro + gated accelerometer — Accepted (2026-10-01)
+Context: Android's GRAVITY and rotation vectors lean towards the apparent gravity in sustained turns
+(P14), which breaks everything that measures horizontal acceleration: the mount forward axis, the
+compass anomaly gate (UNUSABLE without a charger, R-014), reverse detection, and the planned
+accelerometer speed without OBD (D-036).
+Decision: `MotionTracker` carries up with the gyro and corrects it towards the accelerometer with
+τ = 30 s, gated on | ‖a_lp‖ − mean‖a‖ | < 0.3 m/s² and |yaw rate| < 0.05 rad/s.
+Alternatives:
+- ±60 s mean of the raw accelerometer: good (centripetal corr 0.92–0.95) but needs a minute of future
+  data, so not usable live. Rejected for the app; fine for offline analysis.
+- Gate on | ‖a‖ − 9.80665 |: on the Pixel 8 only ~50% of samples pass (‖a‖ p10 9.0–9.3, p90 10.5–10.9),
+  so the gyro drifts between corrections. Replaced by the phone's own long-term mean.
+- τ = 10 / 30 / 60 s: centripetal corr 0.97–0.98 / 0.97 / 0.94–0.97; 30 s chosen.
+- Keep Android's rotation vector: corr 0.26–0.31. Rejected.
+Consequences (R-016): compass mostly MARGINAL instead of UNUSABLE, more GNSS-aligned readings; estimator
+p95 geo-mean ×0.85 (R-007) / ×0.94 (B); a few spoofing runs without network and OBD got worse. Exposed
+the questionable-stream lock-out fixed in D-038.
+
+## D-038: Accept a consistent questionable GNSS stream after an outage — Accepted (2026-10-01)
+Context: after an outage the returning GNSS was QUESTIONABLE (innovation gate, NIS 13.8–50); the
+estimator ignores QUESTIONABLE GNSS, so its prediction cannot converge and the NIS can stay in the band
+for minutes (R-007 10-min drop: 500 s without GNSS once D-037 changed the DR track slightly). The
+reset-after-consistent-stream rule existed only for REJECTED fixes.
+Decision: a mutually consistent stream of fixes QUESTIONABLE only through the innovation gate is
+accepted after 10 s, if the stream began after ≥ 30 s with no fix of that source at all.
+Alternatives:
+- Without the outage condition: a Doppler-consistent spoofer with OBD was missed 51% of the time
+  (test threshold; before 36%). Rejected.
+- Outage measured from the last *trusted* fix: during a long spoof the last trusted fix ages too, so
+  the spoofer qualified after 30 s. Rejected; the gap must have no fixes at all.
+- Let the estimator use QUESTIONABLE GNSS with inflated R (`questionableRScale`): also helps spoofers
+  during tracking. Not chosen.
+- Sharing the stream-tracking fields with the rejected-stream rule: changed when the older rule fired
+  even with no outage in the data (R-007 overconfident noise 35 → 103 m). The rule has its own fields.
+Tests: `QuestionableResetTest` (returning after a 60-s outage → accepted after ~10 s; the same
+disagreement without an outage → stays QUESTIONABLE).
+

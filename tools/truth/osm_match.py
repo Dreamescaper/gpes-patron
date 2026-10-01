@@ -23,6 +23,7 @@ constraints.json (corrections from the driver), a list of intervals in seconds s
   {"fromS": 355, "toS": 395, "names": ["Голосіївський проспект"], "note": "..."}   only these road names
   {"fromS": 595, "toS": 640, "highways": ["trunk"]}                               only these highway types
   {"fromS": 1070, "toS": 1100, "excludeHighways": ["trunk_link"]}                 never these types
+  {"fromS": 725, "toS": 775, "excludeNames": ["Дніпровська набережна"]}            never these names
 """
 import bisect
 import csv
@@ -76,10 +77,11 @@ def load_graph(path, to_xy):
             two_way = not (oneway or reverse)
             segs.append((a, b, L, two_way))
             seg_tags.append(t)
-            adj.setdefault(a, []).append((b, L))
+            nm = t.get('name', '')
+            adj.setdefault(a, []).append((b, L, nm))
             if two_way:
-                adj.setdefault(b, []).append((a, L))
-            adj_any.setdefault(a, []).append((b, L)); adj_any.setdefault(b, []).append((a, L))
+                adj.setdefault(b, []).append((a, L, nm))
+            adj_any.setdefault(a, []).append((b, L, nm)); adj_any.setdefault(b, []).append((a, L, nm))
     return nodes, adj, adj_any, segs, seg_tags
 
 
@@ -109,13 +111,15 @@ class SegIndex:
         return sorted(((d, i, f, px, py) for i, (d, f, px, py) in out.items()))
 
 
-def dijkstra(adj, src, limit):
+def dijkstra(adj, src, limit, forbid=()):
     dist = {src: 0.0}; prev = {}; pq = [(0.0, src)]
     while pq:
         d, u = heapq.heappop(pq)
         if d > dist.get(u, 1e18) or d > limit:
             continue
-        for v, L in adj.get(u, ()):
+        for v, L, nm in adj.get(u, ()):
+            if forbid and any(f in nm for f in forbid):
+                continue
             nd = d + L
             if nd < dist.get(v, 1e18):
                 dist[v] = nd; prev[v] = u; heapq.heappush(pq, (nd, v))
@@ -150,6 +154,8 @@ def main():
             if 'highways' in c and t.get('highway') not in c['highways']:
                 return False
             if t.get('highway') in c.get('excludeHighways', ()):
+                return False
+            if any(n in t.get('name', '') for n in c.get('excludeNames', ())):
                 return False
         return True
     idx = SegIndex(nodes, segs)
@@ -186,12 +192,19 @@ def main():
         obs.append((ts, t_ns, x, y, o)); last_odo = o
 
     cands = []
-    for ts, t_ns, x, y, o in obs:
+    kept = []
+    for ob in obs:
+        ts, t_ns, x, y, o = ob
         c = [q for q in idx.near(x, y, RADIUS * (2 if constraints else 1)) if allowed(ts, q[1])][:MAX_CAND]
-        if not c:
+        if not c and constraints:
             c = idx.near(x, y, RADIUS)[:MAX_CAND]
-            print(f"no candidate satisfies the constraints at {ts:.0f}s; ignoring them there", file=sys.stderr)
-        cands.append(c)
+            if c:
+                print(f"no candidate satisfies the constraints at {ts:.0f}s; ignoring them there", file=sys.stderr)
+        if not c:
+            print(f"no road within {RADIUS:.0f} m at {ts:.0f}s; observation skipped", file=sys.stderr)
+            continue
+        kept.append(ob); cands.append(c)
+    obs = kept
     print(f"observations: {len(obs)}, empty: {sum(1 for c in cands if not c)}", file=sys.stderr)
 
     # Viterbi
@@ -213,8 +226,9 @@ def main():
             a, b, L, two = segs[si]
             # exits from the previous candidate: forward to b, backward to a if two-way
             starts = [(b, (1 - fi) * L)] + ([(a, fi * L)] if two else [])
-            dmaps = [(n0, d0, dijkstra(adj, n0, limit)) for n0, d0 in starts]
-            dmaps_any = [(n0, d0, dijkstra(adj_any, n0, limit)) for n0, d0 in [(b, (1 - fi) * L), (a, fi * L)]]
+            forbid = tuple(n for c in constraints if c['fromS'] <= obs[k][0] and obs[k - 1][0] <= c['toS'] for n in c.get('excludeNames', ()))
+            dmaps = [(n0, d0, dijkstra(adj, n0, limit, forbid)) for n0, d0 in starts]
+            dmaps_any = [(n0, d0, dijkstra(adj_any, n0, limit, forbid)) for n0, d0 in [(b, (1 - fi) * L), (a, fi * L)]]
             for j, (dc, sj, fj, pxj, pyj) in enumerate(cur_c):
                 c2, d2, L2, two2 = segs[sj]
 

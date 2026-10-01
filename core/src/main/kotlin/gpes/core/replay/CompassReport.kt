@@ -52,6 +52,9 @@ data class CompassTimelineRow(
     val horizontalAccel: Double,
     val rawNormUt: Double?,
     val plug: String?,
+    /** Verdict reason codes at this time (`|`-separated), and the mount epoch. */
+    val reasons: String = "",
+    val mountEpoch: Int = 0,
 )
 
 /**
@@ -127,6 +130,7 @@ object CompassReport {
             rows += CompassTimelineRow(
                 (u.tNs - t0) / 1e9, q.verdict.name, r?.mode?.name, r?.let { Math.toDegrees(it.bearingRad) }, r?.let { Math.toDegrees(it.sigmaRad) },
                 course, err, u.tiltRateRms, u.horizontalAccel, raw?.let { kotlin.math.sqrt(it.x * it.x + it.y * it.y + it.z * it.z) }, plug,
+                q.reasons.joinToString("|"), u.mountEpoch,
             )
         }
 

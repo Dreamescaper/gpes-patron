@@ -83,6 +83,16 @@ data class TrustConfig(
     val resetAfterConsistentS: Double? = 120.0,
     /** Same as [resetAfterConsistentS], but when a fresh network fix agrees with the stream. */
     val resetWithNetworkS: Double? = 15.0,
+    /**
+     * A self-consistent stream of fixes that are QUESTIONABLE *only* because of the innovation gate
+     * (NIS 13.8–50) is accepted after this long (D-038). The estimator ignores QUESTIONABLE GNSS, so its
+     * prediction cannot converge to a returning GNSS by itself: after a long outage the NIS can sit just
+     * above the gate for minutes (R-007: 500 s). Only for GNSS *returning after an outage* (no fix of this
+     * source at all for [questionableResetOutageS] before the stream started): a spoofer taking over
+     * during normal tracking must not be accepted this way. null disables.
+     */
+    val questionableResetS: Double? = 10.0,
+    val questionableResetOutageS: Double = 30.0,
     val unavailableAfterS: Double = 5.0,
     /** Baseline for comparing position displacement with integrated reported velocity. */
     val velocityWindowS: Double = 10.0,
@@ -124,6 +134,14 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
         val recent: List<LocationMeasurement> = emptyList(),
         /** Recent TRUSTED fixes of this source, newest last (coarse odometry voting). */
         val trustedRecent: List<LocationMeasurement> = emptyList(),
+        /**
+         * Questionable-stream reset (D-038), tracked separately from the rejected-stream fields above so
+         * that it cannot change when the older rule fires: start, last fix, and whether the stream began
+         * right after a gap with no fixes of this source at all (an outage).
+         */
+        val qStreamStart: LocationMeasurement? = null,
+        val qStreamLast: LocationMeasurement? = null,
+        val qStreamAfterOutage: Boolean = false,
     )
 
     private data class Snap(
@@ -222,8 +240,26 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
                         newSt = newSt.copy(recoveryNeeded = 0, streamStart = null, streamLast = null)
                     }
                 }
+                TrustState.QUESTIONABLE -> {
+                    val gateOnly = reasons == setOf(TrustReason.INNOVATION_GATE)
+                    val limit = cfg.questionableResetS
+                    if (!gateOnly || limit == null) {
+                        newSt = newSt.copy(qStreamStart = null, qStreamLast = null, qStreamAfterOutage = false)
+                    } else {
+                        val consistent = st.qStreamLast != null && isConsistent(st.qStreamLast, m)
+                        val start = if (consistent) st.qStreamStart!! else m
+                        val gapBefore = st.prev?.let { (m.tNs - it.tNs) / 1e9 } ?: Double.MAX_VALUE
+                        val afterOutage = if (consistent) st.qStreamAfterOutage else gapBefore >= cfg.questionableResetOutageS
+                        newSt = newSt.copy(qStreamStart = start, qStreamLast = m, qStreamAfterOutage = afterOutage)
+                        if (afterOutage && (m.tNs - start.tNs) / 1e9 >= limit) {
+                            state = TrustState.TRUSTED
+                            reasons = mutableSetOf(TrustReason.RESET_AFTER_CONSISTENT_STREAM)
+                            newSt = newSt.copy(qStreamStart = null, qStreamLast = null, qStreamAfterOutage = false)
+                        }
+                    }
+                }
                 TrustState.TRUSTED -> {
-                    newSt = newSt.copy(streamStart = null, streamLast = null)
+                    newSt = newSt.copy(streamStart = null, streamLast = null, qStreamStart = null, qStreamLast = null, qStreamAfterOutage = false)
                     if (st.recoveryNeeded > 0) {
                         state = TrustState.QUESTIONABLE
                         reasons += TrustReason.RECOVERING

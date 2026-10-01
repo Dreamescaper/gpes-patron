@@ -18,6 +18,7 @@ $R run     --drive x.db|x.jsonl [--scenario file|dir]... [--variant name]... [--
 $R matrix  --drive a.db --drive b.db --scenario scenarios [--variants v.json] [--truth t.json] --out dir
 $R compass-report --drive x.db [--truth t.json] --out dir
       # verdict + reasons, fit metrics, held-out heading error per mode, compass_timeline.csv
+      # (per tick: verdict, reasons, mount epoch, reading, GNSS course error, power)
 ```
 
 Outputs per run (`<out>/<drive>/<scenario>__<variant>/`):
@@ -81,7 +82,8 @@ $R run --drive drive.db --scenario scenarios/clean.json --truth drive.truth.json
 ```
 
 Driver corrections: a constraints JSON (6th argument) restricts candidates by time interval —
-`names` (road names), `highways` (types) or `excludeHighways`. See the script's docstring. For R-008 the
+`names` (road names), `highways` (types), `excludeHighways` or `excludeNames` (the latter also keeps
+the path between observations off those roads). See the script's docstring. For R-008 the
 driver's three corrections turned a 12.45-km route with loops into 11.29 km (OBD 11.16 km).
 
 Caveats: the route follows the track it was matched from, so scoring *that* estimator against it is

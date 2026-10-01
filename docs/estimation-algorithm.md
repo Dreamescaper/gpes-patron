@@ -22,9 +22,13 @@ Phase 1 is a **baseline**, not the final estimator. Its jobs are to: (1) never t
 Input: `ACCEL`, `GYRO` (or `GYRO_UNCAL` if no calibrated gyro), and rotation-vector samples.
 Output: a `MotionUpdate` at 20 Hz.
 
-1. **Up direction in the phone frame.** Use GAME_ROTATION_VECTOR / ROTATION_VECTOR when fresh
-   (≤ 0.5 s): world-up = the third row of the rotation matrix. Otherwise use a low-passed
-   accelerometer (τ = 5 s, so braking and turns barely tilt it; the phone is mounted).
+1. **Up direction in the phone frame (D-037).** Our own gravity estimate: the gyro carries the up
+   vector (û ← û − (ω × û)·dt), and the accelerometer pulls it back with τ = 30 s, only while the car is
+   quiet: | ‖a_lp‖ − m | < 0.3 m/s², where m is the 120-s mean of ‖a‖ on this phone (its scale error
+   puts ‖a‖ at rest off 9.81 by more than that), and |ω·û| < 0.05 rad/s. Android's GRAVITY / rotation
+   vectors lean towards the apparent gravity in turns (P14); on real drives the correlation of lateral
+   accel with v·ω is 0.26–0.31 with Android's up and 0.97–0.98 with ours. Re-seeded from the
+   accelerometer on a re-mount. (`upTauS = null` restores the old rotation-vector / low-pass up.)
 2. **Yaw rate** ω_up = gyro · û. This does not depend on how the phone is mounted, so no
    phone-to-car calibration is needed for heading *changes*. It is averaged over each 50 ms update.
 3. **Stationary detection** over a 1 s window: std(|accel|) < 0.12 m/s² and mean |gyro| < 0.03 rad/s.
@@ -93,6 +97,11 @@ unless the **coarse-odometry check** rejects them (D-031, `COARSE_ODOMETRY_MISMA
   after **120 s**, or **15 s** if a fresh network fix agrees. The estimator then resets its
   position (NIS > 25). This exists because dead reckoning can drift during a long outage, and real
   GNSS must eventually win.
+  - **Questionable stream after an outage (D-038).** Fixes that are QUESTIONABLE *only* because of the
+    innovation gate (NIS 13.8–50), mutually consistent, in a stream that began after ≥ 30 s with no fix
+    of that source at all, are accepted after **10 s**. The estimator ignores QUESTIONABLE GNSS, so on
+    its own it could never converge to a returning GNSS (R-007: locked out for 500 s). A spoofer taking
+    over during normal tracking does not qualify (no outage before its stream).
   - It is *never* allowed when the reasons include `IMPOSSIBLE_VELOCITY` (for example
     Kyiv→Lima), `GEOGRAPHICALLY_IMPOSSIBLE`, network disagreement, or synthetic input.
   - **Accepted risk:** a patient spoofer whose track stays self-consistent and physically

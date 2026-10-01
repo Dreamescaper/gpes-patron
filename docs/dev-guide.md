@@ -152,7 +152,7 @@ adb pull /storage/emulated/0/Android/data/gpes.patron/files/drives/<id>.db   # p
 - **P13 Under jamming, C/N0 lies.** Short false locks report 40–50 dB-Hz. Check the tracking state
   (`state & 8` = TOW decoded) and AGC before reading anything into C/N0. On the Pixel 8 the chip's
   `$PGLOR,3,AGC` NMEA sentence carries AGC even when Android measurements stop.
-- **P14 Android GRAVITY, LINEAR_ACCEL and the rotation vectors swallow sustained lateral
+- **P14 (fixed by D-037) Android GRAVITY, LINEAR_ACCEL and the rotation vectors swallow sustained lateral
   acceleration.** In turns the fused "up" leans towards the apparent gravity, so the centripetal part
   mostly disappears from the horizontal projection (R-007, correlation of a_lat with v·ω: GRAVITY 0.36,
   GAME_RV 0.44, ROTATION_VECTOR 0.45, slope ≈ 0.12–0.18). With "up" = mean of raw ACCEL over ±60 s
@@ -162,6 +162,15 @@ adb pull /storage/emulated/0/Android/data/gpes.patron/files/drives/<id>.db   # p
 - **P17 The EKF skips most coarse fixes once it is confident** (≥ 15 s and ≥ 150 m apart, D-021). A test
   with network fixes every 13 s silently dropped every other fix, including the injected outlier. Space
   test fixes ≥ 16 s apart, or check that the fix was actually fused.
+- **P18 OSM can lag reality.** A ramp that the driver used was still mapped as construction (R-015b),
+  so the matcher detoured. `osm_match.py` only uses built roads; cut the truth or add constraints where
+  the driver knows OSM is wrong.
+- **P19 A state that the estimator ignores can lock itself out.** QUESTIONABLE GNSS is not fused, so the
+  prediction never converges to it, so it stays QUESTIONABLE (D-038). When a check's output feeds back
+  into what it compares against, give it a way out (a consistent-stream rule), and test a return after
+  an outage.
+- **P20 Do not trust a sensor's absolute scale.** The Pixel 8 accelerometer reads ‖a‖ 9.0–10.9 m/s² when
+  quiet; gate on the phone's own long-term mean, not on 9.80665 (D-037).
 - **P12 Real phones are not the emulator:** GnssStatus was silent on the Pixel 8, the Location
   `satellites` extra is always 0, GYRO_UNCAL arrives at twice the requested rate, and the wireless
   charger holder triples the field (≈ 120 µT vs 51 µT). The `compass-report` verdict is the one at the

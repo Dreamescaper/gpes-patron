@@ -212,9 +212,9 @@ class CompassReportCmd : CliktCommand(name = "compass-report") {
         out.mkdirs()
         File(out, "compass_report.json").writeText(pretty.encodeToString(gpes.core.replay.CompassReportSummary.serializer(), summary))
         File(out, "compass_timeline.csv").bufferedWriter().use { w ->
-            w.write("t_s,verdict,mode,bearing_deg,sigma_deg,truth_course_deg,err_deg,tilt_rate_rms,horizontal_accel,raw_norm_ut,plug\n")
+            w.write("t_s,verdict,mode,bearing_deg,sigma_deg,truth_course_deg,err_deg,tilt_rate_rms,horizontal_accel,raw_norm_ut,plug,reasons,mount_epoch\n")
             for (r in rows) w.write(
-                listOf(r.tS, r.verdict, r.mode, r.bearingDeg, r.sigmaDeg, r.truthCourseDeg, r.errDeg, r.tiltRateRms, r.horizontalAccel, r.rawNormUt, r.plug)
+                listOf(r.tS, r.verdict, r.mode, r.bearingDeg, r.sigmaDeg, r.truthCourseDeg, r.errDeg, r.tiltRateRms, r.horizontalAccel, r.rawNormUt, r.plug, r.reasons, r.mountEpoch)
                     .joinToString(",") { it?.toString() ?: "" } + "\n",
             )
         }

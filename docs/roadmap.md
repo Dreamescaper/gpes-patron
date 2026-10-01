@@ -53,7 +53,27 @@ Found on the jammed drive (R-008, 2026-09-28):
   150 s the centred window has no future, so it is effectively causal; (4) one rotation per 300 s
   window cannot follow complex paths. Prerequisites if resumed: reverse detection (longitudinal accel
   at pull-away, or a gear PID if the car has one), shorter/adaptive windows or per-segment rotation.
-- **P1 Bug: mount forward-axis learning uses a tilted "up" on real phones.** `MotionTracker.learnMount`
+- **P1 Speed without OBD (D-036).** OBD is optional; the app must work without it. Plan: speed as an EKF
+  state driven by the accelerometer along the forward axis, never open-loop, bounded by ZUPT (stops),
+  centripetal speed |a_lat|/|ω| in turns, coarse-fix spacing vs the odometry chord, and GNSS/OBD when
+  present; forward/reverse from accelerometer + gyro. Measure on all four drives with the `phone+network`
+  rung (no OBD) against the jammed-drive truths (R-013b, R-015b) and GNSS truth (R-007, B): today p50
+  44–50 m without OBD vs 14–16 m with it. Prerequisites: the gravity estimate and stop detection below.
+- **P1 Bug: mount forward-axis learning *and the compass anomaly gate* use a tilted "up" on real phones.**
+  *Done 2026-10-01 (D-037, R-016).* Follow-ups: compensate known vehicle acceleration (OBD dv/dt, v·ω)
+  before the accelerometer correction; a sim option for an Android-like leaning rotation vector.
+  History:
+  *Prototype measured 2026-10-01 and reverted (not requested at the time):* gyro-carried up with a
+  slow (τ 30 s) gated accelerometer correction. Centripetal correlation 0.97–0.98 (Android 0.26–0.31,
+  ±60 s accel mean 0.92–0.95, the latter not causal); compass verdict on drive B UNUSABLE 619 → 18 ticks
+  and GNSS-aligned p50 ~4°; estimator p95 geo-mean ×0.86 (R-007) / ×0.96 (B), but some runs worse
+  (R-007 10-min drop with network+OBD p50 1.7 → 61 m). Suspect: the correction gate |‖a‖ − g| < 0.3 m/s²
+  passes only ~50% of samples on this phone (‖a‖ p10 9.0–9.3, p90 10.5–10.9), so the gyro drifts
+  between corrections; gate on ‖a_lp‖ against its own long-term mean instead of 9.80665, and compensate
+  known vehicle acceleration (OBD dv/dt, v·ω) before using the accelerometer.
+  R-014: the compass was UNUSABLE on both drives without a charger because the 3-µT vertical-field gate
+  saw Android's up leaning in turns × a 130–150 µT holder field; with a slow up the disturbed fraction
+  drops 0.72 → 0.45 and 0.71 → 0.24. Same fix for both. `MotionTracker.learnMount`
   takes horizontal accel with `up()` from GAME_RV/ROTATION_VECTOR, which absorb most of the
   centripetal acceleration in turns (dev-guide P14). Use a slow "up" for horizontal-accel work (mean of
   raw ACCEL over tens of seconds while the mount epoch is unchanged), add a sim option that makes the
@@ -148,7 +168,8 @@ Found on the first real drive (R-007, 2026-09-28):
 - **P1 GnssStatus on the Pixel 8 (Android SDK 37)**: `gnss_status` was empty for the whole drive
   while NMEA and raw measurements worked. Check logcat / GPSTest on the device; until fixed, derive
   satellites-used from NMEA GSA.
-- **P2 OBD latency.** The real adapter lags GNSS by ~0.8 s (not the 0.15 s the synthetic OBD
+- **P1 OBD latency** (raised from P2 by R-014: with GNSS, adding OBD worsened tracking p95 1.6 → 9.5 m).
+  *Original P2 note:* The real adapter lags GNSS by ~0.8 s (not the 0.15 s the synthetic OBD
   assumes). Estimate the lag online (cross-correlation against trusted GNSS speed) and time-shift
   speed updates; update the synthetic OBD to match.
 - **P2 Calibration on real data.** Clean within95 is 0.82 (0.86 even during plain GNSS tracking);

@@ -67,7 +67,12 @@ These are part of "done". A change is not finished until the docs reflect it.
   through the same `MeasurementPipeline` class as the app.
 - **Honest uncertainty.** A coarse fix stays coarse. Do not shrink covariance without evidence.
   Replay reports calibration (`within68` / `within95`); keep them near 0.68 / 0.95.
-- **No accelerometer double-integration** for distance. Speed comes from GNSS, OBD or ZUPT only.
+- **OBD is optional (D-036).** The app must work without it; with OBD present, the accelerometer is only
+  auxiliary information.
+- **No open-loop accelerometer integration.** Never integrate the accelerometer on its own into speed or
+  distance (R-014: 32–44 km/h speed error within 1–5 min). Accelerometer-derived speed may enter only
+  inside the estimator, with its error bounded by other evidence: ZUPT at stops, centripetal speed
+  (a_lat/ω) in turns, coarse fixes and the odometry chord, and GNSS/OBD when present (D-036).
 - **Timebase:** all `tNs` are `elapsedRealtimeNanos`. Keep original timestamps; never resample
   recorded data.
 - **Canonical ordering:** sort records with `RecordOrder.comparator`, not by `tNs` alone.

@@ -22,7 +22,7 @@ import kotlin.math.abs
 
 /** The compass must say when a holder makes the magnetometer useless, and keep working when it can be calibrated. */
 class CompassQualityTest {
-    private data class Result(val quality: CompassQuality, val alignedP95: Double?, val readings: Int)
+    private data class Result(val quality: CompassQuality, val alignedP95: Double?, val readings: Int, val readingsAfterSaturation: Int = 0, val dishonest: Int = 0)
 
     private fun run(cfg: SimConfig, cc: CompassConfig = CompassConfig()): Result {
         val d = DriveSimulator.generate(cfg)
@@ -33,6 +33,8 @@ class CompassQualityTest {
         var biasSum = 0.0; var biasN = 0; var next = half
         val errs = ArrayList<Double>()
         var readings = 0
+        var readingsAfterSaturation = 0
+        var dishonest = 0
         for (m in d.records.filterIsInstance<Measurement>()) {
             when (m) {
                 is ImuSample -> c.onMag(m)
@@ -49,11 +51,13 @@ class CompassQualityTest {
                 next = u.tNs + 1_000_000_000
                 c.heading(u.tNs)?.let {
                     readings++
+                    if (c.quality().saturated) readingsAfterSaturation++
+                    if (abs(Geo.wrapDeg(Math.toDegrees(it.bearingRad) - t.bearingDeg)) > 2 * Math.toDegrees(it.sigmaRad)) dishonest++
                     if (it.mode == CompassMode.GNSS_ALIGNED) errs += abs(Geo.wrapDeg(Math.toDegrees(it.bearingRad) - t.bearingDeg))
                 }
             }
         }
-        return Result(c.quality(), Metrics.pct(errs, 0.95), readings)
+        return Result(c.quality(), Metrics.pct(errs, 0.95), readings, readingsAfterSaturation, dishonest)
     }
 
     @Test
@@ -78,7 +82,10 @@ class CompassQualityTest {
         val r = run(SimConfig(phoneHardIronUt = listOf(985.0, 0.0, 0.0), magClipUt = 1000.0))
         assertEquals(CompassVerdict.UNUSABLE, r.quality.verdict)
         assertTrue("SATURATED" in r.quality.reasons)
-        assertEquals(0, r.readings)
+        // Before the clipping is first seen the compass cannot know; it may give uncorrected readings
+        // (σ 35°) once the forward axis is learned. After that: silent, and earlier readings honest.
+        assertEquals(0, r.readingsAfterSaturation)
+        assertEquals(0, r.dishonest, "readings outside 2σ")
     }
 
     @Test

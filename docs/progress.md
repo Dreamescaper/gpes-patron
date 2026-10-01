@@ -67,6 +67,23 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Log
 
+### 2026-10-01 — Own gravity estimate; questionable-stream reset (D-037, D-038)
+- `MotionTracker`: gyro-carried up with a slow, gated accelerometer correction (self-calibrated ‖a‖).
+- Trust: a consistent QUESTIONABLE (innovation-gate-only) GNSS stream after an outage is accepted
+  after 10 s; found when D-037 exposed a 500-s lock-out.
+- `CompassQualityTest` saturation case: the compass may now give honest uncorrected readings before
+  the clipping is first seen (the forward axis is learned earlier); asserts silence after detection and
+  readings within 2σ. All tests pass.
+- Measured: R-016. Not verified live in the app.
+
+### 2026-10-01 — Two more real drives without the wireless charger (R-014)
+- `20260929-103343` (A): 16 min, 8.0 km by OBD, jammed (GGA quality 0 throughout), no charging.
+  `20260929-190523` (B): 15 min, GNSS throughout; OBD ends at 704 s (engine off; the recording ran on
+  while the driver walked, so metrics use the OBD window only).
+- `compass-report`: `compass_timeline.csv` gains `reasons` and `mount_epoch`.
+- Found: the compass is UNUSABLE even without charging (OFTEN_DISTURBED); OBD latency hurts GNSS
+  tracking. Details in R-014.
+
 ### 2026-09-28…10-01 — OSM route as truth for the jammed drive
 - `tools/truth/osm_match.py`: offline HMM map matching onto OSM roads (Overpass download of the
   bounding box only, 6.4 MB), OBD-distance transitions, one-way rules with a penalized fallback,
@@ -240,6 +257,98 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 - Research doc, core module, SQLDelight recording, replay CLI, 11 scenarios. 24 unit tests.
 
 ## Results log
+
+### R-016 (2026-10-01) — own gravity estimate + questionable-stream reset vs `main` (4491791)
+
+Regression check against the committed version, built separately and run identically: all 13 scenarios ×
+9 rungs on the two GNSS drives (B only within the OBD window, ≤ 700 s) and all rungs on the two jammed
+drives against their driver-checked truths.
+
+| drive | runs | p95 geo-mean new/main | better > 10% | worse > 10% |
+|---|---|---|---|---|
+| R-007 (GNSS) | 113 | 0.860 | 26 | 9 |
+| B (GNSS, ≤ 700 s) | 113 | 0.957 | 13 | 4 |
+| R-008 (jammed) vs truth | 5 | 0.998 | 0 | 0 |
+| A (jammed) vs truth | 5 | 0.976 | 0 | 0 |
+
+Worse runs in the rungs that matter (network and/or OBD): R-007 ramp capture with network only
+170 → 204 m; clean with network + OBD 9.1 → 10.3 m; GNSS absent from start with network + OBD p50 49 → 54 m,
+within95 0.77 → 0.70. Jammed with network + OBD: R-008 p50 16.3 → 16.8 m (p95 51.9 → 51.3), A p50
+14.1 → 16.1 m (p95 76.7 → 76.7). The other worse runs are synthetic-network or no-network/no-OBD rungs
+(e.g. ramp capture gyro-/phone-only 737 → 1548 m). Missed spoof detection unchanged or better except
+those rungs. A first version of D-038 shared the stream fields with the older rejected-stream rule and
+changed when that rule fired (R-007 overconfident noise with network + OBD 35 → 103 m, B Doppler-
+consistent drift 489 → 549 m); with separate fields both are back to `main`.
+
+Compass (`compass-report`, OBD windows):
+
+| drive | before: verdicts | now: verdicts | GNSS-aligned readings vs GNSS course |
+|---|---|---|---|
+| R-007 (charger) | MARGINAL 1219, readings 141, p95 ~10–30° | MARGINAL 1231 | 240 readings, p50 3.8°, p95 14.4°, 100% within 2σ |
+| R-008 (charger, jammed) | UNUSABLE 1275 | MARGINAL 1259, UNUSABLE 22 | none (nothing to align with) |
+| A (no charger, jammed) | UNUSABLE 825 | MARGINAL 431, UNUSABLE 394 | 6 forward-aligned |
+| B (no charger) | UNUSABLE 619 | MARGINAL 481, UNUSABLE 48 | 110 readings, p50 3.4°, p95 57.5°, 98% within 2σ |
+
+### R-015b (2026-10-01) — drive A against the OSM route **corrected by the driver**, up to +12:40
+
+Corrections: start on Yevhena Chykalenka st, right turn (gyro: 50–55 s) onto Taras Shevchenko blvd
+(gyro: straight until the next right turn at 100–105 s); no embankment at the end; plus one assumption
+of mine (no one-point hops onto service roads mid-route). Path search now also avoids excluded names.
+The driver cut the truth at **+12:40 (760 s)**: the exit from the Paton bridge onto Mykolaichuka st that
+was really used is not in OSM yet (still mapped as construction), so the route after it is unreliable.
+Truth for 736 s.
+
+| version | p50 m | p95 m | max m | within68 / within95 |
+|---|---|---|---|---|
+| raw network fixes | 36 | 383 | 1116 | 0.61 within own hAcc |
+| Google fused | 36 | 383 | 1116 | 0.52 within own hAcc |
+| EKF initial (no heading bank, plain coarse) | 54 | 524 | 805 | 0.78 / 0.96 |
+| EKF + heading bank | 14 | 190 | 387 | 0.88 / 0.96 |
+| EKF + heading bank + robust coarse (current) | 14 | 77 | 174 | 0.94 / 1.00 |
+| current, without OBD | 50 | 263 | 626 | 0.66 / 0.91 |
+
+### R-015 (2026-10-01) — drive A (jammed) against its OSM route, up to +13:10 (first, uncorrected)
+
+Route matched from the current `phone+network+obd` track (8.72 km vs 8.01 km by OBD; a few one-point
+hops onto service roads), not corrected by the driver except: no truth after +13:10 (790 s, parking).
+Truth for 765 s (gaps at 68–73, 98–103, 735–740, 745–750 s). Circularity caveat as in R-013 applies more
+here (no driver corrections yet).
+
+| version | p50 m | p95 m | max m | within68 / within95 |
+|---|---|---|---|---|
+| raw network fixes | 35 | 374 | 1116 | 0.61 within own hAcc |
+| Google fused | 35 | 355 | 1116 | 0.54 within own hAcc |
+| EKF initial (no heading bank, plain coarse) | 52 | 502 | 805 | 0.79 / 0.96 |
+| EKF + heading bank | 15 | 102 | 387 | 0.87 / 0.96 |
+| EKF + heading bank + robust coarse (current) | 15 | 80 | 154 | 0.92 / 1.00 |
+| current, without OBD | 49 | 244 | 619 | 0.67 / 0.90 |
+
+### R-014 (2026-10-01) — drives A (jammed) and B (GNSS), no wireless charging
+
+**Compass.** UNUSABLE for most of both drives (A 825 of 937 s, B 619 of 690 s while OBD worked), reason
+OFTEN_DISTURBED (the 3-µT vertical-field gate fired > 60% of moving time); B also NOISY_FIT and
+GNSS_DISAGREES. Raw |B| 127–154 µT with no charger (vs 119 µT with it): the holder's iron/magnet, not
+the coil, dominates; Earth's horizontal field here is ~19 µT. Emulating the gate with a slow "up"
+(±60 s mean of raw ACCEL) instead of Android GRAVITY: disturbed fraction A 0.72 → 0.45, B 0.71 → 0.24.
+Most "anomalies" are Android's up leaning in turns (dev-guide P14) times the strong holder field.
+
+**B (GNSS), OBD window only (0–704 s):**
+
+| scenario | rung | p50 m | p95 m | max m | within95 |
+|---|---|---|---|---|---|
+| clean | phone+network | 0.3 | 1.6 | 4 | 0.96 |
+| clean | phone+network+obd | 0.7 | **9.5** | 13 | **0.76** |
+| drop 2 min | phone+network+obd | 0.8 | 31 | 64 | 0.78 |
+| drop 10 min | phone+network | 25 | 289 | 593 | 0.90 |
+| drop 10 min | **phone+network+obd** | **11.5** | **33** | 65 | 0.95 |
+| drop 10 min | phone+obd | 184 | 269 | 270 | 0.95 |
+| GNSS absent from start | phone+network+obd | 25 | 290 | 1544 | 1.00 |
+
+With GNSS, adding OBD makes tracking worse (p95 1.6 → 9.5 m): the ~0.8 s OBD latency is not modelled,
+so the EKF lags ~12 m at 15 m/s (roadmap P2 → should be P1).
+
+**A (jammed, no truth):** heading bank hand-over at 132 s; DEAD_RECKONING 794 of 960 ticks; path
+8.58 km vs 8.01 km by OBD; 3 steps > 100 m. Without OBD: hand-over at 202 s, path 11.74 km, 13 steps.
 
 ### R-013b (2026-10-01) — R-008 against the OSM route **corrected by the driver**
 
