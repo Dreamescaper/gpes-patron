@@ -78,7 +78,7 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 - Verified locally: `printVersion` gave `0.1.0+52a5163.dirty (235)` before committing and `0.1.0+e9037e0 (236)` after;
   the debug APK installed over the emulator's older build (code 112 → 236) and Settings shows `GPES Patron 0.1.0+e9037e0`;
   a shallow clone with `CI=1` fails the build with the explanatory message (without `CI` it silently gives a wrong code,
-  201). **Not verified**: a CI run (nothing was pushed), the height increasing on later commits (it is 0 until the next one).
+  201). CI run (2026-10-02, after the push): green, APK `gpes-patron-main-0.1.2-05321b1-238.apk`, height 2 as expected.
 
 
 ### 2026-10-02 — Documents for Google Play, GitHub Pages, OpenStreetMap attribution (D-061)
@@ -87,7 +87,10 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 - App: Settings → About links to the policy and the terms (per language), and "© OpenStreetMap contributors" on the map and in About.
 - Verified: the pages parse (balanced tags) and read correctly in both languages; the policy was checked against the code and the manifest
   (permissions, the single network call, optional recording); build and lint pass; on the emulator the About links and the map attribution show.
-  **Not verified**: the deployed pages (see the push), a Play Console review, the video (not recorded), the legal wording (not a lawyer's work).
+  Deployed 2026-10-02 (13 commits pushed to `main`): the Pages workflow succeeded and `https://dreamescaper.github.io/gpes-patron/`,
+  `/privacy.html`, `/terms.html` return 200; the Android workflow also succeeded on the same push, and named the APK
+  `gpes-patron-main-0.1.2-05321b1-238.apk` (the versioning of D-059 works in CI). **Not verified**: a Play Console review, the video
+  (not recorded), the legal wording (not a lawyer's work).
 - Open: a release build as an Android App Bundle, the wake-lock limit, the rights to the name and icon (`docs/play/release-checklist.md`).
 ### 2026-10-02 — Estimation before spoofing; stale mock cleanup (D-058)
 - Tracking (estimate only) starts by itself on the Drive and Map tabs and stops with them; the big button turns spoofing

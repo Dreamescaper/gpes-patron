@@ -785,8 +785,7 @@ monotonic per commit; `gradle-git-versioning` would also be one more plugin to k
 number (differs between CI and local builds, so reinstalls break); a manual bump (what we had).
 Consequences: rewriting history (rebase, squash of published commits) changes the counts and can lower the code of a
 rebuilt app (installs then fail with a downgrade: raise the offset in `version.json`). Tags `v*` still publish a release but
-do not set the version: bump `version` in `version.json` before tagging a release. Not verified: a CI run (no push was
-made).
+do not set the version: bump `version` in `version.json` before tagging a release. Verified in CI on 2026-10-02: `0.1.2+05321b1`, code 238.
 
 ## D-061: Public documents on GitHub Pages from `site/`, one bilingual page each; Play texts in `docs/play/` — Accepted (2026-10-02)
 Context: Google Play needs a privacy policy URL (the app handles location, which is sensitive) and a Data safety form, and the
