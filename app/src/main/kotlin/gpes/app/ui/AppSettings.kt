@@ -15,6 +15,8 @@ class AppSettings(private val prefs: SharedPreferences) {
     private var questionableState by mutableStateOf(prefs.getBoolean("use_questionable", false))
     private var obdEnabledState by mutableStateOf(prefs.getBoolean("obd_enabled", false))
     private var obdAddressState by mutableStateOf(prefs.getString("obd_address", null))
+    private var recordState by mutableStateOf(prefs.getBoolean("record", false))
+    private var developerState by mutableStateOf(prefs.getBoolean("developer", false))
     private var probeState by mutableStateOf(prefs.getBoolean("gps_probe", true))
     private var roadsState by mutableStateOf(prefs.getBoolean("roads_enabled", true))
 
@@ -39,6 +41,16 @@ class AppSettings(private val prefs: SharedPreferences) {
     var obdAddress: String?
         get() = obdAddressState
         set(v) { obdAddressState = v; prefs.edit().putString("obd_address", v).apply() }
+    /** Optional: save the drive to a file so it can be sent to the developer (D-053). */
+    var record: Boolean
+        get() = recordState
+        set(v) { recordState = v; prefs.edit().putBoolean("record", v).apply() }
+    /** Shows the developer's tools: diagnostics, start modes, event marks. */
+    var developer: Boolean
+        get() = developerState
+        set(v) { developerState = v; prefs.edit().putBoolean("developer", v).apply() }
+    /** Ordinary users only ever run the position replacement; the other modes belong to developer mode. */
+    val effectiveMode: RunMode get() = if (developerState) modeState else RunMode.MOCK_OUTPUT
     var probe: Boolean
         get() = probeState
         set(v) { probeState = v; prefs.edit().putBoolean("gps_probe", v).apply() }

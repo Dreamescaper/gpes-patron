@@ -23,6 +23,8 @@ enum class RunMode(@StringRes val labelRes: Int, val estimate: Boolean, val mock
 
 data class Status(
     val running: Boolean = false,
+    /** Whether this session is written to a drive file (optional, D-053). */
+    val recording: Boolean = false,
     val mode: RunMode = RunMode.RECORD_ONLY,
     val mockTargets: Set<MockTarget> = emptySet(),
     val sessionId: String? = null,

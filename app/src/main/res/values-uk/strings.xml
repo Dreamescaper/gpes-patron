@@ -110,7 +110,7 @@
 
     <!-- UI redesign: tabs, driver screen, notification, trust reasons -->
     <string name="tab_drive">Їзда</string>
-    <string name="tab_trips">Поїздки</string>
+    <string name="tab_trips">Записи</string>
     <string name="tab_diagnostics">Діагностика</string>
     <string name="tab_settings">Налаштування</string>
     <string name="mode_short_record">Запис</string>
@@ -162,9 +162,8 @@
     <string name="diag_idle">Подробиці з’являться під час поїздки.</string>
     <string name="settings_locked">Налаштування заблоковані, поки йде поїздка.</string>
     <string name="settings_roads">Карта доріг</string>
-    <string name="settings_advanced">Додатково</string>
     <string name="settings_about">Про застосунок</string>
-    <string name="trips_empty">Поїздок ще немає. Почніть першу на вкладці «Їзда».</string>
+    <string name="trips_empty">Записів ще немає. Увімкніть «Записувати поїздки» в налаштуваннях.</string>
     <string name="delete">Видалити</string>
     <string name="cancel">Скасувати</string>
     <string name="delete_title">Видалити цю поїздку?</string>
@@ -209,4 +208,13 @@
     <string name="probe_last_recovered">Остання перевірка: GPS повернувся, позицію виправлено (%1$d с тому).</string>
     <string name="probe_last_failed">Остання перевірка: справжньому GPS не довіряю (%1$d с тому).</string>
     <string name="probe_none_yet">Перевірки GPS ще не було.</string>
+
+    <!-- Recording and developer mode are optional (D-053) -->
+    <string name="settings_dev">Для розробника</string>
+    <string name="record_use">Записувати поїздки</string>
+    <string name="record_hint">Необов’язково. Зберігає дані датчиків, супутників, Wi-Fi і вишок кожної поїздки у файл на цьому телефоні, щоб ви могли надіслати його розробнику для покращення визначення позиції. Автоматично нічого не надсилається.</string>
+    <string name="dev_use">Режим розробника</string>
+    <string name="dev_hint">Показує діагностику, режими запуску (лише запис, лише оцінка) та експериментальні опції.</string>
+    <string name="record_on_hint">Запис увімкнено: поїздку буде збережено на цьому телефоні.</string>
+    <string name="recording_now">Іде запис цієї поїздки (для розробника).</string>
 </resources>

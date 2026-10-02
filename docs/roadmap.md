@@ -353,3 +353,8 @@ Road-constraint follow-ups (R-020):
 - **P3** Hand-over: when real GNSS is TRUSTED for long, stop replacing `gps` and pass it through, re-installing
   the mock the moment it degrades.
 
+
+## Recording as an option (D-053)
+- **P2** "Send to the developer": share the recording with one tap, optionally strip or coarsen the location, and offer
+  to delete it afterwards; a size indicator and a free-space warning; clean-up of old recordings.
+- **P3** An opt-in explanation screen the first time recording is enabled (what is stored, that nothing is sent).

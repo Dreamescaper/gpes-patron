@@ -72,6 +72,15 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Log
 
+### 2026-10-02 — Recording and start modes made developer options (D-053)
+- Main screen: only "turn on spoofing". Recording is optional and off by default; developer mode adds Diagnostics,
+  record-only / estimate-only modes, marks and the QUESTIONABLE toggle. Tabs are dynamic (2–4).
+- `Recorder` in the service (`FileRecorder` / `NoRecorder`), `Status.recording`, new `record` extra.
+- Verified on the emulator (clean install): two tabs, no files created while spoofing with recording off; with
+  recording on, a `.db` is created, the "Recordings" tab and the marks appear. Build and lint pass. Pixel 8 not
+  checked after this change (the phone was locked); the 15 existing recordings stay installed.
+- Not done: a "send to the developer" flow, free-space check, clean-up of old recordings.
+
 ### 2026-10-02 — First run of the GNSS probe on the Pixel 8 (D-052)
 - Pixel 8 (SDK 37), indoors and stationary, spoof mode with `gps` as the target, ≈ 3 min.
   Chip healthy (7–13 satellites in the fix after a ~20 s cold start). Windows opened, the real GPS returned its first fix

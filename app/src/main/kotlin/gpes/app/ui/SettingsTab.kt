@@ -67,8 +67,12 @@ fun SettingsTab(modifier: Modifier, settings: AppSettings, running: Boolean) {
             SwitchRow(stringResource(R.string.probe_use), stringResource(R.string.probe_hint), settings.probe, !running) { settings.probe = it }
         }
 
-        SettingsCard(stringResource(R.string.settings_advanced)) {
-            SwitchRow(stringResource(R.string.use_questionable), null, settings.useQuestionable, !running) { settings.useQuestionable = it }
+        SettingsCard(stringResource(R.string.settings_dev)) {
+            SwitchRow(stringResource(R.string.record_use), stringResource(R.string.record_hint), settings.record, !running) { settings.record = it }
+            SwitchRow(stringResource(R.string.dev_use), stringResource(R.string.dev_hint), settings.developer, !running) { settings.developer = it }
+            if (settings.developer) {
+                SwitchRow(stringResource(R.string.use_questionable), null, settings.useQuestionable, !running) { settings.useQuestionable = it }
+            }
         }
 
         SettingsCard(stringResource(R.string.settings_about)) {

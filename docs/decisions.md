@@ -661,3 +661,20 @@ that bothers Waze is the open question. All 65 `gps`
 locations received while the provider was replaced were our own mock (`is_mock=1`) and were rejected as
 SYNTHETIC_INPUT, which confirms the feedback guard on a device. Still unknown: how Waze reacts to a window, behaviour
 while driving and under real jamming or spoofing.
+
+## D-053: Recording and the start modes are developer options, not the product — Accepted (2026-10-02)
+Context: the app started as a research tool (record drives, estimate offline). The product is now the position
+replacement (D-051, D-052): most users will not record anything, and recording people's drives is a privacy matter.
+Decision: the main screen offers only "turn on spoofing" (`RunMode.MOCK_OUTPUT`). Recording is **off by default**
+and optional (Settings → For the developer → "Record drives"): it saves the drive to a file on the phone so the
+user can send it to the developer; nothing is sent automatically, and the Drive tab says when recording is on.
+"Developer mode" (also off) adds the Diagnostics tab, the start modes (record only, estimate only), event marks and
+the QUESTIONABLE-GNSS toggle. The Recordings tab appears when recording or developer mode is on, or when drive files
+already exist (so they can still be shared or deleted). In the service a `Recorder` is either a file (`FileRecorder`)
+or `NoRecorder`: without recording no file or database is created, and the estimator, trust and mock output are
+unchanged. Record-only mode always records.
+Alternatives: removing recording from the app (loses the data that improves the algorithm); recording always but
+hidden (privacy, storage 4 MB/min); a separate research build (two builds to keep in sync).
+Consequences: the estimator and `:core` are unchanged; `Status.recording` tells the UI; event marks exist only while
+recording. Revisit: an in-app "send to the developer" flow and clear-on-share, a recording size/space indicator,
+automatic clean-up of old recordings.

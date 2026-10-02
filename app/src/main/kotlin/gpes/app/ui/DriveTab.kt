@@ -111,11 +111,12 @@ fun DriveTab(modifier: Modifier, settings: AppSettings, status: Status, refreshK
 
 @Composable
 private fun IdleContent(settings: AppSettings, refreshKey: Int, ctx: Context, onChanged: () -> Unit) {
-    val mode = settings.mode
+    val mode = settings.effectiveMode
     Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
     Text(stringResource(R.string.tagline), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
 
-    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+    // Ordinary users only replace the position; the start modes belong to developer mode (D-053).
+    if (settings.developer) SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
         RunMode.entries.forEachIndexed { i, m ->
             SegmentedButton(
                 selected = mode == m,
@@ -126,6 +127,9 @@ private fun IdleContent(settings: AppSettings, refreshKey: Int, ctx: Context, on
         }
     }
     Text(stringResource(description(mode)), fontSize = 14.sp)
+    if (settings.record || mode == RunMode.RECORD_ONLY) {
+        Text(stringResource(R.string.record_on_hint), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 
     // Readiness: only what blocks or weakens the chosen mode, each with the way to fix it.
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { onChanged() }
@@ -156,7 +160,7 @@ private fun IdleContent(settings: AppSettings, refreshKey: Int, ctx: Context, on
                 if (settings.gps) add(MockTarget.GPS)
                 if (settings.network) add(MockTarget.NETWORK)
             }
-            DriveService.start(ctx, mode, targets, settings.useQuestionable, settings.obdAddress.takeIf { settings.obdEnabled }, settings.roads, settings.probe)
+            DriveService.start(ctx, mode, targets, settings.useQuestionable, settings.obdAddress.takeIf { settings.obdEnabled }, settings.roads, settings.probe, settings.record)
         },
         enabled = ready,
         modifier = Modifier.fillMaxWidth().height(64.dp),
@@ -288,8 +292,10 @@ private fun RunningContent(s: Status, ctx: Context) {
         }
     }
 
-    Text(stringResource(R.string.annotate_title), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // Event marks only go into the recording, so they are offered only while one is being made.
+    if (s.recording) Text(stringResource(R.string.recording_now), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    if (s.recording) Text(stringResource(R.string.annotate_title), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+    if (s.recording) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // The recorded label is a stable English code; only the button text is localized.
         listOf(
             "mark" to R.string.ann_mark, "tunnel" to R.string.ann_tunnel,

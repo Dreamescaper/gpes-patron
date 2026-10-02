@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import gpes.app.R
+import gpes.app.service.DriveStorage
 import gpes.app.service.LiveStatus
 
 class MainActivity : ComponentActivity() {
@@ -65,7 +66,7 @@ private fun Screen() {
     val ctx = LocalContext.current
     val status by LiveStatus.flow.collectAsStateWithLifecycle()
     val settings = remember { AppSettings(ctx.getSharedPreferences("gpes", Context.MODE_PRIVATE)) }
-    var tab by rememberSaveable { mutableIntStateOf(Tab.DRIVE.ordinal) }
+    var tabIndex by rememberSaveable { mutableIntStateOf(Tab.DRIVE.ordinal) }
     // Bumped when something outside Compose state changed (permissions, stopped session) so lists and checks re-read.
     var refresh by remember { mutableIntStateOf(0) }
 
@@ -77,8 +78,19 @@ private fun Screen() {
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { refresh++ }
     LaunchedEffect(Unit) { launcher.launch(perms) }
 
+    // Recordings and diagnostics are for the developer (D-053): shown only when asked for, or when files already exist.
+    val hasDrives = remember(refresh, status.running) { DriveStorage.list(ctx).isNotEmpty() }
+    val visible = Tab.entries.filter {
+        when (it) {
+            Tab.DRIVE, Tab.SETTINGS -> true
+            Tab.TRIPS -> settings.record || settings.developer || hasDrives
+            Tab.DIAGNOSTICS -> settings.developer
+        }
+    }
+    val tab = Tab.entries[tabIndex].takeIf { it in visible } ?: Tab.DRIVE
+
     // A driver glances at the phone: keep it awake while a drive is running on the Drive tab.
-    val keepAwake = status.running && tab == Tab.DRIVE.ordinal
+    val keepAwake = status.running && tab == Tab.DRIVE
     val activity = ctx as? Activity
     DisposableEffect(keepAwake) {
         if (keepAwake) activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -89,19 +101,19 @@ private fun Screen() {
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             NavigationBar {
-                Tab.entries.forEach { t ->
+                visible.forEach { t ->
                     NavigationBarItem(
-                        selected = tab == t.ordinal,
-                        onClick = { tab = t.ordinal },
+                        selected = tab == t,
+                        onClick = { tabIndex = t.ordinal },
                         icon = { Text(t.glyph, fontSize = 20.sp) },
-                        label = { Text(stringResource(t.label), fontWeight = if (tab == t.ordinal) FontWeight.Bold else FontWeight.Normal) },
+                        label = { Text(stringResource(t.label), fontWeight = if (tab == t) FontWeight.Bold else FontWeight.Normal) },
                     )
                 }
             }
         },
     ) { padding ->
         val m = Modifier.padding(padding)
-        when (Tab.entries[tab]) {
+        when (tab) {
             Tab.DRIVE -> DriveTab(m, settings, status, refresh) { refresh++ }
             Tab.TRIPS -> TripsTab(m, refresh, status.running)
             Tab.DIAGNOSTICS -> DiagnosticsTab(m, status)

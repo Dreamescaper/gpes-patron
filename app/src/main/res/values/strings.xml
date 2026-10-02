@@ -109,7 +109,7 @@
 
     <!-- UI redesign: tabs, driver screen, notification, trust reasons -->
     <string name="tab_drive">Drive</string>
-    <string name="tab_trips">Trips</string>
+    <string name="tab_trips">Recordings</string>
     <string name="tab_diagnostics">Diagnostics</string>
     <string name="tab_settings">Settings</string>
     <string name="mode_short_record">Record</string>
@@ -161,9 +161,8 @@
     <string name="diag_idle">Details appear while a drive is running.</string>
     <string name="settings_locked">Settings are locked while a drive is running.</string>
     <string name="settings_roads">Road map</string>
-    <string name="settings_advanced">Advanced</string>
     <string name="settings_about">About</string>
-    <string name="trips_empty">No drives yet. Start one on the Drive tab.</string>
+    <string name="trips_empty">No recordings yet. Turn on “Record drives” in Settings.</string>
     <string name="delete">Delete</string>
     <string name="cancel">Cancel</string>
     <string name="delete_title">Delete this drive?</string>
@@ -208,4 +207,13 @@
     <string name="probe_last_recovered">Last check: GPS is back, position corrected (%1$d s ago).</string>
     <string name="probe_last_failed">Last check: real GPS not trusted (%1$d s ago).</string>
     <string name="probe_none_yet">No GPS check yet.</string>
+
+    <!-- Recording and developer mode are optional (D-053) -->
+    <string name="settings_dev">For the developer</string>
+    <string name="record_use">Record drives</string>
+    <string name="record_hint">Optional. Saves the sensor, satellite, Wi-Fi and cell data of each drive in a file on this phone, so you can send it to the developer to improve positioning. Nothing is sent automatically.</string>
+    <string name="dev_use">Developer mode</string>
+    <string name="dev_hint">Shows Diagnostics, the start modes (record only, estimate only) and the experimental options.</string>
+    <string name="record_on_hint">Recording is on: the drive will be saved on this phone.</string>
+    <string name="recording_now">Recording this drive (for the developer).</string>
 </resources>

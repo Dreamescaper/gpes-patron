@@ -77,11 +77,14 @@ Offline, `ReplayRunner` feeds recorded measurements, transformed by a `Scenario`
 
 ## Operating modes (app)
 
-| Mode | Acquisition + recording | Trust + estimator | Mock output |
-|---|---|---|---|
-| RECORD_ONLY | ✓ | – (computable later by replay) | – |
-| ESTIMATE_ONLY | ✓ | ✓ (recorded) | – |
-| MOCK_OUTPUT | ✓ | ✓ | ✓ (fused by default; platform gps/network optional) |
+| Mode | Acquisition | Recording | Trust + estimator | Mock output |
+|---|---|---|---|---|
+| RECORD_ONLY (developer) | ✓ | always | – (computable later by replay) | – |
+| ESTIMATE_ONLY (developer) | ✓ | optional | ✓ | – |
+| MOCK_OUTPUT (the product) | ✓ | optional, off by default (D-053) | ✓ | ✓ (platform gps by default, D-052; fused/network optional) |
+
+Recording goes through a `Recorder` in `DriveService`: `FileRecorder` (the SQLite drive bundle) or `NoRecorder`,
+which creates no file.
 
 ## Threading (app)
 

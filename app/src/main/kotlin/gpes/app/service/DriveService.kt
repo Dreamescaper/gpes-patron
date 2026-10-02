@@ -38,6 +38,7 @@ import gpes.app.ui.MainActivity
 import gpes.core.estimator.BaselineConfig
 import gpes.core.estimator.BaselineDrEstimator
 import gpes.core.io.DriveJson
+import gpes.core.model.DriveRecord
 import gpes.core.model.GnssStatusSnapshot
 import gpes.core.model.LocSource
 import gpes.core.model.Measurement
@@ -100,15 +101,17 @@ class DriveService : Service() {
         const val EXTRA_OBD_ADDRESS = "obdAddress"
         const val EXTRA_ROADS = "roads"
         const val EXTRA_PROBE = "probe"
+        const val EXTRA_RECORD = "record"
         private const val CHANNEL = "drive"
         /** Louder than [CHANNEL] (still silent): shown on the lock screen while our output replaces the system location. */
         private const val CHANNEL_SPOOF = "spoof"
         private const val NOTIF_ID = 1
 
-        fun start(ctx: Context, mode: RunMode, targets: Set<MockTarget>, useQuestionable: Boolean = false, obdAddress: String? = null, roads: Boolean = false, probe: Boolean = false) {
+        fun start(ctx: Context, mode: RunMode, targets: Set<MockTarget>, useQuestionable: Boolean = false, obdAddress: String? = null, roads: Boolean = false, probe: Boolean = false, record: Boolean = false) {
             val i = Intent(ctx, DriveService::class.java).setAction(ACTION_START)
                 .putExtra(EXTRA_ROADS, roads)
                 .putExtra(EXTRA_PROBE, probe)
+                .putExtra(EXTRA_RECORD, record)
                 .putExtra(EXTRA_MODE, mode.name)
                 .putExtra(EXTRA_OBD_ADDRESS, obdAddress)
                 .putExtra(EXTRA_USE_QUESTIONABLE, useQuestionable)
@@ -144,6 +147,8 @@ class DriveService : Service() {
                     this, mode, if (mode.mock) targets else emptySet(), baseline, intent.getStringExtra(EXTRA_OBD_ADDRESS),
                     roads = intent.getBooleanExtra(EXTRA_ROADS, false),
                     probe = intent.getBooleanExtra(EXTRA_PROBE, false),
+                    // Record-only exists to record; the other modes record only when asked (D-053).
+                    record = intent.getBooleanExtra(EXTRA_RECORD, false) || mode == RunMode.RECORD_ONLY,
                     onStatus = ::updateNotification,
                 ).also { it.start() }
             }
@@ -224,7 +229,39 @@ class DriveService : Service() {
     }
 }
 
-/** One recording session. Created and stopped by [DriveService]. */
+/** Where a session's records go; see [FileRecorder] and [NoRecorder]. */
+private interface Recorder {
+    fun open()
+    fun write(r: DriveRecord)
+    fun counts(): Map<String, Long>
+    fun flush()
+    fun close()
+}
+
+private class FileRecorder(private val ctx: Context, private val file: File) : Recorder {
+    private lateinit var driver: AndroidSqliteDriver
+    private lateinit var writer: DriveWriter
+
+    override fun open() {
+        driver = DriveStorage.open(ctx, file)
+        writer = DriveWriter(DriveDatabase(driver))
+    }
+
+    override fun write(r: DriveRecord) = writer.write(r)
+    override fun counts() = writer.counts()
+    override fun flush() { writer.flush() }
+    override fun close() = driver.close()
+}
+
+private object NoRecorder : Recorder {
+    override fun open() = Unit
+    override fun write(r: DriveRecord) = Unit
+    override fun counts(): Map<String, Long> = emptyMap()
+    override fun flush() = Unit
+    override fun close() = Unit
+}
+
+/** One drive session, recorded or not. Created and stopped by [DriveService]. */
 private class Session(
     private val ctx: Context,
     private val mode: RunMode,
@@ -233,6 +270,7 @@ private class Session(
     private val obdAddress: String?,
     private val roads: Boolean,
     private val probe: Boolean,
+    private val record: Boolean,
     private val onStatus: (Status) -> Unit,
 ) {
     private val id = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
@@ -243,8 +281,8 @@ private class Session(
     private val wakeLock = ctx.getSystemService(PowerManager::class.java)
         .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "gpes:drive")
 
-    private lateinit var driver: AndroidSqliteDriver
-    private lateinit var writer: DriveWriter
+    /** Recording is optional (D-053): without it nothing is written and no file is created. */
+    private val writer: Recorder = if (record) FileRecorder(ctx, file) else NoRecorder
     private var pipeline: MeasurementPipeline? = null
     private var estimator: BaselineDrEstimator? = null
     private var publisher: MockLocationPublisher? = null
@@ -320,8 +358,7 @@ private class Session(
 
     fun start() {
         wakeLock.acquire(12 * 60 * 60 * 1000L)
-        driver = DriveStorage.open(ctx, file)
-        writer = DriveWriter(DriveDatabase(driver))
+        writer.open()
 
         val config = buildJsonObject {
             put("mode", mode.name)
@@ -373,7 +410,7 @@ private class Session(
             if (probeController != null) handler.postDelayed(probeTick, 1000)
         }
 
-        LiveStatus.set(Status(running = true, mode = mode, mockTargets = targets, sessionId = id, startedElapsedNs = startNs))
+        LiveStatus.set(Status(running = true, mode = mode, mockTargets = targets, sessionId = id, startedElapsedNs = startNs, recording = record))
         scheduler.scheduleWithFixedDelay({ runCatching { writer.flush() } }, 500, 500, TimeUnit.MILLISECONDS)
         scheduler.scheduleWithFixedDelay({ runCatching { publishStatus() } }, 1000, 1000, TimeUnit.MILLISECONDS)
     }
@@ -452,7 +489,7 @@ private class Session(
         scheduler.shutdown()
         scheduler.awaitTermination(2, TimeUnit.SECONDS)
         runCatching { writer.flush() }
-        driver.close()
+        writer.close()
         thread.quitSafely()
         if (wakeLock.isHeld) wakeLock.release()
         LiveStatus.update { it.copy(running = false) }
