@@ -71,6 +71,7 @@ class MockLocationPublisher(
                     }
                 }
                 active += t
+                markActive(context, true) // survives a kill, see [cleanupStale]
             } catch (e: SecurityException) {
                 lastError = context.getString(R.string.mock_err_not_selected, e.message)
             } catch (e: Exception) {
@@ -166,6 +167,35 @@ class MockLocationPublisher(
         }
         active.clear()
         suspended.clear()
+        markActive(context, false)
+    }
+
+    companion object {
+        private const val PREFS = "gpes"
+        private const val KEY_ACTIVE = "spoof_active"
+
+        /** Written synchronously: it has to be on disk if the process is killed a moment later. */
+        private fun markActive(ctx: Context, on: Boolean) {
+            ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ACTIVE, on).commit()
+        }
+
+        /**
+         * A test provider is not removed when the app that added it dies (force-stop, crash, the system killing the
+         * process): it keeps serving the last mock location to every app on the phone. So the app notes that spoofing is
+         * on, and at the next start removes the providers it left behind. Returns true when it had to.
+         */
+        @SuppressLint("MissingPermission")
+        fun cleanupStale(ctx: Context): Boolean {
+            val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            if (!prefs.getBoolean(KEY_ACTIVE, false)) return false
+            val lm = ctx.getSystemService(LocationManager::class.java)
+            for (name in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
+                runCatching { lm.removeTestProvider(name) }
+            }
+            runCatching { LocationServices.getFusedLocationProviderClient(ctx).setMockMode(false) }
+            markActive(ctx, false)
+            return true
+        }
     }
 
     private fun toLocation(e: PositionEstimate, provider: String) = Location(provider).apply {

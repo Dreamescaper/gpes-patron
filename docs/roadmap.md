@@ -369,3 +369,12 @@ Road-constraint follow-ups (R-020):
 - **P2** Recordings are about 4 MB per minute, mostly `ImuSample` at about 800 Hz. Options: store IMU in compressed
   blocks (a blob per second) or decimate the raw rate; keep original timestamps (never resample, AGENTS.md). Needs
   a format version bump and a reader that handles both, and a check that replay results do not change.
+
+## Tracking and spoofing (after D-058)
+- **P1 Hand-over**: spoof only while the GNSS is not trusted and pass the real `gps` through when it is (with the probe's
+  logic in reverse), now that the estimator is warm before spoofing starts.
+- **P2** Frozen location after a kill with no reopening: nothing can run after a force-stop; consider a periodic
+  heartbeat publish with a short expiry so a dead publisher is visible to the apps (they would see "no GPS" instead of a
+  frozen car), if Android lets a mock location expire.
+- **P3** Tracking in the background for a few minutes after the app is left, so the estimator stays warm when the user
+  switches to the navigator (a notification and a time limit).

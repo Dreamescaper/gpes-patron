@@ -49,8 +49,8 @@ class AppSettings(private val prefs: SharedPreferences) {
     var developer: Boolean
         get() = developerState
         set(v) { developerState = v; prefs.edit().putBoolean("developer", v).apply() }
-    /** Ordinary users only ever run the position replacement; the other modes belong to developer mode. */
-    val effectiveMode: RunMode get() = if (developerState) modeState else RunMode.MOCK_OUTPUT
+    /** Ordinary users only ever run the position replacement (estimation runs by itself, D-058); recording alone is a developer option. */
+    val effectiveMode: RunMode get() = if (developerState && modeState == RunMode.RECORD_ONLY) RunMode.RECORD_ONLY else RunMode.MOCK_OUTPUT
     var probe: Boolean
         get() = probeState
         set(v) { probeState = v; prefs.edit().putBoolean("gps_probe", v).apply() }

@@ -92,6 +92,8 @@ class DriveService : Service() {
         const val ACTION_START = "gpes.START"
         const val ACTION_STOP = "gpes.STOP"
         const val ACTION_ANNOTATE = "gpes.ANNOTATE"
+        /** Start spoofing in the running tracking session (D-058). */
+        const val ACTION_SPOOF_ON = "gpes.SPOOF_ON"
         /** Re-post the notification after the user swiped it away (Android 14+ allows that for foreground services). */
         const val ACTION_REFRESH_NOTIFICATION = "gpes.REFRESH_NOTIFICATION"
         const val EXTRA_MODE = "mode"
@@ -117,6 +119,15 @@ class DriveService : Service() {
                 .putExtra(EXTRA_USE_QUESTIONABLE, useQuestionable)
                 .putExtra(EXTRA_TARGETS, targets.map { it.name }.toTypedArray())
             ctx.startForegroundService(i)
+        }
+
+        fun startSpoof(ctx: Context, targets: Set<MockTarget>, probe: Boolean, record: Boolean) {
+            ctx.startService(
+                Intent(ctx, DriveService::class.java).setAction(ACTION_SPOOF_ON)
+                    .putExtra(EXTRA_PROBE, probe)
+                    .putExtra(EXTRA_RECORD, record)
+                    .putExtra(EXTRA_TARGETS, targets.map { it.name }.toTypedArray()),
+            )
         }
 
         fun stop(ctx: Context) {
@@ -157,6 +168,15 @@ class DriveService : Service() {
                 session = null
                 ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
                 stopSelf()
+            }
+            ACTION_SPOOF_ON -> session?.let { sess ->
+                val targets = intent.getStringArrayExtra(EXTRA_TARGETS)?.map { MockTarget.valueOf(it) }?.toSet() ?: emptySet()
+                if (notifMode == RunMode.ESTIMATE_ONLY) {
+                    notifMode = RunMode.MOCK_OUTPUT
+                    notifText = null
+                    notifyNow()
+                    sess.startSpoof(targets, intent.getBooleanExtra(EXTRA_PROBE, false), intent.getBooleanExtra(EXTRA_RECORD, false))
+                }
             }
             ACTION_ANNOTATE -> session?.annotate(intent.getStringExtra(EXTRA_LABEL) ?: "mark")
             ACTION_REFRESH_NOTIFICATION -> if (session != null) notifyNow()
@@ -205,7 +225,13 @@ class DriveService : Service() {
             this, 2, Intent(this, DriveService::class.java).setAction(ACTION_REFRESH_NOTIFICATION), PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(this, if (spoof) CHANNEL_SPOOF else CHANNEL)
-            .setContentTitle(if (spoof) getString(R.string.notif_title_spoof) else getString(R.string.notif_title, getString(notifMode.labelRes)))
+            .setContentTitle(
+                when {
+                    spoof -> getString(R.string.notif_title_spoof)
+                    notifMode == RunMode.ESTIMATE_ONLY -> getString(R.string.notif_title_tracking)
+                    else -> getString(R.string.notif_title, getString(notifMode.labelRes))
+                },
+            )
             .setContentText(notifText ?: getString(R.string.notif_text))
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setOngoing(true)
@@ -264,8 +290,9 @@ private object NoRecorder : Recorder {
 /** One drive session, recorded or not. Created and stopped by [DriveService]. */
 private class Session(
     private val ctx: Context,
-    private val mode: RunMode,
-    private val targets: Set<MockTarget>,
+    // A tracking session (estimate only) becomes a spoofing one in place, see [startSpoof] (D-058).
+    @Volatile private var mode: RunMode,
+    @Volatile private var targets: Set<MockTarget>,
     private val baselineConfig: BaselineConfig,
     private val obdAddress: String?,
     private val roads: Boolean,
@@ -281,8 +308,8 @@ private class Session(
     private val wakeLock = ctx.getSystemService(PowerManager::class.java)
         .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "gpes:drive")
 
-    /** Recording is optional (D-053): without it nothing is written and no file is created. */
-    private val writer: Recorder = if (record) FileRecorder(ctx, file) else NoRecorder
+    /** Recording is optional (D-053): without it nothing is written and no file is created. It may begin later, see [beginRecording]. */
+    @Volatile private var writer: Recorder = NoRecorder
     private var pipeline: MeasurementPipeline? = null
     private var estimator: BaselineDrEstimator? = null
     private var publisher: MockLocationPublisher? = null
@@ -317,7 +344,7 @@ private class Session(
      * Real GNSS fixes cannot reach us while the platform `gps` provider is replaced, so now and then the test provider
      * is removed for a short window (D-052). Only when the user left it on and `gps` is a mock target.
      */
-    private val probeController: GnssProbeController? =
+    @Volatile private var probeController: GnssProbeController? =
         if (probe && mode.mock && MockTarget.GPS in targets) GnssProbeController() else null
     @Volatile private var probeStatus: ProbeStatus? = null
     private val probeTick = object : Runnable {
@@ -361,25 +388,7 @@ private class Session(
 
     fun start() {
         wakeLock.acquire(12 * 60 * 60 * 1000L)
-        writer.open()
-
-        val config = buildJsonObject {
-            put("mode", mode.name)
-            putJsonArray("mockTargets") { targets.forEach { add(it.name) } }
-            put("imuPeriodUs", 10_000)
-            put("estimator", if (mode.estimate) "baseline" else "none")
-            put("obdAddress", obdAddress ?: "")
-            put("roads", roadMap != null)
-            put("baseline", DriveJson.json.encodeToJsonElement(BaselineConfig.serializer(), baselineConfig))
-        }
-        writer.write(
-            SessionInfo(
-                tNs = startNs, sessionId = id, anchorElapsedNs = startNs, anchorWallMs = System.currentTimeMillis(),
-                device = Build.DEVICE, manufacturer = Build.MANUFACTURER, model = Build.MODEL, androidSdk = Build.VERSION.SDK_INT,
-                appVersion = BuildConfig.VERSION_NAME, mode = mode.name, configJson = config.toString(),
-            ),
-        )
-        sensorSource.sensorInfo().forEach(writer::write)
+        if (record) beginRecording()
 
         if (mode.estimate) {
             estimator = BaselineDrEstimator(baselineConfig, roads = roadMap?.let { rm -> { rm.network } })
@@ -415,9 +424,52 @@ private class Session(
             if (probeController != null) handler.postDelayed(probeTick, 1000)
         }
 
-        LiveStatus.set(Status(running = true, mode = mode, mockTargets = targets, sessionId = id, startedElapsedNs = startNs, recording = record))
+        LiveStatus.set(Status(running = true, mode = mode, mockTargets = targets, sessionId = id, startedElapsedNs = startNs, recording = writer !== NoRecorder))
         scheduler.scheduleWithFixedDelay({ runCatching { writer.flush() } }, 500, 500, TimeUnit.MILLISECONDS)
         scheduler.scheduleWithFixedDelay({ runCatching { publishStatus() } }, 1000, 1000, TimeUnit.MILLISECONDS)
+    }
+
+    /** Open the drive file and write the session header and the sensor list. Runs on the pipeline thread (or before it starts). */
+    private fun beginRecording() {
+        val rec = FileRecorder(ctx, file)
+        rec.open()
+        val config = buildJsonObject {
+            put("mode", mode.name)
+            putJsonArray("mockTargets") { targets.forEach { add(it.name) } }
+            put("imuPeriodUs", 10_000)
+            put("estimator", if (mode.estimate) "baseline" else "none")
+            put("obdAddress", obdAddress ?: "")
+            put("roads", roadMap != null)
+            put("baseline", DriveJson.json.encodeToJsonElement(BaselineConfig.serializer(), baselineConfig))
+        }
+        rec.write(
+            SessionInfo(
+                tNs = startNs, sessionId = id, anchorElapsedNs = startNs, anchorWallMs = System.currentTimeMillis(),
+                device = Build.DEVICE, manufacturer = Build.MANUFACTURER, model = Build.MODEL, androidSdk = Build.VERSION.SDK_INT,
+                appVersion = BuildConfig.VERSION_NAME, mode = mode.name, configJson = config.toString(),
+            ),
+        )
+        sensorSource.sensorInfo().forEach(rec::write)
+        writer = rec
+    }
+
+    /**
+     * Turn a tracking session into a spoofing one without restarting it, so the estimator keeps what it has learned
+     * (heading, speed scale, compass, roads). Recording, when asked for, begins here, not at the start of tracking.
+     */
+    fun startSpoof(newTargets: Set<MockTarget>, probe: Boolean, record: Boolean) {
+        handler.post {
+            if (!mode.estimate || publisher != null) return@post
+            if (record && writer === NoRecorder) beginRecording()
+            mode = RunMode.MOCK_OUTPUT
+            targets = newTargets
+            publisher = MockLocationPublisher(ctx, newTargets) { ev -> sink.emit(ev) }.also { it.start() }
+            if (probe && MockTarget.GPS in newTargets) {
+                probeController = GnssProbeController()
+                handler.postDelayed(probeTick, 1000)
+            }
+            LiveStatus.update { it.copy(mode = RunMode.MOCK_OUTPUT, mockTargets = newTargets, recording = writer !== NoRecorder) }
+        }
     }
 
     /**

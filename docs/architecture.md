@@ -83,6 +83,9 @@ Offline, `ReplayRunner` feeds recorded measurements, transformed by a `Scenario`
 | ESTIMATE_ONLY (developer) | ✓ | optional | ✓ | – |
 | MOCK_OUTPUT (the product) | ✓ | optional, off by default (D-053) | ✓ | ✓ (platform gps by default, D-052; fused/network optional) |
 
+ESTIMATE_ONLY is no longer a user mode: it is the tracking phase that starts by itself while the Drive or Map tab is open
+and becomes MOCK_OUTPUT in place when spoofing is turned on (D-058).
+
 Recording goes through a `Recorder` in `DriveService`: `FileRecorder` (the SQLite drive bundle) or `NoRecorder`,
 which creates no file.
 

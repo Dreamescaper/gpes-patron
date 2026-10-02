@@ -737,3 +737,28 @@ and a separate `ic_launcher_round.xml`, `roundIcon` pointing at it. The set alre
 safe zone, so nothing is changed. The old drawables, `mipmap-anydpi` and the SVG in `docs/assets` were removed.
 Consequences: there is no SVG source in the repository now (the set has none); the vector drawables are the source.
 Still not checked: the Pixel 8 launcher, the themed icon, other masks.
+
+## D-058: Estimation starts by itself; spoofing is turned on inside the running session; stale mocks are cleaned — Accepted (2026-10-02)
+Context: the map and the GNSS verdict only existed after "turn on spoofing", because the estimate lives in a
+`DriveService` session started by that button. Estimation before spoofing is useful (the user sees at once how far the
+GNSS can be trusted, and the estimator has learned heading, speed scale and compass before the GNSS fails). While
+testing it, a force-stop was found to leave the mock `gps` provider installed: it keeps serving the last mock location to
+every app (a frozen car).
+Decision: (1) While the Drive or Map tab is open and the location permission is granted, the app starts an
+estimate-only session by itself (no mock output, no recording, foreground notification "tracking the position") and
+stops it when the app goes to the background, or another tab (Settings, Recordings, Diagnostics) opens, unless spoofing
+or a developer record-only session is running. (2) The big button then calls `startSpoof` on the running session
+(`ACTION_SPOOF_ON`): the publisher and the optional GNSS probe are created in place and recording, when enabled,
+begins there, so the estimator keeps everything it has learned. (3) Turning spoofing off (button or notification) stops
+the session; tracking restarts by itself if the tab is open. (4) The developer selector offers only spoof and
+record-only; "estimate only" is now simply the tracking phase. (5) The publisher notes that spoofing is active (written
+synchronously); at the next start the app removes the test providers left behind (`gps`, `network`, fused mock) and tells
+the user.
+Alternatives: tracking in the background all the time (battery, a permanent notification, and a warm estimator only helps
+if the app has been running); an explicit "start tracking" button (one more step, and no map until pressed); stopping
+the spoof in place and keeping tracking (a second code path for the same result as stop + restart); cleaning stale
+mocks unconditionally at start (it would remove another mock-location app's provider).
+Consequences: opening the Drive or Map tab starts sensors and the wake lock until the tab is left; the Settings tab is
+unlocked while only tracking runs (the tab stops it). If the app is killed while spoofing and never opened again, the
+frozen location stays until it is (nothing can run after a force-stop); the persistent notification disappears with the
+process. Hand-over (spoofing only when the GNSS is bad) stays on the roadmap.

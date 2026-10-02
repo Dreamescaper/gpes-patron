@@ -217,6 +217,11 @@ adb pull /storage/emulated/0/Android/data/gpes.patron/files/drives/<id>.db   # p
   (R-007). Recordings go to `recordings/` (not in git). A second drive under jamming (no GNSS fix at
   all) was recorded the same day (R-008). Kyiv has persistent GNSS jamming, so real jammed data is
   easy to get.
+- **P34 A mock location provider outlives its app.** After `adb shell am force-stop gpes.patron` (or a crash, or the
+  system killing the process) `dumpsys location` still shows `gps provider [mock]:` with the last mock location, and
+  every app sees a frozen position. `removeTestProvider` only works from a running app that is the mock-location app, so
+  `MockLocationPublisher.cleanupStale` runs at the next start (D-058). Test it with: spoof on, force-stop, check
+  `dumpsys location | grep "gps provider"`, relaunch, check again.
 - **P33 Setting app preferences from adb (debug build).** `run-as` cannot create files in `/data/local`: push the XML to
   `/data/local/tmp`, then `run-as gpes.patron sh -c 'mkdir -p shared_prefs && cp /data/local/tmp/x.xml shared_prefs/gpes.xml'`
   with the app force-stopped. It is how developer mode, the start mode and the QUESTIONABLE toggle were set in the

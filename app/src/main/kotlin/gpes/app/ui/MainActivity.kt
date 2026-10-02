@@ -24,6 +24,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -32,15 +33,25 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.widget.Toast
 import gpes.app.R
+import gpes.app.mock.MockLocationPublisher
+import gpes.app.service.DriveService
 import gpes.app.service.DriveStorage
+import gpes.app.service.RunMode
 import gpes.app.service.LiveStatus
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // A killed process leaves its mock providers behind (frozen position for every app): remove them (D-058).
+        if (!LiveStatus.flow.value.running && MockLocationPublisher.cleanupStale(this)) {
+            Toast.makeText(this, R.string.stale_spoof_cleaned, Toast.LENGTH_LONG).show()
+        }
         setContent { GpesTheme { Screen() } }
     }
 }
@@ -90,6 +101,21 @@ private fun Screen() {
     }
     val tab = Tab.entries[tabIndex].takeIf { it in visible } ?: Tab.DRIVE
 
+    // Position estimation runs by itself while the Drive or Map tab is open (D-058): the map and the verdict work before
+    // anything is replaced. Spoofing, recording and leaving the app keep a session going; otherwise it stops with the tab.
+    var appStarted by remember { mutableStateOf(false) }
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { appStarted = true; refresh++ }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { appStarted = false }
+    val locationOk = remember(refresh) { hasPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) }
+    val wantTracking = appStarted && locationOk && (tab == Tab.DRIVE || tab == Tab.MAP) && settings.effectiveMode != RunMode.RECORD_ONLY
+    LaunchedEffect(wantTracking, status.running, status.mode) {
+        if (wantTracking && !status.running) {
+            DriveService.start(ctx, RunMode.ESTIMATE_ONLY, emptySet(), settings.useQuestionable, settings.obdAddress.takeIf { settings.obdEnabled }, settings.roads)
+        } else if (!wantTracking && status.running && status.mode == RunMode.ESTIMATE_ONLY) {
+            DriveService.stop(ctx)
+        }
+    }
+
     // A driver glances at the phone: keep it awake while a drive is running on the Drive or Map tab.
     val keepAwake = status.running && (tab == Tab.DRIVE || tab == Tab.MAP)
     val activity = ctx as? Activity
@@ -124,9 +150,10 @@ private fun Screen() {
         when (tab) {
             Tab.DRIVE -> DriveTab(m, settings, status, refresh) { refresh++ }
             Tab.MAP -> MapTab(m, status)
-            Tab.TRIPS -> TripsTab(m, refresh, status.running)
+            Tab.TRIPS -> TripsTab(m, refresh, status.running && status.recording)
             Tab.DIAGNOSTICS -> DiagnosticsTab(m, status)
-            Tab.SETTINGS -> SettingsTab(m, settings, status.running)
+            // Plain tracking stops when this tab opens, so only spoofing or recording locks the settings.
+            Tab.SETTINGS -> SettingsTab(m, settings, status.running && status.mode != RunMode.ESTIMATE_ONLY)
         }
     }
 }

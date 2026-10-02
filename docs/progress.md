@@ -72,6 +72,18 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Log
 
+### 2026-10-02 — Estimation before spoofing; stale mock cleanup (D-058)
+- Tracking (estimate only) starts by itself on the Drive and Map tabs and stops with them; the big button turns spoofing
+  on in the running session (`ACTION_SPOOF_ON`, `Session.startSpoof`, recording begins there if enabled); developer
+  selector reduced to spoof / record-only; settings are locked only while spoofing or recording; the verdict card no
+  longer says "no GPS" or lists our own mock when `gps` is replaced and the probe is off.
+- Found and fixed: a force-stopped app leaves the mock `gps` provider installed (frozen position for every app).
+  `cleanupStale` removes it at the next start and shows a message (dev-guide P34).
+- Verified on the emulator: tracking starts on opening the app (`gps` real), spoofing on in the same session (timer, track
+  and estimate kept, `gps [mock]`), stop returns to tracking, Settings tab and the background stop tracking, force-stop while
+  spoofing leaves the mock and the relaunch removes it. Build and lint pass. **Not verified**: the Pixel 8 (not connected),
+  battery cost of tracking with the screen on, recording started mid-session, other Android versions.
+
 ### 2026-10-02 — New icon artwork (D-057)
 - Replaced the icon with the user's updated set (see D-057): drawables `ic_launcher_*`, `mipmap-anydpi-v26`
   (`ic_launcher`, `ic_launcher_round`), manifest `roundIcon`. Verified: build and lint pass; on the emulator's

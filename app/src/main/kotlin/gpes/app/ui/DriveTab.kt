@@ -71,103 +71,140 @@ import gpes.core.trust.ProbeResult
 @StringRes
 private fun shortLabel(m: RunMode) = when (m) {
     RunMode.RECORD_ONLY -> R.string.mode_short_record
-    RunMode.ESTIMATE_ONLY -> R.string.mode_short_estimate
+    RunMode.ESTIMATE_ONLY -> R.string.mode_short_protect
     RunMode.MOCK_OUTPUT -> R.string.mode_short_protect
 }
 
 @StringRes
 private fun description(m: RunMode) = when (m) {
     RunMode.RECORD_ONLY -> R.string.mode_desc_record
-    RunMode.ESTIMATE_ONLY -> R.string.mode_desc_estimate
+    RunMode.ESTIMATE_ONLY -> R.string.mode_desc_protect
     RunMode.MOCK_OUTPUT -> R.string.mode_desc_protect
 }
 
-private fun hasPermission(ctx: Context, p: String) = ctx.checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
+internal fun hasPermission(ctx: Context, p: String) = ctx.checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
 
-/** The driver's screen: pick what to do, start, then one glance tells how much the position can be trusted. */
+/**
+ * The driver's screen. Position estimation runs by itself while this tab or the map is open (D-058), so one glance tells
+ * how far the GNSS can be trusted before anything is replaced; the big button then turns spoofing on in the same session.
+ */
 @Composable
 fun DriveTab(modifier: Modifier, settings: AppSettings, status: Status, refreshKey: Int, onChanged: () -> Unit) {
     val ctx = LocalContext.current
     // The user may come back from system settings: re-read permissions and the mock-location app.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { onChanged() }
+    val locationOk = remember(refreshKey) { hasPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) }
+    val notificationsOk = remember(refreshKey) { Build.VERSION.SDK_INT < 33 || hasPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) }
+    val mockOk = remember(refreshKey) { isMockAppSelected(ctx) }
+    val noTarget = !settings.fused && !settings.gps && !settings.network
+    val spoofReady = locationOk && mockOk && !noTarget
+    val tracking = status.running && status.mode == RunMode.ESTIMATE_ONLY
+    val notices: @Composable () -> Unit = {
+        Notices(ctx, onChanged, locationOk, notificationsOk, mockOk, noTarget, needSpoof = status.mode.mock || tracking)
+    }
+
     Column(modifier.fillMaxSize()) {
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (status.running) RunningContent(status, ctx) else IdleContent(settings, refreshKey, ctx, onChanged)
+            if (status.running) RunningContent(status, ctx, tracking, notices) else IdleContent(settings, ctx, locationOk, notices)
         }
-        // Pinned: the way out must never scroll out of reach.
-        if (status.running) Button(
-            onClick = { DriveService.stop(ctx) },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).height(64.dp),
-            shape = RoundedCornerShape(20.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.surface),
-        ) {
-            Text(stringResource(if (status.mode.mock) R.string.stop_spoof else R.string.stop_drive), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        // Pinned: the way out (or the way in) must never scroll out of reach.
+        if (status.running) {
+            val spoofing = status.mode.mock
+            Button(
+                onClick = {
+                    if (tracking) DriveService.startSpoof(ctx, targetsOf(settings), settings.probe, settings.record) else DriveService.stop(ctx)
+                },
+                enabled = !tracking || spoofReady,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).height(64.dp),
+                shape = RoundedCornerShape(20.dp),
+                colors = if (tracking) ButtonDefaults.buttonColors()
+                else ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.surface),
+            ) {
+                Text(
+                    stringResource(
+                        when {
+                            tracking -> R.string.start_protect
+                            spoofing -> R.string.stop_spoof
+                            else -> R.string.stop_drive
+                        },
+                    ),
+                    fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                )
+            }
         }
     }
 }
 
+private fun targetsOf(settings: AppSettings) = buildSet {
+    if (settings.fused) add(MockTarget.FUSED)
+    if (settings.gps) add(MockTarget.GPS)
+    if (settings.network) add(MockTarget.NETWORK)
+}
+
+/** Not running: only the permission is missing, or the developer chose to record without estimating. */
 @Composable
-private fun IdleContent(settings: AppSettings, refreshKey: Int, ctx: Context, onChanged: () -> Unit) {
+private fun IdleContent(settings: AppSettings, ctx: Context, locationOk: Boolean, notices: @Composable () -> Unit) {
     val mode = settings.effectiveMode
     Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
     Text(stringResource(R.string.tagline), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
 
-    // Ordinary users only replace the position; the start modes belong to developer mode (D-053).
-    if (settings.developer) SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-        RunMode.entries.forEachIndexed { i, m ->
-            SegmentedButton(
-                selected = mode == m,
-                onClick = { settings.mode = m },
-                shape = SegmentedButtonDefaults.itemShape(i, RunMode.entries.size),
-                label = { Text(stringResource(shortLabel(m))) },
-            )
+    // Ordinary users only replace the position; recording without it is a developer's option (D-053).
+    if (settings.developer) {
+        val modes = listOf(RunMode.MOCK_OUTPUT, RunMode.RECORD_ONLY)
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            modes.forEachIndexed { i, m ->
+                SegmentedButton(
+                    selected = mode == m,
+                    onClick = { settings.mode = m },
+                    shape = SegmentedButtonDefaults.itemShape(i, modes.size),
+                    label = { Text(stringResource(shortLabel(m))) },
+                )
+            }
         }
     }
     Text(stringResource(description(mode)), fontSize = 14.sp)
     if (settings.record || mode == RunMode.RECORD_ONLY) {
         Text(stringResource(R.string.record_on_hint), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+    notices()
 
-    // Readiness: only what blocks or weakens the chosen mode, each with the way to fix it.
+    if (mode == RunMode.RECORD_ONLY) {
+        Button(
+            onClick = {
+                DriveService.start(ctx, mode, emptySet(), settings.useQuestionable, settings.obdAddress.takeIf { settings.obdEnabled }, settings.roads, settings.probe, true)
+            },
+            enabled = locationOk,
+            modifier = Modifier.fillMaxWidth().height(64.dp),
+            shape = RoundedCornerShape(20.dp),
+        ) { Text(stringResource(R.string.start_drive), fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+    } else if (locationOk) {
+        Text(stringResource(R.string.tracking_starting), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Readiness: only what blocks or weakens what the user is about to do, each with the way to fix it. */
+@Composable
+private fun Notices(
+    ctx: Context, onChanged: () -> Unit,
+    locationOk: Boolean, notificationsOk: Boolean, mockOk: Boolean, noTarget: Boolean, needSpoof: Boolean,
+) {
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { onChanged() }
-    val locationOk = remember(refreshKey) { hasPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) }
-    val notificationsOk = remember(refreshKey) { Build.VERSION.SDK_INT < 33 || hasPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) }
-    val mockOk = remember(refreshKey, mode) { !mode.mock || isMockAppSelected(ctx) }
-    val noTarget = mode.mock && !settings.fused && !settings.gps && !settings.network
-
     if (!locationOk) Notice(
         stringResource(R.string.ready_location), stringResource(R.string.ready_allow), blocking = true,
     ) { permLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }
-    if (!notificationsOk && mode.mock) Notice(
+    if (!notificationsOk && needSpoof) Notice(
         stringResource(R.string.ready_notifications), stringResource(R.string.ready_allow), blocking = false,
     ) { permLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS)) }
-    if (!mockOk) Notice(
+    if (!mockOk && needSpoof) Notice(
         stringResource(R.string.ready_mock_app, ctx.packageName), stringResource(R.string.ready_open_developer), blocking = true,
     ) {
         runCatching { ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
             .onFailure { Toast.makeText(ctx, R.string.ready_developer_off, Toast.LENGTH_LONG).show() }
     }
-    if (noTarget) Notice(stringResource(R.string.ready_no_target), null, blocking = true) {}
-
-    val ready = locationOk && mockOk && !noTarget
-    Button(
-        onClick = {
-            val targets = buildSet {
-                if (settings.fused) add(MockTarget.FUSED)
-                if (settings.gps) add(MockTarget.GPS)
-                if (settings.network) add(MockTarget.NETWORK)
-            }
-            DriveService.start(ctx, mode, targets, settings.useQuestionable, settings.obdAddress.takeIf { settings.obdEnabled }, settings.roads, settings.probe, settings.record)
-        },
-        enabled = ready,
-        modifier = Modifier.fillMaxWidth().height(64.dp),
-        shape = RoundedCornerShape(20.dp),
-    ) {
-        Text(stringResource(if (mode.mock) R.string.start_protect else R.string.start_drive), fontSize = 18.sp, fontWeight = FontWeight.Bold)
-    }
+    if (noTarget && needSpoof) Notice(stringResource(R.string.ready_no_target), null, blocking = true) {}
 }
 
 @Composable
@@ -186,12 +223,16 @@ private enum class Evidence { ON, WARN, OFF }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun RunningContent(s: Status, ctx: Context) {
+private fun RunningContent(s: Status, ctx: Context, tracking: Boolean, notices: @Composable () -> Unit) {
     val c = LocalStatusColors.current
     val e = s.estimate
     val gnssSource = if (s.sourceStates.containsKey(LocSource.GNSS)) LocSource.GNSS else LocSource.FUSED
     val gnss = s.sourceStates[gnssSource]
 
+    if (tracking) {
+        notices()
+        Text(stringResource(R.string.spoof_off_hint), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
     if (s.mode.mock) {
         Card(colors = CardDefaults.cardColors(containerColor = c.warn.copy(alpha = 0.16f))) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -203,18 +244,23 @@ private fun RunningContent(s: Status, ctx: Context) {
     }
 
     // Hero: one verdict about the GNSS signal, in words and colour.
-    // With the platform gps replaced (probe != null) real fixes do not reach us, so the GNSS trust state is not
+    // With the platform gps replaced (gpsReplaced) real fixes do not reach us, so the GNSS trust state is not
     // meaningful; the verdict is then about our own position and what the GNSS chip says.
     val probe = s.probe
-    val chipOk = probe?.health?.healthy == true
+    val gpsReplaced = s.mode.mock && MockTarget.GPS in s.mockTargets
+    // Without the probe there is no health verdict; fall back to the satellites the chip uses in its fix.
+    val chipOk = probe?.health?.healthy ?: (s.satsUsed >= 5)
     val (title, sub, tint) = when {
         !s.mode.estimate -> Triple(R.string.hero_recording, stringResource(R.string.hero_recording_sub), MaterialTheme.colorScheme.primary)
         probe?.phase == ProbePhase.WINDOW -> Triple(R.string.hero_probing, stringResource(R.string.hero_probing_sub), c.warn)
         e == null -> Triple(R.string.hero_waiting, stringResource(R.string.hero_waiting_sub), c.idle)
-        probe != null -> Triple(
+        gpsReplaced -> Triple(
             R.string.hero_own,
-            if (!chipOk) stringResource(R.string.hero_own_sub_no_gps)
-            else probe.nextProbeInS?.let { stringResource(R.string.hero_own_sub_chip_ok, it.toInt()) }.orEmpty(),
+            when {
+                !chipOk -> stringResource(R.string.hero_own_sub_no_gps)
+                probe?.nextProbeInS != null -> stringResource(R.string.hero_own_sub_chip_ok, probe.nextProbeInS!!.toInt())
+                else -> stringResource(R.string.hero_own_sub_chip_seen)
+            },
             MaterialTheme.colorScheme.primary,
         )
         gnss == TrustState.TRUSTED -> Triple(R.string.hero_trusted, stringResource(R.string.hero_trusted_sub), c.good)
@@ -252,7 +298,7 @@ private fun RunningContent(s: Status, ctx: Context) {
     if (s.mode.estimate) {
         Text(stringResource(R.string.evidence_title), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (probe != null) EvidenceChip(
+            if (gpsReplaced) EvidenceChip(
                 stringResource(R.string.ev_gps_chip),
                 if (chipOk) Evidence.ON else Evidence.OFF,
             ) else EvidenceChip(
@@ -286,7 +332,7 @@ private fun RunningContent(s: Status, ctx: Context) {
             )
         }
         val reasons = s.lastTrust[gnssSource]?.reasons.orEmpty()
-        if (probe == null && gnss != null && gnss != TrustState.TRUSTED && reasons.isNotEmpty()) {
+        if (!gpsReplaced && gnss != null && gnss != TrustState.TRUSTED && reasons.isNotEmpty()) {
             Text(stringResource(R.string.why_title), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
             reasons.take(3).forEach { Text("• " + stringResource(reasonText(it)), fontSize = 14.sp) }
         }
