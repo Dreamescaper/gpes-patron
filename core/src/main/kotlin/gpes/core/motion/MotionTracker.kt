@@ -56,6 +56,15 @@ data class MotionUpdate(
     val horizontalAccel: Double = 0.0,
     /** True when [up] comes from a gyro-stabilized rotation vector (robust to acceleration), false for low-passed accel. */
     val upFromOrientation: Boolean = false,
+    /** Mean specific force along the vehicle forward axis over this update (m/s²), once [forward] is known. */
+    val longitudinalAccel: Double? = null,
+    /** Mean specific force towards the vehicle's left over this update (m/s²), once [forward] is known. */
+    val lateralAccel: Double? = null,
+    /**
+     * Stopped by the real-car rule (R-025: ‖a‖ std < 0.3 m/s², mean ‖ω‖ < 0.02 rad/s over 1 s): catches 74–87 % of
+     * real stops vs 10–47 % for [stationary], which is tuned to the simulator. Used for ZUPT without OBD.
+     */
+    val stillLoose: Boolean = false,
 )
 
 /**
@@ -83,6 +92,9 @@ data class MotionConfig(
     val gravityTauS: Double = 5.0,
     val stationaryAccelStd: Double = 0.12,
     val stationaryGyroNorm: Double = 0.03,
+    /** Real-car stop rule (see [MotionUpdate.stillLoose]). */
+    val stillLooseAccelStd: Double = 0.3,
+    val stillLooseGyroNorm: Double = 0.02,
     val historyNs: Long = 600_000_000_000,
     /** An orientation sample is used for gravity only if it is this fresh. */
     val orientationMaxAgeNs: Long = 500_000_000,
@@ -112,6 +124,10 @@ data class MotionConfig(
      */
     val upGateAccel: Double = 0.3,
     val upGateYawRate: Double = 0.05,
+    /** Time constant of the yaw rate used by that gate (s). */
+    val upGateYawTauS: Double = 0.5,
+    /** … and only while the smoothed specific force is nearly vertical (m/s² horizontal, ≈ 3°). */
+    val upGateHorizontal: Double = 0.5,
     /** Time constant of the long-term mean of |a| (s). */
     val upNormTauS: Double = 120.0,
 )
@@ -141,7 +157,8 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
         val tiltRateWindow: List<Pair<Long, Double>>,
         val lastSpeed: Double, val lastSpeedT: Long,
         val odoE: Double, val odoN: Double, val odoDist: Double, val odoGaps: Int,
-        val gyroUp: Vec3?, val accelLp: Vec3?, val lastGyroW: Vec3?, val accelNormMean: Double?,
+        val gyroUp: Vec3?, val accelLp: Vec3?, val lastGyroW: Vec3?, val accelNormMean: Double?, val yawRateLp: Double,
+        val accSinceEmit: Vec3, val accCountSinceEmit: Int, val lastStillLoose: Boolean,
     )
 
     // Gravity (specific force at rest points up) in the phone frame, low-passed accelerometer.
@@ -150,6 +167,9 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
     private var orientUp: Vec3? = null
     private var orientT = Long.MIN_VALUE
     private var lastAccel: Vec3? = null
+    /** Accelerometer samples since the last update, for its mean longitudinal / lateral specific force. */
+    private var accSinceEmit = Vec3.ZERO
+    private var accCountSinceEmit = 0
     private var lastAccelT = Long.MIN_VALUE
 
     private var lastGyroT = Long.MIN_VALUE
@@ -177,6 +197,10 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
     private var gyroUp: Vec3? = null
     private var accelLp: Vec3? = null
     private var lastGyroW: Vec3? = null
+    /** Yaw rate low-passed for the up-correction gate (rad/s). */
+    private var yawRateLp = 0.0
+    /** Real-car stop rule at the last update (for the up-correction gate). */
+    private var lastStillLoose = false
     private var accelNormMean: Double? = null
 
     // Odometry: vehicle speed integrated along the cumulative gyro bearing (relative frame).
@@ -236,6 +260,7 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
         val dtA = if (lastAccelT == Long.MIN_VALUE) 0.01 else ((m.tNs - lastAccelT) / 1e9).coerceIn(0.0, 0.5)
         lastAccel = a
         lastAccelT = m.tNs
+        accSinceEmit += a; accCountSinceEmit++
         cfg.upTauS?.let { tau -> correctUp(a, dtA, tau) }
         accWindow.addLast(m.tNs to a.norm)
         while (accWindow.isNotEmpty() && accWindow.first().first < m.tNs - cfg.windowNs) accWindow.removeFirst()
@@ -248,8 +273,17 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
         accelNormMean = mean
         val cur = gyroUp
         if (cur == null) { gyroUp = lp.unit(); return }
-        val w = lastGyroW ?: return
-        val quiet = abs(lp.norm - mean) < cfg.upGateAccel && abs(w dot cur) < cfg.upGateYawRate
+        if (lastGyroW == null) return
+        // Gate on the smoothed yaw rate: the raw sample carries vibration (real moving ‖ω‖ p50 0.06–0.08 rad/s),
+        // which kept the raw-sample gate shut almost all the time while driving (2026-10-02).
+        // Also no correction while the car accelerates or brakes: 2 m/s² of braking changes ‖a‖ by only 0.2 m/s²
+        // (passes the norm gate) but tilts the apparent gravity by 12°, which left a false +0.38 m/s² "bias" at the
+        // next stop (2026-10-02).
+        val horizontal = lp.perp(cur).norm
+        // At rest there is no vehicle acceleration, so a horizontal component is the up error itself: always
+        // correct then (otherwise an up tilted by > 3°, e.g. re-seeded while accelerating, never recovers).
+        val quiet = abs(lp.norm - mean) < cfg.upGateAccel && abs(yawRateLp) < cfg.upGateYawRate &&
+            (horizontal < cfg.upGateHorizontal || lastStillLoose)
         if (!quiet) return
         val f = lp.unit() ?: return
         gyroUp = (cur + (f - cur) * (dt / tau)).unit() ?: cur
@@ -276,6 +310,10 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
         if (lastGyroT != Long.MIN_VALUE && cfg.upTauS != null) propagateUp(w, ((tNs - lastGyroT) / 1e9).coerceIn(0.0, 0.2))
         lastGyroW = w
         val up = up(tNs)
+        if (up != null && lastGyroT != Long.MIN_VALUE) {
+            val dtL = ((tNs - lastGyroT) / 1e9).coerceIn(0.0, 0.2)
+            yawRateLp += ((w dot up) - yawRateLp) * (dtL / cfg.upGateYawTauS).coerceAtMost(1.0)
+        }
         if (lastGyroT != Long.MIN_VALUE && up != null) {
             val dt = ((tNs - lastGyroT) / 1e9).coerceIn(0.0, 0.2)
             val wUp = w dot up
@@ -311,12 +349,15 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
             gyroUp = null; accelLp = null
             return
         }
-        // Forward-axis learning from centripetal acceleration in turns.
-        val a = lastAccel ?: return
-        if (tNs - lastAccelT > 50_000_000 || abs(wUp) < cfg.mountMinYawRate) return
+        // Forward-axis learning from centripetal acceleration in turns. Smoothed accel and yaw rate: single raw
+        // samples carry 0.5–0.9 m/s² of vibration per axis, which kept the concentration at 0.15–0.3 on two of four
+        // real drives (forward never learned; 2026-10-02).
+        val a = (if (cfg.upTauS != null) accelLp else null) ?: lastAccel ?: return
+        val wTurn = if (cfg.upTauS != null) yawRateLp else wUp
+        if (tNs - lastAccelT > 50_000_000 || abs(wTurn) < cfg.mountMinYawRate) return
         val ah = a.perp(up)
         if (ah.norm < cfg.mountMinLateralAccel) return
-        leftSum += ah * sign(wUp)
+        leftSum += ah * sign(wTurn)
         leftWeight += ah.norm
         leftCount++
     }
@@ -358,10 +399,19 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
         val tiltRms = if (tiltRateWindow.isEmpty()) 0.0 else sqrt(tiltRateWindow.sumOf { it.second } / tiltRateWindow.size)
         // "Up robust to acceleration": our gyro-carried up, or a fresh Android rotation vector.
         val fromOrientation = (cfg.upTauS != null && gyroUp != null) || (orientUp != null && tNs - orientT <= cfg.orientationMaxAgeNs)
+        val fwd = forward(tNs)
+        val meanA = if (accCountSinceEmit > 0) accSinceEmit * (1.0 / accCountSinceEmit) else null
+        accSinceEmit = Vec3.ZERO; accCountSinceEmit = 0
+        val left = if (up != null && fwd != null) (up cross fwd).unit() else null
+        val stillLoose = windowFull && accStd < cfg.stillLooseAccelStd && gyroMean < cfg.stillLooseGyroNorm
+        lastStillLoose = stillLoose
         val u = MotionUpdate(
             tNs, dtS, rate, still,
             stationarySinceNs?.let { (tNs - it) / 1e9 } ?: 0.0,
-            gyroMean, accStd, up, forward(tNs), mountEpoch, tiltRms, ah, fromOrientation,
+            gyroMean, accStd, up, fwd, mountEpoch, tiltRms, ah, fromOrientation,
+            longitudinalAccel = if (meanA != null && fwd != null) meanA dot fwd else null,
+            lateralAccel = if (meanA != null && left != null) meanA dot left else null,
+            stillLoose = stillLoose,
         )
         latest = u
         return u
@@ -436,7 +486,7 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
         g, gravityInit, orientUp, orientT, lastAccel, lastAccelT, lastGyroT, yawAccum, yawAccumDt,
         lastEmitT, cumYawBearing, stationarySinceNs, seenCalibratedGyro, accWindow.toList(), gyroWindow.toList(),
         leftSum, leftWeight, leftCount, tiltWindow.toList(), mountEpoch, remountAt, tiltRateWindow.toList(),
-        lastSpeed, lastSpeedT, odoE, odoN, odoDist, odoGaps, gyroUp, accelLp, lastGyroW, accelNormMean,
+        lastSpeed, lastSpeedT, odoE, odoN, odoDist, odoGaps, gyroUp, accelLp, lastGyroW, accelNormMean, yawRateLp, accSinceEmit, accCountSinceEmit, lastStillLoose,
     )
 
     /** Restore state; history entries newer than the snapshot are discarded (they will be regenerated). */
@@ -456,7 +506,8 @@ class MotionTracker(private val cfg: MotionConfig = MotionConfig()) {
         tiltRateWindow.clear(); tiltRateWindow.addAll(s.tiltRateWindow)
         lastSpeed = s.lastSpeed; lastSpeedT = s.lastSpeedT
         odoE = s.odoE; odoN = s.odoN; odoDist = s.odoDist; odoGaps = s.odoGaps
-        gyroUp = s.gyroUp; accelLp = s.accelLp; lastGyroW = s.lastGyroW; accelNormMean = s.accelNormMean
+        gyroUp = s.gyroUp; accelLp = s.accelLp; lastGyroW = s.lastGyroW; accelNormMean = s.accelNormMean; yawRateLp = s.yawRateLp
+        accSinceEmit = s.accSinceEmit; accCountSinceEmit = s.accCountSinceEmit; lastStillLoose = s.lastStillLoose
         while (histEnd > histStart && histT[histEnd - 1] > s.lastEmitT) histEnd--
         latest = null
     }

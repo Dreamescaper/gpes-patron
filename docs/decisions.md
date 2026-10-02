@@ -584,3 +584,29 @@ Measured (R-024): k = 1.5 / 2 / 2.5 give the same jammed results; B p95 ×1.021 
 R-007 ×1.000; A p50/p95 23.2/58 → 23.9/57 m, removed-road window 48 → 44 m; 2026-09-28 mean error 5:40–6:40
 33.0 → 21.9 m, 6:40–8:00 26.5 → 19.2, 8:00–11:40 10.5 → 6.4, 11:40–end 14.5 → 17.3 m; clean p50/p95 15.6/44 →
 15.2/48 m. Tests: `CornerFixTest` (offset carried into a turn is removed; an accurate estimate is left alone).
+
+## D-050: Speed without OBD from the longitudinal accelerometer, anchored — Accepted (2026-10-02)
+Context: D-036; signal study R-025. Path chosen by the user: build it on real drives first, make the simulator
+realistic later.
+Decision: EKF state 7 is the bias of the longitudinal specific force (σ0 0.5 m/s², random walk 0.05 m/s²/√s).
+While no vehicle speed is fresh (2 s), the forward axis is known and a fix with hAcc ≤ 200 m was used within 30 s,
+the bias is learned and ZUPT may apply; v is propagated with a_long − b (process noise 0.8 m/s/√s) only once the bias
+is known (σ ≤ 0.3) or while trusted GNSS is fresh (2 s), otherwise the random-walk model stays. Anchors: ZUPT with
+the real-car stop rule (`stillLoose`) only without trusted GNSS for 5 s, with v < 3 and v − 2σ < 1.5 m/s and |a_long −
+b| < 0.3; bias at rest only after 2 s stopped and |a_long| < 0.5 (σ 0.2); centripetal speed a_lat/ω per second for
+|ω| > 0.07 rad/s, σ = 10 % + 0.5 m/s (|v_c − v_OBD| median 0.32 m/s). With OBD nothing changes.
+Fixes found on the way (all drives): forward axis learned from smoothed accel and yaw rate (single samples carry
+0.5–0.9 m/s² of vibration; it was never learned on two of four drives); up correction gated on the smoothed yaw
+rate and on a small horizontal specific force (< 0.5 m/s²) except at rest (braking tilted the up and left a false
+bias at the next stop).
+Compass side effect, accepted: with the forward axis now learned on all drives, FORWARD_ALIGNED compass readings
+(σ 40°) appear where they did not before and the first one initializes the heading. With OBD and roads: R-007 GNSS
+absent 62/186 m (without that start 97/478), A 27/68 m (vs 22/60), 2026-09-28 15/51 (vs 15/48). Tried and removed:
+"weak readings may not initialize while the heading bank runs" (helps A, ruins R-007) and feeding them to the bank
+as a prior once a minute (no effect).
+Alternatives (R-026): noise 0.3 m/s/√s and bias walk 0.005 (overconfident; A p95 253 → 887 m); centripetal σ 30 %
+(too weak); accelerometer speed from the start with σ0 0.2 (unlearned bias: B v 27–31 m/s at a true 17, B ×1.17);
+no fix condition or 120 s (drift with an optimistic σ in rungs without fixes or with σ-500-m synthetic fixes: B
+×1.27); loose ZUPT without the low-speed, no-GNSS and not-accelerating guards (zeroed a moving car's speed).
+Open: simulator vibration (the guards keep the quiet simulator safe, but it cannot show the gain); the road
+constraint stays off without OBD (speed σ rarely ≤ 1.5 m/s); compass FORWARD_ALIGNED start quality per drive.

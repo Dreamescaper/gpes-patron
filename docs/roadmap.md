@@ -53,7 +53,15 @@ Found on the jammed drive (R-008, 2026-09-28):
   150 s the centred window has no future, so it is effectively causal; (4) one rotation per 300 s
   window cannot follow complex paths. Prerequisites if resumed: reverse detection (longitudinal accel
   at pull-away, or a gear PID if the car has one), shorter/adaptive windows or per-segment rotation.
-- **P1 Speed without OBD (D-036).** OBD is optional; the app must work without it. Plan: speed as an EKF
+- **P1 Speed without OBD (D-036).** *Done 2026-10-02 (D-050, R-026): no-OBD p95 ×0.56–0.93 on all four drives.
+  Open: realistic simulator vibration; road constraint without OBD (needs speed σ ≤ 1.5 m/s); reverse detection;
+  the compass FORWARD_ALIGNED heading start now available on all drives helps R-007 and hurts A (+osm ×1.19).*
+  *Signal study 2026-10-02 (R-025): centripetal speed usable in turns,
+  accelerometer bridges only seconds, stop detection needs the retune below, wheel harmonics dropped. Next:
+  (1) realistic vibration in the simulator (accel ~0.6 m/s², oscillatory gyro ~0.04 rad/s, idle 0.12) and
+  the compass's sensitivity to it, then the stop-rule retune; (2) speed + accel-bias states driven by the
+  longitudinal accel only without OBD, anchored by ZUPT, centripetal speed, coarse-fix spacing and the road
+  (M4, corner fix), which in turn needs speed σ ≤ 1.5 m/s to switch on.* Original: OBD is optional; the app must work without it. Plan: speed as an EKF
   state driven by the accelerometer along the forward axis, never open-loop, bounded by ZUPT (stops),
   centripetal speed |a_lat|/|ω| in turns, coarse-fix spacing vs the odometry chord, and GNSS/OBD when
   present; forward/reverse from accelerometer + gyro. Measure on all four drives with the `phone+network`
@@ -309,7 +317,8 @@ Road-constraint follow-ups (R-020):
 
 1. How often and how badly do real network fixes disagree with truth in the target city? Is
    inflating them by 1.5× honest?
-2. Can car vibration spectra give a usable speed estimate without OBD?
+2. Can car vibration spectra give a usable speed estimate without OBD? *Partly answered (R-025): wheel
+   harmonics exist but are too weak per window on this phone; not pursued.*
 3. What is the minimum evidence to *safely* re-accept GNSS after a long outage while a spoofer
    might be active?
 4. How quickly does a road-state particle filter converge from a ±800 m start in a dense grid

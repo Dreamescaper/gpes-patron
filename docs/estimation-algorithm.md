@@ -25,7 +25,9 @@ Output: a `MotionUpdate` at 20 Hz.
 1. **Up direction in the phone frame (D-037).** Our own gravity estimate: the gyro carries the up
    vector (û ← û − (ω × û)·dt), and the accelerometer pulls it back with τ = 30 s, only while the car is
    quiet: | ‖a_lp‖ − m | < 0.3 m/s², where m is the 120-s mean of ‖a‖ on this phone (its scale error
-   puts ‖a‖ at rest off 9.81 by more than that), and |ω·û| < 0.05 rad/s. Android's GRAVITY / rotation
+   puts ‖a‖ at rest off 9.81 by more than that), |ω·û| low-passed over 0.5 s < 0.05 rad/s, and the
+   horizontal part of the smoothed specific force < 0.5 m/s² unless the car is at rest (braking would
+   tilt it; D-050). Android's GRAVITY / rotation
    vectors lean towards the apparent gravity in turns (P14); on real drives the correlation of lateral
    accel with v·ω is 0.26–0.31 with Android's up and 0.97–0.98 with ours. Re-seeded from the
    accelerometer on a re-mount. (`upTauS = null` restores the old rotation-vector / low-pass up.)
@@ -39,7 +41,9 @@ Output: a `MotionUpdate` at 20 Hz.
    straight-line displacement). The chord does not depend on the absolute heading. It is null when
    vehicle speed was missing for any part of the interval. OBD has no sign, so reversing counts as
    forward motion (short manoeuvres only).
-5. **Vehicle forward axis in the phone frame (mount yaw)**, learned from turns. In a turn the
+5. **Vehicle forward axis in the phone frame (mount yaw)**, learned from turns, using the smoothed
+   specific force (`accelLp`, τ ≈ 0.1 s) and the yaw rate low-passed over 0.5 s (single samples carry
+   0.5–0.9 m/s² of vibration, D-050). In a turn the
    centripetal acceleration points to the turn centre, so `sign(ω_up)·a_horizontal` is the vehicle's
    *left*, and forward = left × up. This needs no speed and has no sign ambiguity. It is used when
    |ω_up| > 0.08 rad/s and |a_h| > 0.4 m/s², and reported after ≥ 1000 gyro samples (about two 90°
@@ -278,6 +282,16 @@ after PX4's EKF-GSF yaw estimator, with coarse positions instead of GNSS velocit
   bank may hand over without OBD; the speed then stays unknown (tests: no harm, p95 better).
 
 Measured: R-011.
+
+## 3e. Speed without OBD (D-050)
+
+State 7 is the bias of the longitudinal specific force. Without fresh vehicle speed (2 s), with the forward axis
+known and a fix of hAcc ≤ 200 m in the last 30 s, the estimator learns that bias (at rest after 2 s stopped, and
+from GNSS speed) and may apply ZUPT with the real-car stop rule (`MotionUpdate.stillLoose`: ‖a‖ std < 0.3 m/s², mean
+‖ω‖ < 0.02 rad/s) when no trusted GNSS for 5 s, v < 3 m/s, v − 2σ < 1.5 m/s and the car is not accelerating
+(|a_long − b| < 0.3). v follows ∫(a_long − b) (noise 0.8 m/s/√s) once σ_b ≤ 0.3 m/s² or while trusted GNSS is fresh;
+otherwise the random walk. Each second with |ω| > 0.07 rad/s, the centripetal speed a_lat/ω is a speed measurement
+(σ = 10 % + 0.5 m/s, χ² gate 9). Negative v is clipped (no reverse detection). Nothing changes with OBD.
 
 ## 3d. Road constraint (Phase 2, D-041…D-044; plan in road-constraint.md)
 

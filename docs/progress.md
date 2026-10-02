@@ -72,6 +72,17 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Log
 
+### 2026-10-02 — Speed without OBD (D-050, R-026)
+- `AccelSpeedConfig` + bias state in `BaselineDrEstimator`; `MotionUpdate.longitudinalAccel`, `lateralAccel`,
+  `stillLoose`; motion-tracker fixes (forward axis from smoothed signals, up gates).
+  `AccelSpeedTest` (no harm in the simulator), `HeadingBankTest` pinned to the no-speed case. All tests pass. Road
+  tiles kept under `recordings/tiles` (local).
+
+### 2026-10-02 — Speed without OBD: signal study (R-025), up-gate fix
+- `MotionTracker`: the up-correction gate uses the yaw rate low-passed over 0.5 s (`upGateYawTauS`), not the
+  raw gyro sample, which vibration keeps above 0.05 rad/s. Real drives: neutral (×0.99–1.01; A +osm ×0.94).
+- Signal study for D-036 in R-025; no estimator change yet. Tests pass.
+
 ### 2026-10-02 — Road map in the app, first run on the emulator
 - Emulator (Medium_Phone, position fixed at Kyiv centre, ESTIMATE_ONLY, fuse QUESTIONABLE on): tiles
   downloaded from overpass-api.de (≈ 100–250 KB each), network built (4 tiles, 17 928 segments), status
@@ -328,6 +339,41 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 - Research doc, core module, SQLDelight recording, replay CLI, 11 scenarios. 24 unit tests.
 
 ## Results log
+
+### R-026 (2026-10-02, 8209e55 + working tree) — speed without OBD (final)
+Full matrix vs 8209e55 (rebuilt in a worktree), same road tiles (`recordings/tiles`, re-downloaded), p95 geo
+(within95 before → after), R-007 / B / 2026-09-28 / A:
+- phone+network (no OBD; +osm identical, the road stays off without OBD): ×0.752 / ×0.893 / ×0.556 / ×0.929;
+  R-007 GNSS absent 72/563 → 50/337 m, B GNSS absent p50 47 → 27 m, 2026-09-28 44/204 → 30/114 m, A 48/253 →
+  27/235 m; within95 0.87→0.86, 0.84→0.83, 0.86→0.96, 0.90→0.96.
+- phone+network+obd: ×1.000 / ×1.013 / ×1.009 / ×0.997.
+- phone+network+obd+osm: ×1.007 / ×1.010 / ×1.067 / ×1.188 (A 24/57 → 27/68 m; R-007 GNSS absent 47/168 → 62/186 m):
+  the compass FORWARD_ALIGNED start that the newly learned forward axis enables (D-050).
+- No network: phone-only R-007 ×0.33, B ×0.93; σ-500-m synthetic network R-007 ×0.48, B ×1.05, A ×1.09.
+Steps (no OBD): forward axis fixed → mode active on all drives; noise 0.3 → 0.8 and bias walk 0.005 → 0.05 (A p95
+887 → 250 m); centripetal σ 30 % → 10 %; up gate on horizontal accel with the at-rest exception (removed a false
+braking bias); bias known before use (σ0 0.5, gate 0.3) fixed B (×1.17 → ×0.90) but cost R-007 (×0.49 → ×0.81),
+recovered by also using it under fresh GNSS (×0.76); anchors only with hAcc ≤ 200 m within 30 s (B synthetic
+network ×1.27 → ×1.05). Compass-start rule tried and removed (D-050).
+Road tiles: the scratch copy was wiped (P31); 8 tiles came from the emulator, 3 were re-downloaded from Overpass
+(r1007_380, r1008_381, r1009_382); r1009_380 failed (HTTP 504) and is north of all drives.
+
+### R-025 (2026-10-02) — speed without OBD: what the phone offers (four drives, OBD as speed truth)
+- **Wheel-rotation harmonics in the accelerometer spectrum** (100 Hz, 2.56-s windows): ridges at f = k·v with
+  k ≈ 0.373, 0.75, 1.13 Hz per m/s on all drives (1.5–1.8× the background), but too weak per window: blind
+  estimate within 1 m/s in 18–32 % of windows; with a ±1.5–3 m/s prior the spectrum does not improve it
+  (median 1.1–3.3 m/s vs prior 1–2 m/s). Dropped; also car- and road-dependent (user, 2026-10-02).
+- **Centripetal speed** |a_lat|/|ω|, 1-s windows, |ω| > 0.15 rad/s: v_c / v_OBD median 0.96–1.06, p10–p90
+  0.59–1.33 (noisy but unbiased; usable in turns with ~30 % σ).
+- **Longitudinal accel**: bias at stops +0.08…+0.14 m/s² (one drive −0.02), std between stops 0.07–0.15;
+  integrating from the last stop with that bias: |Δv| median 1.5–2.1 m/s after 10 s, 6.5–8.9 after 30 s,
+  11–17 after 60 s, 27–39 after 120 s. The accelerometer only bridges seconds.
+- **Stop detection** (raw 1-s windows): the current rule (‖a‖ std < 0.12 and mean ‖ω‖ < 0.03) catches
+  10–47 % of stops. ‖a‖ std < 0.3 and ‖ω‖ < 0.02: 74–87 % of stops, 0–0.4 % false while moving > 4 m/s,
+  16–28 % false at 0.5–4 m/s (creeping around stops). Gyro alone fails: 15–38 % of moving seconds have
+  ‖ω‖ < 0.015 on smooth straight roads. Not applied yet: the simulator has no gyro vibration, so the new
+  rule sees a simulated moving car as stopped; adding realistic vibration to the simulator exposed a
+  compass sensitivity to vibration in simulation (heading off by up to 6° in `ObdTest`).
 
 ### R-024 (2026-10-02, 0553627 + working tree) — corner fix significance k
 `+osm`, corner fix off / k 0 / 1.5 / 2 / 2.5. 2026-09-28 clean p50/p95 15.6/44 → 15.2/48 (all k), cross-track at

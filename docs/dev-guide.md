@@ -189,6 +189,15 @@ adb pull /storage/emulated/0/Android/data/gpes.patron/files/drives/<id>.db   # p
 - **P28 The public Overpass server is often overloaded (HTTP 504).** Download nearest tiles first, retry
   later, and publish the network after every tile; never wait for the whole batch. `adb install -r`
   restarts the app and ends a running session.
+- **P29 Raw IMU samples carry the car's vibration.** 0.5–0.9 m/s² per axis and 0.06–0.08 rad/s in single
+  samples: any gate or learner fed with one raw sample (forward axis, up gate) silently stops working on a real
+  car. Use smoothed signals (D-050).
+- **P30 The simulator is quieter than a car.** Thresholds tuned on it (stop detection) fail on real drives,
+  and real-car thresholds see a simulated moving car as stopped. Guard real-car rules with physics (a car
+  cannot stop without braking) until the simulator has realistic vibration (roadmap).
+- **P31 The scratch directory is not durable.** It was wiped between sessions, with the Overpass extracts,
+  the road tiles and the regression baselines. Keep what replay needs (tiles) under `recordings/`, and rebuild
+  a baseline from a commit in a git worktree.
 - **P25 OSM-based truth flatters OSM-based estimates.** The jammed drives' truth is OSM-matched with
   along-track tied to OBD; judge the road constraint on GNSS drives with drop scenarios.
 - **P22 Weighting by claimed accuracy rewards liars.** Network hAcc is sometimes far too small (R-007:

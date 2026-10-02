@@ -47,7 +47,12 @@ class HeadingBankTest {
         ScenarioStep.SyntheticNetwork(40.0, 13.0),
     )
     private val obd = ScenarioStep.SyntheticVehicleSpeed(0.3, scaleError = 0.01)
-    private fun cfg(bank: Boolean) = BaselineConfig(compass = CompassConfig(enabled = false), headingBank = HeadingBankConfig(enabled = bank))
+    // Accelerometer speed off: these tests are about the bank with OBD or with no speed source at all (D-050
+    // gives a speed without OBD; that path is covered by AccelSpeedTest and the real drives, R-026).
+    private fun cfg(bank: Boolean) = BaselineConfig(
+        compass = CompassConfig(enabled = false), headingBank = HeadingBankConfig(enabled = bank),
+        accelSpeed = gpes.core.estimator.AccelSpeedConfig(enabled = false),
+    )
 
     @Test
     fun `without GNSS and compass the bank turns coarse fixes plus OBD into dead reckoning`() {

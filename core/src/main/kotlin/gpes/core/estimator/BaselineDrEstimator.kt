@@ -106,6 +106,8 @@ data class BaselineConfig(
      */
     val obdLatencyS: Double = 0.0,
     val obdSlopeWindowS: Double = 1.5,
+    /** Speed without OBD from the longitudinal accelerometer, anchored by ZUPT and turns (D-050). */
+    val accelSpeed: AccelSpeedConfig = AccelSpeedConfig(),
 )
 
 /**
@@ -123,6 +125,45 @@ data class BaselineConfig(
  * travelled in an unknown direction. Meanwhile a [HeadingBank] tests heading hypotheses against the
  * coarse fixes; once it converges, the EKF takes its heading and position and dead-reckons (D-032).
  */
+/**
+ * Speed without OBD (D-036, D-050): while no vehicle speed is fresh, v is driven by the longitudinal specific
+ * force (minus a learned bias state) instead of a random walk; never open-loop: ZUPT (real-car stop rule),
+ * centripetal speed |a_lat|/|ω| in turns, coarse fixes and GNSS bound it.
+ */
+@Serializable
+data class AccelSpeedConfig(
+    val enabled: Boolean = true,
+    /** Vehicle speed counts as present while its last reading is younger than this (s). */
+    val obdFreshS: Double = 2.0,
+    /** White specific-force noise driving v (m/s per √s). */
+    val accelNoise: Double = 0.8,
+    val biasInitialStd: Double = 0.5,
+    /** v follows the accelerometer only while the bias σ is at most this (m/s²). */
+    val biasMaxStd: Double = 0.3,
+    val biasRandomWalk: Double = 0.05,
+    /** ZUPT with the real-car stop rule (MotionUpdate.stillLoose) when there is no vehicle speed. */
+    val zuptLoose: Boolean = true,
+    /** … only while the speed estimate allows a stop: v − 2σ below this (m/s). */
+    val zuptMaxSpeedMps: Double = 1.5,
+    /** … and only without trusted GNSS for this long (s): with GNSS there is a speed measurement already. */
+    val zuptNoGnssS: Double = 5.0,
+    /** … and not while the longitudinal specific force (minus bias) exceeds this (m/s²). */
+    val zuptMaxAccel: Double = 0.3,
+    /** Bias learning at rest: only after this long stopped (s), with |a_long| below [biasMaxAccel], σ [biasZuptStd]. */
+    val biasMinStillS: Double = 2.0,
+    val biasMaxAccel: Double = 0.5,
+    val biasZuptStd: Double = 0.2,
+    /** Accelerometer speed only while a position fix (hAcc ≤ [anchorMaxAccM]) was used within this long (s). */
+    val maxNoFixS: Double = 30.0,
+    val anchorMaxAccM: Double = 200.0,
+    val centripetal: Boolean = true,
+    val centripetalPeriodS: Double = 1.0,
+    val centripetalMinYawRate: Double = 0.07,
+    /** σ of a centripetal speed as a fraction of it, plus an absolute part (R-026: |v_c − v_OBD| median 0.32 m/s). */
+    val centripetalRelStd: Double = 0.1,
+    val centripetalAbsStd: Double = 0.5,
+)
+
 class BaselineDrEstimator(
     private val cfg: BaselineConfig = BaselineConfig(),
     /**
@@ -146,6 +187,8 @@ class BaselineDrEstimator(
         val roadSteps: Int, val seenFreeSteps: Int, val roadRejects: Int, val free: Any?,
         val gyroHist: List<Pair<Double, Double>>, val cumGyro: Double, val lastRoadAlongOdo: Double,
         val heldOffset: Double?, val heldT: Long, val obdHist: List<Pair<Long, Double>>, val lastCornerOdo: Double,
+        val lastALong: Double?, val lastObdT: Long, val centLat: Double, val centYaw: Double, val centN: Int, val centT: Long,
+        val stillSinceT: Long, val lastFixT: Long,
     )
 
     /** A coarse fix that disagreed strongly with the prediction. */
@@ -160,10 +203,21 @@ class BaselineDrEstimator(
     private var p = Mat.diag(
         1.0, 1.0, PI * PI, cfg.unknownSpeedStd * cfg.unknownSpeedStd, cfg.initialBiasStd * cfg.initialBiasStd,
         cfg.speedScaleInitialStd * cfg.speedScaleInitialStd,
+        cfg.accelSpeed.biasInitialStd * cfg.accelSpeed.biasInitialStd,
     )
     private var headingKnown = false
     private var lastT = Long.MIN_VALUE
     private var lastYawRate = 0.0
+    /** Latest longitudinal / lateral specific force from the motion tracker (null until the forward axis is learned). */
+    private var lastALong: Double? = null
+    private var lastObdT = Long.MIN_VALUE
+    private var centLat = 0.0
+    private var centYaw = 0.0
+    private var centN = 0
+    private var centT = Long.MIN_VALUE
+    private var stillSinceT = Long.MIN_VALUE
+    /** Last position fix (coarse or GNSS) the estimator used. */
+    private var lastFixT = Long.MIN_VALUE
     private var stationary = false
     private var lastGnssT = Long.MIN_VALUE
     private var dirlessDist = 0.0
@@ -223,15 +277,38 @@ class BaselineDrEstimator(
         free?.onMotion(u)
         propagateTo(u.tNs, lastYawRate)
         lastYawRate = u.yawRateUp
-        if (stationary && !u.stationary) {
+        lastALong = u.longitudinalAccel
+        val accelMode = accelReady(u.tNs)
+        // The real-car stop rule only where a stop is plausible: a car cannot be at 15 m/s one moment and stopped
+        // the next; braking shows in the specific force first (also keeps the quiet simulator from "stopping").
+        // (and the estimate itself low: with a large σ the first test alone would let a stop rule glitch zero a
+        // cruising car's speed)
+        val plausibleStop = x[IDX_V] - 2 * sqrt(p[IDX_V, IDX_V]) < cfg.accelSpeed.zuptMaxSpeedMps &&
+            x[IDX_V] < 2 * cfg.accelSpeed.zuptMaxSpeedMps
+        val noGnss = lastGnssT == Long.MIN_VALUE || (u.tNs - lastGnssT) / 1e9 > cfg.accelSpeed.zuptNoGnssS
+        // An accelerating car is not stopped: pulling away (~1 m/s²) breaks a stop that the vibration rule would
+        // otherwise keep (a smooth road, a quiet car; in the simulator it kept v at 0 for minutes).
+        val notAccelerating = u.longitudinalAccel?.let { abs(it - x[IDX_BA]) < cfg.accelSpeed.zuptMaxAccel } ?: true
+        val still = u.stationary || (accelMode && cfg.accelSpeed.zuptLoose && u.stillLoose && plausibleStop && noGnss && notAccelerating)
+        if (stationary && !still && !accelMode) {
             // Pulling away: ZUPT pinned v to 0 with tiny variance, which is now meaningless.
-            // Without a speed source the new speed is genuinely unknown.
+            // Without a speed source the new speed is genuinely unknown. (With accelerometer speed, v = 0 is
+            // the right start and the specific force takes over.)
             for (i in 0 until N) { p[IDX_V, i] = 0.0; p[i, IDX_V] = 0.0 }
             p[IDX_V, IDX_V] = cfg.unknownSpeedStd * cfg.unknownSpeedStd
             x[IDX_V] = cfg.pullAwaySpeedMps
         }
-        stationary = u.stationary
-        if (u.stationary) {
+        stillSinceT = if (still) (if (stationary) stillSinceT else u.tNs) else Long.MIN_VALUE
+        stationary = still
+        // At rest a_long is the bias, but only well inside a stop: the loose stop rule also fires while creeping
+        // away, and an accelerating car taken as bias (seen: 0.6 m/s²) drags the speed to zero afterwards.
+        if (still && accelMode && stillSinceT != Long.MIN_VALUE && (u.tNs - stillSinceT) / 1e9 >= cfg.accelSpeed.biasMinStillS) {
+            u.longitudinalAccel?.takeIf { abs(it) < cfg.accelSpeed.biasMaxAccel }?.let {
+                updateLocal(IDX_BA, it, cfg.accelSpeed.biasZuptStd * cfg.accelSpeed.biasZuptStd)
+            }
+        }
+        centripetal(u, accelMode)
+        if (still) {
             // ZUPT: speed is zero; the measured yaw rate is pure bias. These are *local* updates (only
             // v and b move): after a long outage, P couples bias to position with a huge lever (heading
             // drift × distance), and one noisy bias sample would otherwise teleport the position by
@@ -341,6 +418,43 @@ class BaselineDrEstimator(
         lastRoadHeadingOdo = Double.NEGATIVE_INFINITY; lastRoadCrossOdo = Double.NEGATIVE_INFINITY
         lastRoadAlongOdo = Double.NEGATIVE_INFINITY
         roadStats[3] += 1000 // count resyncs in the thousands
+    }
+
+    /**
+     * Accelerometer speed drives v only once the bias is known (σ ≤ [AccelSpeedConfig.biasMaxStd]); before
+     * that, v keeps the random-walk model while the bias is learned (drive B: an unlearned bias pushed v to
+     * 27–31 m/s at a true 17 within a minute of losing GNSS).
+     */
+    private fun accelMode(tNs: Long): Boolean = accelReady(tNs) &&
+        // With fresh trusted GNSS, its speed bounds v and teaches the bias, so the bias need not be known yet.
+        (sqrt(p[IDX_BA, IDX_BA]) <= cfg.accelSpeed.biasMaxStd || (lastGnssT != Long.MIN_VALUE && (tNs - lastGnssT) / 1e9 <= 2.0))
+
+    /** No fresh vehicle speed, forward axis known, a recent fix: the bias may be learned, ZUPT may apply. */
+    private fun accelReady(tNs: Long): Boolean =
+        cfg.accelSpeed.enabled && lastALong != null &&
+            (lastObdT == Long.MIN_VALUE || (tNs - lastObdT) / 1e9 > cfg.accelSpeed.obdFreshS) &&
+            // Never open-loop: only while position fixes still bound the speed (R-026: without any fix for 25 min
+            // the accelerometer speed drifted and its σ was optimistic; the random-walk model is the honest one).
+            lastFixT != Long.MIN_VALUE && (tNs - lastFixT) / 1e9 <= cfg.accelSpeed.maxNoFixS
+
+    /** Centripetal speed |a_lat| / |ω| over [AccelSpeedConfig.centripetalPeriodS], as a speed measurement. */
+    private fun centripetal(u: MotionUpdate, accelMode: Boolean) {
+        val ac = cfg.accelSpeed
+        val aLat = u.lateralAccel ?: return
+        if (centT == Long.MIN_VALUE) centT = u.tNs
+        centLat += aLat * u.dtS; centYaw += u.yawRateUp * u.dtS; centN++
+        val dur = (u.tNs - centT) / 1e9
+        if (dur < ac.centripetalPeriodS) return
+        val a = centLat / dur; val w = centYaw / dur
+        centLat = 0.0; centYaw = 0.0; centN = 0; centT = u.tNs
+        if (!ac.centripetal || !accelMode || stationary || !initialized || abs(w) < ac.centripetalMinYawRate) return
+        // Left turn: ω > 0 (CCW) and the centripetal force points left (a_lat > 0), so v = a_lat / ω > 0.
+        val z = a / w
+        if (z < 1.0 || z > 40.0) return
+        val sd = ac.centripetalRelStd * z + ac.centripetalAbsStd
+        val r = sd * sd
+        val innov = z - x[IDX_V]
+        if (innov * innov / (p[IDX_V, IDX_V] + r) <= 9.0) update1(IDX_V, z, r)
     }
 
     /** One road-matcher step per [RoadMatcherConfig.stepM] of driving, once the heading is known. */
@@ -484,6 +598,7 @@ class BaselineDrEstimator(
             is PowerState -> compass.onPower(m)
             is VehicleSpeedMeasurement -> {
                 propagateTo(m.tNs, lastYawRate)
+                lastObdT = m.tNs
                 obdHist = (obdHist + (m.tNs to m.speedMps)).filter { (m.tNs - it.first) / 1e9 <= cfg.obdSlopeWindowS }
                 val zSpeed = m.speedMps + cfg.obdLatencyS * obdSlope()
                 // Speedometer model: z = v·(1 + s). The scale error s (tyre wear, tyre size, OEM
@@ -515,6 +630,7 @@ class BaselineDrEstimator(
             else -> return
         }
         val acc = m.hAccM ?: return
+        if (acc <= cfg.accelSpeed.anchorMaxAccM) lastFixT = m.tNs
         var sigma = acc / Cov2.R68_PER_SIGMA
         if (isCoarse) sigma *= cfg.networkInflation
         val r = sigma * sigma * rScale
@@ -666,7 +782,16 @@ class BaselineDrEstimator(
         f[IDX_PSI, IDX_B] = dt
         val turn = (yawRate - x[IDX_B]) * dt * cfg.gyroScaleError
         q[IDX_PSI, IDX_PSI] = cfg.headingRandomWalk * cfg.headingRandomWalk * dt + turn * turn
-        q[IDX_V, IDX_V] = cfg.speedRandomWalk * cfg.speedRandomWalk * dt
+        val aL = lastALong
+        if (aL != null && accelMode(lastT)) {
+            // Specific force along the vehicle drives the speed; its bias is a state (never open-loop, D-050).
+            x[IDX_V] = v + (aL - x[IDX_BA]) * dt
+            f[IDX_V, IDX_BA] = -dt
+            q[IDX_V, IDX_V] = cfg.accelSpeed.accelNoise * cfg.accelSpeed.accelNoise * dt
+            q[IDX_BA, IDX_BA] = cfg.accelSpeed.biasRandomWalk * cfg.accelSpeed.biasRandomWalk * dt
+        } else {
+            q[IDX_V, IDX_V] = cfg.speedRandomWalk * cfg.speedRandomWalk * dt
+        }
         q[IDX_B, IDX_B] = cfg.biasRandomWalk * cfg.biasRandomWalk * dt
         q[IDX_S, IDX_S] = cfg.speedScaleRandomWalk * cfg.speedScaleRandomWalk * dt
 
@@ -679,6 +804,7 @@ class BaselineDrEstimator(
             q[1, 1] = q[0, 0]
         }
         p = (f * p * f.t() + q).symmetrize()
+        if (x[IDX_V] < 0 && aL != null) x[IDX_V] = 0.0 // no reverse detection yet: OBD has no sign either
 
         if (initialized && !headingKnown) {
             bank.propagate(dt, yawRate - x[IDX_B], v, p[IDX_V, IDX_V])
@@ -829,6 +955,7 @@ class BaselineDrEstimator(
         matcher?.copy(), lastRoadOdo, gyroTurn, recentTurns, lastRoadHeadingOdo, lastRoadCrossOdo,
         roadSteps, seenFreeSteps, roadRejects, free?.snapshot(), gyroHist, cumGyro, lastRoadAlongOdo,
         heldOffset, heldT, obdHist, lastCornerOdo,
+        lastALong, lastObdT, centLat, centYaw, centN, centT, stillSinceT, lastFixT,
     )
 
     override fun restore(snapshot: Any) {
@@ -846,14 +973,18 @@ class BaselineDrEstimator(
         roadSteps = s.roadSteps; seenFreeSteps = s.seenFreeSteps; roadRejects = s.roadRejects
         gyroHist = s.gyroHist; cumGyro = s.cumGyro; lastRoadAlongOdo = s.lastRoadAlongOdo
         heldOffset = s.heldOffset; heldT = s.heldT; obdHist = s.obdHist; lastCornerOdo = s.lastCornerOdo
+        lastALong = s.lastALong; lastObdT = s.lastObdT; centLat = s.centLat; centYaw = s.centYaw; centN = s.centN; centT = s.centT
+        stillSinceT = s.stillSinceT; lastFixT = s.lastFixT
         if (free != null && s.free != null) free.restore(s.free)
     }
 
     private companion object {
-        const val N = 6
+        const val N = 7
         const val IDX_PSI = 2
         const val IDX_V = 3
         const val IDX_B = 4
         const val IDX_S = 5
+        /** Bias of the longitudinal specific force (m/s²), used only in accelerometer-speed mode. */
+        const val IDX_BA = 6
     }
 }
