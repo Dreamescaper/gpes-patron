@@ -1,6 +1,38 @@
+import groovy.json.JsonSlurper
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+}
+
+// ---- Version from git, nothing to edit by hand (D-059). The model of Nerdbank.GitVersioning, without .NET:
+//   version.json   {"version": "MAJOR.MINOR", "versionCodeOffset": N}  (change MAJOR.MINOR to release a new line)
+//   versionName    MAJOR.MINOR.<height>+<short sha>[.dirty]   height = commits since version.json last changed
+//   versionCode    versionCodeOffset + number of commits on HEAD (grows with every commit, so installs upgrade)
+// It needs the full history: a shallow clone gives wrong numbers, so CI fetches everything and a shallow clone fails there.
+fun git(vararg args: String): String? {
+    val out = providers.exec {
+        workingDir = rootProject.projectDir
+        commandLine("git", *args)
+        isIgnoreExitValue = true
+    }
+    return if (out.result.get().exitValue == 0) out.standardOutput.asText.get().trim() else null
+}
+
+val versionConfig = JsonSlurper().parse(rootProject.file("version.json")) as Map<*, *>
+val versionBase = versionConfig["version"] as String
+val versionCodeOffset = (versionConfig["versionCodeOffset"] as Number).toInt()
+val gitCommitCount = git("rev-list", "--count", "HEAD")?.toIntOrNull()
+if (gitCommitCount != null && git("rev-parse", "--is-shallow-repository") == "true" && System.getenv("CI") != null) {
+    throw GradleException("Shallow git clone: the version is computed from the commit count. Fetch the full history (actions/checkout fetch-depth: 0).")
+}
+val gitVersionCode = versionCodeOffset + (gitCommitCount ?: 0)
+val gitVersionName = if (gitCommitCount == null) "$versionBase.0+nogit" else {
+    val versionFileCommit = git("log", "-1", "--format=%H", "--", "version.json")?.takeIf { it.isNotEmpty() }
+    val height = versionFileCommit?.let { git("rev-list", "--count", "$it..HEAD")?.toIntOrNull() } ?: 0
+    val sha = git("rev-parse", "--short=7", "HEAD").orEmpty()
+    val dirty = if (git("status", "--porcelain", "--untracked-files=no").isNullOrEmpty()) "" else ".dirty"
+    "$versionBase.$height+$sha$dirty"
 }
 
 android {
@@ -11,9 +43,8 @@ android {
         applicationId = "gpes.patron"
         minSdk = 29
         targetSdk = 36
-        // CI passes -PversionCode=<run number> so installed builds always upgrade.
-        versionCode = providers.gradleProperty("versionCode").orNull?.toInt() ?: 1
-        versionName = "0.1.0" + (providers.gradleProperty("versionCode").orNull?.let { "-ci$it" } ?: "")
+        versionCode = gitVersionCode
+        versionName = gitVersionName
     }
 
     signingConfigs {
@@ -69,4 +100,10 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)
+}
+
+// For scripts and CI: ./gradlew -q :app:printVersion  →  "0.1.3+a1b2c3d (237)"
+tasks.register("printVersion") {
+    val text = "$gitVersionName ($gitVersionCode)"
+    doLast { println(text) }
 }

@@ -762,3 +762,24 @@ Consequences: opening the Drive or Map tab starts sensors and the wake lock unti
 unlocked while only tracking runs (the tab stops it). If the app is killed while spoofing and never opened again, the
 frozen location stays until it is (nothing can run after a force-stop); the persistent notification disappears with the
 process. Hand-over (spoofing only when the GNSS is bad) stays on the roadmap.
+
+## D-059: Version from git, in the Nerdbank.GitVersioning model, implemented in Gradle — Accepted (2026-10-02)
+Context: `versionCode` and `versionName` were edited by hand, with CI passing `-PversionCode=<run>`; local builds were all
+code 1, so reinstalling over a CI build failed, and tests on devices needed manual `-PversionCode` numbers.
+Decision: `version.json` at the root holds `"version": "MAJOR.MINOR"` and `"versionCodeOffset"`. `app/build.gradle.kts`
+asks git: `versionName` = `MAJOR.MINOR.<height>+<short sha>[.dirty]`, where height is the number of commits since
+`version.json` last changed (as in nbgv; changing MAJOR.MINOR starts a new line at height 0), and `versionCode` =
+offset + the number of commits on HEAD, which only grows. A build with uncommitted tracked changes is marked `.dirty`.
+The offset is 200 so that the numbers stay above the 100–112 that builds made by hand put on test devices. The name
+is shown in Settings, is the User-Agent of the road download, and goes into every recording's `SessionInfo.appVersion`
+(so a recording says which commit made it). CI fetches the full history (`fetch-depth: 0`) and names the APK from
+`./gradlew -q :app:printVersion`; a shallow clone fails the build when `CI` is set, because its commit count would be
+wrong. `-PversionCode` is gone.
+Alternatives: Nerdbank.GitVersioning itself (a .NET tool on every dev machine and runner, only to read two numbers);
+axion-release or git-versioning plugins (versions come from tags, so every release needs a tag and the code is not
+monotonic per commit; `gradle-git-versioning` would also be one more plugin to keep in step with AGP 9); the CI run
+number (differs between CI and local builds, so reinstalls break); a manual bump (what we had).
+Consequences: rewriting history (rebase, squash of published commits) changes the counts and can lower the code of a
+rebuilt app (installs then fail with a downgrade: raise the offset in `version.json`). Tags `v*` still publish a release but
+do not set the version: bump `version` in `version.json` before tagging a release. Not verified: a CI run (no push was
+made).

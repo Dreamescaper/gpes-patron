@@ -126,7 +126,7 @@ CI: `.github/workflows/android.yml` runs tests, lint, the debug APK and the repl
 push/PR. The APK is an artifact; tags `v*` publish a GitHub Release with the APK. The secret
 `DEBUG_KEYSTORE_B64` is decoded and passed as `GPES_DEBUG_KEYSTORE` (read by `app/build.gradle.kts`),
 so CI signs with the same debug key as local builds (`GPES_DEBUG_KEYSTORE=~/.android/debug.keystore`).
-`-PversionCode=<run>` makes installs upgrade.
+The version is computed from git (`version.json` + commit count, D-059): never edit it by hand. `./gradlew -q :app:printVersion` prints it.
 
 Toolchain: JDK 21 (bytecode target 17), AGP 9.4 (built-in Kotlin), Kotlin 2.4, Gradle 9.8,
 compileSdk 37, targetSdk 36, minSdk 29. Emulator GNSS is physically inconsistent with its static
