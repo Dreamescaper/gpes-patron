@@ -345,7 +345,8 @@ Road-constraint follow-ups (R-020):
   indoors 2026-10-02): how does Waze react to a window (no fix for a few seconds?), are the healthy-chip thresholds
   right in motion and in the open (C/N0 spread, satellites)? Turn what is found into tests.
 - **P1 Waze during a window**: while no real `Location` arrives (1 s to more than 8 s indoors) other apps have no GPS
-  at all. Check what Waze shows and whether it keeps guiding; if it complains, options: windows only when stopped, or
+  at all. The user reports that Waze keeps guiding with spoof mode on (2026-10-02). Still to check: while driving, for
+  a whole drive, and during the longest no-fix windows; if it complains, options: windows only when stopped, or
   longer pauses, or own PVT below.
 - **P2 Own PVT from raw measurements** (option 2 of D-052): an independent position without windows; only if the
   windows turn out to disturb navigators or the chip hides data.

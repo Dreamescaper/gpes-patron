@@ -81,7 +81,10 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
   session with an 8 s abort again failed its first window (32–40 s): NMEA and the status kept flowing, the chip had a
   fix, but no `Location` came, so the abort became 12 s. In total 3 of 5 windows recovered.
 - The device keeps the old install's recorded drives (installed over it with a higher versionCode).
-- **Not verified**: Waze during a window, driving, a real spoofed or jammed signal, hand-over (roadmap P3).
+- Waze with spoof mode on (`gps` target) keeps guiding (reported by the user, 2026-10-02; not observed by us: the
+  moment relative to a probe window, whether the phone was moving and for how long are unknown).
+- **Not verified**: Waze exactly during a window with no `Location` yet, driving, a real spoofed or jammed signal,
+  hand-over (roadmap P3).
 
 ### 2026-10-02 — Spoofing the platform GPS (Waze) and the GNSS recovery probe (D-052)
 - Spoof mode now targets `gps` by default; Fused is optional. New setting "Check whether GPS is back" (default on).
