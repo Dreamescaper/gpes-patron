@@ -13,9 +13,29 @@ Status as of 2026-10-02. "Done" means checked in this repository, not in Play Co
 | Content rating (IARC), target audience, ads | To do in Play Console | Answers in the listing doc. |
 | App access instructions for the reviewer | Drafted | In the listing doc: the reviewer has to select the mock location app. |
 | Target API 36 | Done | `targetSdk = 36` (required for new apps and updates from 2026-08-31). |
-| Release build as an Android App Bundle | **To do** | Today CI builds a debug APK. Needs a release build type (not debuggable, minified), `bundleRelease`, an upload key, Play App Signing. |
+| Release build as an Android App Bundle | Done, upload key to do | `release` is minified (R8) and signed from `GPES_UPLOAD_*`; CI builds `bundleRelease` every run (D-062). Create the upload key (below) and add the four CI secrets. |
 | Version | Done | `version.json` + git (D-059); `versionCode` only grows. |
-| Wake lock | **To do** | Held for up to 12 h while tracking or spoofing; Android vitals penalises long wake locks. Shorten and renew it. |
+| Wake lock | Done | Bounded to 10 min and renewed every 5 min while a session runs (D-062). Still held for the whole of a long spoofing session. |
 | Name and icon rights | **To do** | The name and the dog come from "Пес Патрон". Check rights, and do not imply any official affiliation (said in the listing). |
 | OpenStreetMap attribution in the app | Done | Map screen and Settings → About. |
 | Closed test (12 testers, 14 days) | To do (personal account) | Invite testers by e-mail or a Google Group; they must stay opted in. |
+
+## Upload key and the signed bundle
+
+The upload key is yours alone: never commit it. Create it once and keep a backup of the file and the passwords (losing it means a reset through Play support):
+
+```bash
+keytool -genkeypair -v -keystore gpes-upload.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000
+```
+
+Build a signed bundle on your machine:
+
+```bash
+export GPES_UPLOAD_KEYSTORE=$PWD/gpes-upload.jks GPES_UPLOAD_STORE_PASSWORD=... GPES_UPLOAD_KEY_ALIAS=upload GPES_UPLOAD_KEY_PASSWORD=...
+./gradlew :app:bundleRelease        # app/build/outputs/bundle/release/app-release.aab
+```
+
+CI secrets (Settings → Secrets and variables → Actions): `UPLOAD_KEYSTORE_B64` (`base64 -i gpes-upload.jks`), `UPLOAD_STORE_PASSWORD`,
+`UPLOAD_KEY_ALIAS`, `UPLOAD_KEY_PASSWORD`. With them every run uploads `gpes-patron-<version>-signed.aab` as an artifact; without them, an
+`-unsigned.aab` (Play will not take it). In Play Console enrol in Play App Signing when you upload the first bundle. `mapping.txt` (R8) is inside
+the bundle for Play's crash reports and is also kept as a CI artifact.

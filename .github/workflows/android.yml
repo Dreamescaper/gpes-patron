@@ -47,11 +47,25 @@ jobs:
           echo "GPES_DEBUG_KEYSTORE=$RUNNER_TEMP/debug.keystore" >> "$GITHUB_ENV"
           keytool -list -v -keystore "$RUNNER_TEMP/debug.keystore" -storepass android | grep SHA256: | head -1
 
+      # Upload key for Google Play (Play App Signing re-signs what is uploaded). Optional: without the secrets the release
+      # bundle is still built (it checks R8), but unsigned.
+      - name: Restore upload keystore
+        env:
+          UPLOAD_KEYSTORE_B64: ${{ secrets.UPLOAD_KEYSTORE_B64 }}
+        if: env.UPLOAD_KEYSTORE_B64 != ''
+        run: |
+          echo "$UPLOAD_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          echo "GPES_UPLOAD_KEYSTORE=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
+
       - name: Test, lint, build
+        env:
+          GPES_UPLOAD_STORE_PASSWORD: ${{ secrets.UPLOAD_STORE_PASSWORD }}
+          GPES_UPLOAD_KEY_ALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
+          GPES_UPLOAD_KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
         run: >
           ./gradlew --no-configuration-cache
           :core:test :recording:test
-          :app:lintDebug :app:assembleDebug
+          :app:lintDebug :app:assembleDebug :app:bundleRelease
           :replay-cli:installDist
 
       - name: Name APK
@@ -62,6 +76,21 @@ jobs:
           name="gpes-patron-${GITHUB_REF_NAME//\//-}-${version}.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$name"
           echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Name AAB
+        id: aab
+        run: |
+          version=$(./gradlew -q --no-configuration-cache :app:printVersion)
+          version=${version// (/-}; version=${version%)}; version=${version//+/-}
+          signed=unsigned; [ -n "$GPES_UPLOAD_KEYSTORE" ] && signed=signed
+          name="gpes-patron-${version}-${signed}.aab"
+          cp app/build/outputs/bundle/release/app-release.aab "$name"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aab
+          path: ${{ steps.aab.outputs.name }}
 
       - name: Show signing certificate
         run: $ANDROID_HOME/build-tools/37.0.0/apksigner verify --print-certs "${{ steps.apk.outputs.name }}" | grep SHA-256
@@ -79,6 +108,7 @@ jobs:
             core/build/reports/tests/
             recording/build/reports/tests/
             app/build/reports/lint-results-debug.html
+            app/build/outputs/mapping/release/mapping.txt
           if-no-files-found: ignore
 
       - name: Release (v* tags)

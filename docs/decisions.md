@@ -811,3 +811,21 @@ Consequences: the policy has to change with the app: a new network call, an SDK,
 updating `site/privacy.html` (both languages and the date), `docs/play/data-safety.md` and the permissions table. The policy is a statement
 about the code, not legal advice; the owner should read it, and the choice of controller name and contact is theirs. Not verified: Play's review of the
 declarations.
+
+## D-062: Release build: R8, signing from the environment, Android App Bundle, bounded wake lock — Accepted (2026-10-02)
+Context: Google Play takes an Android App Bundle signed with an upload key, not a debug APK, and penalises long wake locks (Android vitals).
+Decision: the `release` build type turns on R8 (`isMinifyEnabled`, `isShrinkResources`) with an empty `proguard-rules.pro` (the libraries
+ship their consumer rules; a rule is added only when a build breaks, with the reason). It is signed with an upload key read from
+`GPES_UPLOAD_KEYSTORE`, `GPES_UPLOAD_STORE_PASSWORD`, `GPES_UPLOAD_KEY_ALIAS` and `GPES_UPLOAD_KEY_PASSWORD`; without them the release build is
+left **unsigned**, never signed with the debug key (a debug-signed first upload could end up as the registered upload key). CI builds
+`:app:bundleRelease` on every run (so R8 is always checked), signs it when the secrets `UPLOAD_KEYSTORE_B64`, `UPLOAD_STORE_PASSWORD`,
+`UPLOAD_KEY_ALIAS`, `UPLOAD_KEY_PASSWORD` exist, and uploads `gpes-patron-<version>-signed|unsigned.aab` and `mapping.txt` as artifacts. The
+wake lock is bounded to 10 minutes, not reference counted, and renewed every 5 minutes by the status tick, so a service that dies without
+releasing it cannot hold the CPU awake for hours. Fixed on the way: a recording that begins when spoofing is turned on now writes the new mode in
+its header (it said ESTIMATE_ONLY).
+Alternatives: signing the release with the debug key (rejected, see above); keeping the key in the repository or in `local.properties` (a secret
+in the history; env variables work the same locally and in CI); `proguard-android.txt` without optimisation (a larger app and no
+`-optimize`, no reason for it); a long wake lock with no renewal (what we had: 12 h).
+Consequences: only the owner holds the upload key; losing it means a reset through Play support. R8 can break reflection-based code: the release APK was
+exercised end to end on the emulator (tracking, spoofing, recording and its serialization, the map), but a release build must be re-checked after a
+new library or a reflection use is added. Not verified: a Play upload, the signed AAB installed through Play, the wake lock on a long drive.

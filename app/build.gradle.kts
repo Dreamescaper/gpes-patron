@@ -60,9 +60,25 @@ android {
         }
     }
 
+    // The upload key for Google Play (Play App Signing re-signs what we upload). It is never in the repository: CI restores it
+    // from secrets, a developer points these variables at their own keystore (docs/play/release-checklist.md). Without them
+    // the release build is left unsigned on purpose, never signed with the debug key.
+    val uploadKeystore = System.getenv("GPES_UPLOAD_KEYSTORE")?.takeIf { it.isNotBlank() }
+    if (uploadKeystore != null) {
+        signingConfigs.create("release") {
+            storeFile = file(uploadKeystore)
+            storePassword = System.getenv("GPES_UPLOAD_STORE_PASSWORD")
+            keyAlias = System.getenv("GPES_UPLOAD_KEY_ALIAS")
+            keyPassword = System.getenv("GPES_UPLOAD_KEY_PASSWORD")
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (uploadKeystore != null) signingConfig = signingConfigs.getByName("release")
         }
     }
 

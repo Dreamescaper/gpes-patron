@@ -81,6 +81,15 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
   201). CI run (2026-10-02, after the push): green, APK `gpes-patron-main-0.1.2-05321b1-238.apk`, height 2 as expected.
 
 
+### 2026-10-02 — Release build: R8, upload-key signing, AAB, bounded wake lock (D-062)
+- `release` build type: R8 and resource shrinking, signing from `GPES_UPLOAD_*` (unsigned without them), `proguard-rules.pro` (empty on purpose);
+  CI builds `bundleRelease`, signs it when the secrets exist, uploads the AAB and `mapping.txt`; wake lock 10 min, renewed every 5 min;
+  fix: a recording begun when spoofing starts has the right mode in its header.
+- Verified locally with a throwaway key (scratchpad, not committed): `assembleRelease` and `bundleRelease` succeed, no R8 warnings; the release APK is 2.9 MB
+  (debug about 11 MB), the AAB 3.6 MB and `jarsigner -verify` accepts it; on the emulator the release APK ran tracking, spoofing with recording
+  (a 1.1 MB `.db`, header `MOCK_OUTPUT`, `["GPS"]`, no crash in the log) and the map. **Not verified**: a CI run of the new steps (nothing pushed yet),
+  a Play upload, the wake lock over a long drive, the Pixel 8.
+
 ### 2026-10-02 — Documents for Google Play, GitHub Pages, OpenStreetMap attribution (D-061)
 - `site/` (privacy policy, terms of use, home; English and Ukrainian on each page), `.github/workflows/pages.yml`, `docs/play/` (store
   listing in both languages, Data safety answers, foreground service declaration and video script, release checklist, Pages note).

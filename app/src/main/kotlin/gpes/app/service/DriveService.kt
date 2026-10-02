@@ -287,6 +287,9 @@ private object NoRecorder : Recorder {
     override fun close() = Unit
 }
 
+private const val WAKE_LOCK_MS = 10 * 60 * 1000L
+private const val WAKE_LOCK_RENEW_NS = 5 * 60 * 1_000_000_000L
+
 /** One drive session, recorded or not. Created and stopped by [DriveService]. */
 private class Session(
     private val ctx: Context,
@@ -305,8 +308,11 @@ private class Session(
     private val thread = HandlerThread("gpes-io", Process.THREAD_PRIORITY_MORE_FAVORABLE).also { it.start() }
     private val handler = Handler(thread.looper)
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
+    // A bounded wake lock, renewed every few minutes while the session lives (D-062): if the service dies without releasing it,
+    // it expires by itself instead of draining the battery for hours (and Android vitals penalises long wake locks).
     private val wakeLock = ctx.getSystemService(PowerManager::class.java)
-        .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "gpes:drive")
+        .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "gpes:drive").apply { setReferenceCounted(false) }
+    private var wakeLockRenewedNs = 0L
 
     /** Recording is optional (D-053): without it nothing is written and no file is created. It may begin later, see [beginRecording]. */
     @Volatile private var writer: Recorder = NoRecorder
@@ -387,7 +393,8 @@ private class Session(
     }
 
     fun start() {
-        wakeLock.acquire(12 * 60 * 60 * 1000L)
+        wakeLock.acquire(WAKE_LOCK_MS)
+        wakeLockRenewedNs = SystemClock.elapsedRealtimeNanos()
         if (record) beginRecording()
 
         if (mode.estimate) {
@@ -460,9 +467,10 @@ private class Session(
     fun startSpoof(newTargets: Set<MockTarget>, probe: Boolean, record: Boolean) {
         handler.post {
             if (!mode.estimate || publisher != null) return@post
-            if (record && writer === NoRecorder) beginRecording()
+            // The mode first: the recording's header says what the session is.
             mode = RunMode.MOCK_OUTPUT
             targets = newTargets
+            if (record && writer === NoRecorder) beginRecording()
             publisher = MockLocationPublisher(ctx, newTargets) { ev -> sink.emit(ev) }.also { it.start() }
             if (probe && MockTarget.GPS in newTargets) {
                 probeController = GnssProbeController()
@@ -494,6 +502,7 @@ private class Session(
 
     private fun publishStatus() {
         val now = SystemClock.elapsedRealtimeNanos()
+        if (now - wakeLockRenewedNs > WAKE_LOCK_RENEW_NS) { wakeLock.acquire(WAKE_LOCK_MS); wakeLockRenewedNs = now }
         val counts = writer.counts()
         val dt = (now - prevCountsT) / 1e9
         val rates = if (prevCountsT == 0L) emptyMap() else counts.mapValues { (k, v) -> (v - (prevCounts[k] ?: 0)) / dt }
