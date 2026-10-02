@@ -19,7 +19,7 @@ invariants; see [AGENTS.md](../AGENTS.md) for the rules and the rest of `docs/` 
 | SQLite schema | `recording/src/main/sqldelight/gpes/recording/db/Drive.sq` |
 | Android sources | `app/.../source/*Source.kt` |
 | Service wiring (sources → sink → pipeline → recorder/UI/mock) | `app/.../service/DriveService.kt` |
-| UI + strings | `app/.../ui/MainActivity.kt`, `res/values{,-uk}/strings.xml` |
+| UI + strings | `app/.../ui/` (`MainActivity` tabs, `DriveTab`, `TripsTab`, `DiagnosticsTab`, `SettingsTab`, `Reasons`, `Theme`, `AppSettings`), `res/values{,-uk}/strings.xml` |
 
 ## Recipes
 
@@ -217,3 +217,9 @@ adb pull /storage/emulated/0/Android/data/gpes.patron/files/drives/<id>.db   # p
   (R-007). Recordings go to `recordings/` (not in git). A second drive under jamming (no GNSS fix at
   all) was recorded the same day (R-008). Kyiv has persistent GNSS jamming, so real jammed data is
   easy to get.
+- **P26 Android UI test details (emulator).** The launcher activity is `gpes.patron/gpes.app.ui.MainActivity`
+  (`am start -n gpes.patron/.ui.MainActivity` fails). `adb install -r` kills the app, so wait about 3 s before
+  tapping. Collapse the shade (`cmd statusbar collapse`) before screenshots. `Theme.Material.DayNight` does not
+  exist as an android style: use `Theme.DeviceDefault.DayNight`. `adb emu geo fix` needs a few repeats before the
+  estimator gets a position. A `Row` of three outlined buttons silently squeezes the last one to zero width on a
+  narrow screen: use `FlowRow`.

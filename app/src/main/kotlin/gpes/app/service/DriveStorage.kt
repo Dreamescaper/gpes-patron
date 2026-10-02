@@ -15,6 +15,11 @@ object DriveStorage {
     fun list(context: Context): List<File> =
         dir(context).listFiles { f -> f.name.endsWith(".db") }?.sortedByDescending { it.lastModified() } ?: emptyList()
 
+    /** Delete a drive with its SQLite WAL/SHM sidecars. */
+    fun delete(file: File) {
+        for (suffix in listOf("", "-wal", "-shm", "-journal")) File(file.path + suffix).delete()
+    }
+
     fun open(context: Context, file: File): AndroidSqliteDriver = AndroidSqliteDriver(
         schema = DriveDatabase.Schema,
         context = context,

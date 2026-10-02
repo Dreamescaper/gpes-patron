@@ -610,3 +610,22 @@ no fix condition or 120 s (drift with an optimistic σ in rungs without fixes or
 ×1.27); loose ZUPT without the low-speed, no-GNSS and not-accelerating guards (zeroed a moving car's speed).
 Open: simulator vibration (the guards keep the quiet simulator safe, but it cannot show the gain); the road
 constraint stays off without OBD (speed σ rarely ≤ 1.5 m/s); compass FORWARD_ALIGNED start quality per drive.
+
+## D-051: Driver-facing UI: four tabs, one verdict, persistent "turn off" notification — Accepted (2026-10-02)
+Context: the single scrolling panel mixed setup, the researcher's raw dump and the driver's needs; the Stop
+button could scroll away, and while our output replaced the system location the only sign was the standard
+recording notification without a way out.
+Decision: bottom tabs Drive / Trips / Diagnostics / Settings (plain `NavigationBar`, no Navigation dependency).
+Drive: three modes as a segmented control (Record / Estimate / Spoof = `RunMode`; Ukrainian "Підміна", chosen over "Захист", which sounds like an antivirus, and "Навігація"), readiness notices with a fix
+action only for what blocks the chosen mode, then a hero verdict about GNSS (reliable / doubtful / not trusted /
+absent) with accuracy, speed and time, "what is helping now" chips (GPS, network, OBD, roads, compass; symbol plus
+colour), trust reasons in plain language (`reason_*` strings), big annotation buttons, and a **pinned** Stop
+button. Diagnostics keeps the old raw panel. Settings holds roads, OBD, mock targets, QUESTIONABLE toggle, all
+persisted in `AppSettings`. Mock mode uses its own notification channel (importance default, silent, public on
+the lock screen), title "GPES is replacing your position", a chronometer, accuracy and GNSS state in the text,
+and a "Turn off" action (`ACTION_STOP`). Android 14+ lets users swipe away foreground-service notifications, so a
+delete intent re-posts it (`ACTION_REFRESH_NOTIFICATION`). The screen stays on while a drive runs on the Drive tab.
+Alternatives: Navigation Compose (a dependency for four static tabs); an in-app map now (deferred, roadmap);
+material-icons-extended (about 10 MB of dependency; glyph characters suffice for now); hiding the notification
+action in non-mock modes (kept everywhere: stopping a recording from the shade is also useful).
+Consequences: no change in `:core` or in recordings. Trust reasons are still English codes in the data.

@@ -72,6 +72,19 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Log
 
+### 2026-10-02 — App UI redesign and "turn off" notification (D-051)
+- Four tabs, driver screen with a single GNSS verdict, evidence chips, plain-language trust reasons, pinned Stop,
+  trips list with date titles and delete (confirm dialog; removes WAL/SHM too), Diagnostics (old raw panel),
+  Settings (persisted `AppSettings`), light/dark theme, edge-to-edge. English and Ukrainian strings.
+- Mock output: dedicated notification channel, "Turn off" action, text updated each second only when it changes,
+  re-posted if swiped away.
+- Verified: `:app:assembleDebug :app:lintDebug` pass (exit 0); emulator (API 37, uk locale): modes, Spoof-mode start,
+  hero/chips/reasons, pinned Stop, notification with the action stops the service (no ServiceRecord left),
+  trips and settings layouts, English locale and dark mode (Trips, Drive idle). **Not verified**: real car; swipe-away re-post and lock-screen visibility; dark Drive-running state
+  TalkBack; Android 12 and older.
+- Known gaps: no map yet, no onboarding wizard, no per-trip duration or mini-track in Trips, small icon is the
+  system placeholder, no app icon.
+
 ### 2026-10-02 — Speed without OBD (D-050, R-026)
 - `AccelSpeedConfig` + bias state in `BaselineDrEstimator`; `MotionUpdate.longitudinalAccel`, `lateralAccel`,
   `stillLoose`; motion-tracker fixes (forward axis from smoothed signals, up gates).

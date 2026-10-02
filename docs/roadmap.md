@@ -330,3 +330,12 @@ Road-constraint follow-ups (R-020):
   +6:38–6:40: deferred road updates moved the estimate ~50 m in 2 s, a correct correction); navigation
   apps show it as a jerk. Blend corrections into the published position over a few seconds (PX4-style
   output predictor) while keeping the EKF state and the honest r68 unchanged.
+
+
+## App UI follow-ups (after D-051)
+- **P1 In-app map** (own Canvas over the OSM segments from `RoadMapManager`): estimate with its uncertainty circle,
+  recent track and raw GNSS track side by side, so "the GPS is lying" is visible.
+- **P2 Onboarding wizard**: location, notifications, Bluetooth, mock-location app, road download as checked steps.
+- **P2 Trips**: duration, distance and mini-track per drive (needs reading the estimate table).
+- **P3** App icon and a real notification small icon; spoken or haptic alert when the GNSS verdict changes; lock
+  settings above 5 km/h; dark-mode and TalkBack pass.

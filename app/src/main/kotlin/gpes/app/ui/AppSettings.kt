@@ -1,0 +1,44 @@
+package gpes.app.ui
+
+import android.content.SharedPreferences
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import gpes.app.service.RunMode
+
+/** User choices that survive restarts. Observable from Compose; every setter writes through to preferences. */
+class AppSettings(private val prefs: SharedPreferences) {
+    private var modeState by mutableStateOf(RunMode.entries.firstOrNull { it.name == prefs.getString("mode", null) } ?: RunMode.RECORD_ONLY)
+    private var fusedState by mutableStateOf(prefs.getBoolean("target_fused", true))
+    private var gpsState by mutableStateOf(prefs.getBoolean("target_gps", false))
+    private var networkState by mutableStateOf(prefs.getBoolean("target_network", false))
+    private var questionableState by mutableStateOf(prefs.getBoolean("use_questionable", false))
+    private var obdEnabledState by mutableStateOf(prefs.getBoolean("obd_enabled", false))
+    private var obdAddressState by mutableStateOf(prefs.getString("obd_address", null))
+    private var roadsState by mutableStateOf(prefs.getBoolean("roads_enabled", true))
+
+    var mode: RunMode
+        get() = modeState
+        set(v) { modeState = v; prefs.edit().putString("mode", v.name).apply() }
+    var fused: Boolean
+        get() = fusedState
+        set(v) { fusedState = v; prefs.edit().putBoolean("target_fused", v).apply() }
+    var gps: Boolean
+        get() = gpsState
+        set(v) { gpsState = v; prefs.edit().putBoolean("target_gps", v).apply() }
+    var network: Boolean
+        get() = networkState
+        set(v) { networkState = v; prefs.edit().putBoolean("target_network", v).apply() }
+    var useQuestionable: Boolean
+        get() = questionableState
+        set(v) { questionableState = v; prefs.edit().putBoolean("use_questionable", v).apply() }
+    var obdEnabled: Boolean
+        get() = obdEnabledState
+        set(v) { obdEnabledState = v; prefs.edit().putBoolean("obd_enabled", v).apply() }
+    var obdAddress: String?
+        get() = obdAddressState
+        set(v) { obdAddressState = v; prefs.edit().putString("obd_address", v).apply() }
+    var roads: Boolean
+        get() = roadsState
+        set(v) { roadsState = v; prefs.edit().putBoolean("roads_enabled", v).apply() }
+}

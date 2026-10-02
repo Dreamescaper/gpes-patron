@@ -87,6 +87,8 @@ class DriveService : Service() {
         const val ACTION_START = "gpes.START"
         const val ACTION_STOP = "gpes.STOP"
         const val ACTION_ANNOTATE = "gpes.ANNOTATE"
+        /** Re-post the notification after the user swiped it away (Android 14+ allows that for foreground services). */
+        const val ACTION_REFRESH_NOTIFICATION = "gpes.REFRESH_NOTIFICATION"
         const val EXTRA_MODE = "mode"
         const val EXTRA_TARGETS = "targets"
         const val EXTRA_LABEL = "label"
@@ -94,6 +96,8 @@ class DriveService : Service() {
         const val EXTRA_OBD_ADDRESS = "obdAddress"
         const val EXTRA_ROADS = "roads"
         private const val CHANNEL = "drive"
+        /** Louder than [CHANNEL] (still silent): shown on the lock screen while our output replaces the system location. */
+        private const val CHANNEL_SPOOF = "spoof"
         private const val NOTIF_ID = 1
 
         fun start(ctx: Context, mode: RunMode, targets: Set<MockTarget>, useQuestionable: Boolean = false, obdAddress: String? = null, roads: Boolean = false) {
@@ -116,6 +120,8 @@ class DriveService : Service() {
     }
 
     private var session: Session? = null
+    private var notifMode: RunMode = RunMode.RECORD_ONLY
+    private var notifText: String? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -124,11 +130,14 @@ class DriveService : Service() {
             ACTION_START -> if (session == null) {
                 val mode = RunMode.valueOf(intent.getStringExtra(EXTRA_MODE) ?: RunMode.RECORD_ONLY.name)
                 val targets = intent.getStringArrayExtra(EXTRA_TARGETS)?.map { MockTarget.valueOf(it) }?.toSet() ?: emptySet()
-                goForeground(mode)
+                notifMode = mode
+                notifText = null
+                goForeground()
                 val baseline = BaselineConfig(questionableRScale = if (intent.getBooleanExtra(EXTRA_USE_QUESTIONABLE, false)) 4.0 else null)
                 session = Session(
                     this, mode, if (mode.mock) targets else emptySet(), baseline, intent.getStringExtra(EXTRA_OBD_ADDRESS),
                     roads = intent.getBooleanExtra(EXTRA_ROADS, false),
+                    onStatus = ::updateNotification,
                 ).also { it.start() }
             }
             ACTION_STOP -> {
@@ -138,6 +147,7 @@ class DriveService : Service() {
                 stopSelf()
             }
             ACTION_ANNOTATE -> session?.annotate(intent.getStringExtra(EXTRA_LABEL) ?: "mark")
+            ACTION_REFRESH_NOTIFICATION -> if (session != null) notifyNow()
         }
         return START_NOT_STICKY
     }
@@ -148,18 +158,62 @@ class DriveService : Service() {
         super.onDestroy()
     }
 
-    private fun goForeground(mode: RunMode) {
+    private fun goForeground() {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, getString(R.string.channel_drive), NotificationManager.IMPORTANCE_LOW))
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_SPOOF, getString(R.string.channel_spoof), NotificationManager.IMPORTANCE_DEFAULT).apply { setSound(null, null) },
+        )
+        ServiceCompat.startForeground(this, NOTIF_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+    }
+
+    private fun notifyNow() {
+        getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification())
+    }
+
+    /** Called by the session once a second; the notification is re-posted only when its text changes. */
+    private fun updateNotification(s: Status) {
+        val e = s.estimate
+        val text = if (!notifMode.estimate) getString(R.string.notif_text)
+        else if (e == null) getString(R.string.notif_waiting)
+        else {
+            val gnss = (s.sourceStates[LocSource.GNSS] ?: s.sourceStates[LocSource.FUSED])?.let { getString(trustRes(it)) }
+            getString(R.string.notif_position, e.accuracyM, gnss ?: getString(R.string.notif_no_gnss))
+        }
+        if (text == notifText) return
+        notifText = text
+        notifyNow()
+    }
+
+    private fun buildNotification(): Notification {
+        val spoof = notifMode.mock
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-        val n: Notification = NotificationCompat.Builder(this, CHANNEL)
-            .setContentTitle(getString(R.string.notif_title, getString(mode.labelRes)))
-            .setContentText(getString(R.string.notif_text))
+        val stop = PendingIntent.getService(this, 1, Intent(this, DriveService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
+        val refresh = PendingIntent.getService(
+            this, 2, Intent(this, DriveService::class.java).setAction(ACTION_REFRESH_NOTIFICATION), PendingIntent.FLAG_IMMUTABLE,
+        )
+        return NotificationCompat.Builder(this, if (spoof) CHANNEL_SPOOF else CHANNEL)
+            .setContentTitle(if (spoof) getString(R.string.notif_title_spoof) else getString(R.string.notif_title, getString(notifMode.labelRes)))
+            .setContentText(notifText ?: getString(R.string.notif_text))
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(true)
+            .setUsesChronometer(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setContentIntent(open)
+            .setDeleteIntent(refresh)
+            .addAction(0, getString(if (spoof) R.string.notif_action_stop_spoof else R.string.notif_action_stop), stop)
             .build()
-        ServiceCompat.startForeground(this, NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+    }
+
+    private fun trustRes(s: TrustState) = when (s) {
+        TrustState.TRUSTED -> R.string.trust_trusted
+        TrustState.QUESTIONABLE -> R.string.trust_questionable
+        TrustState.REJECTED -> R.string.trust_rejected
+        TrustState.UNAVAILABLE -> R.string.trust_unavailable
     }
 }
 
@@ -171,6 +225,7 @@ private class Session(
     private val baselineConfig: BaselineConfig,
     private val obdAddress: String?,
     private val roads: Boolean,
+    private val onStatus: (Status) -> Unit,
 ) {
     private val id = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
     private val file = File(DriveStorage.dir(ctx), "$id.db")
@@ -333,6 +388,7 @@ private class Session(
                 roadMap = roadMap?.status,
             )
         }
+        onStatus(LiveStatus.flow.value)
     }
 
     private fun handlerSnapshot(): Map<LocSource, TrustAssessment> {
