@@ -10,7 +10,7 @@
     <string name="use_questionable">Також використовувати СУМНІВНИЙ GNSS (шум ×4; для емуляторів і проблемних пристроїв)</string>
     <string name="mock_targets">Куди публікувати</string>
     <string name="target_fused">Fused (Google Maps; справжній GPS лишається на вході)</string>
-    <string name="target_gps">Системний GPS (замінює справжні GNSS-локації на вході!)</string>
+    <string name="target_gps">Системний GPS (його читають Waze та більшість навігаторів)</string>
     <string name="target_network">Системний network</string>
     <string name="mock_app_not_selected">Цей застосунок не обрано для фіктивних локацій. Параметри розробника → Вибрати застосунок для фіктивних місцезнаходжень, або:\nadb shell appops set %1$s android:mock_location allow</string>
     <string name="start">Старт</string>
@@ -196,4 +196,17 @@
     <string name="reason_reset_after_consistent_stream">Сигнал знову стабільний, повертаю довіру.</string>
     <string name="reason_coarse_odometry_mismatch">Грубий фікс не збігається з пройденою відстанню.</string>
 
+    <!-- GNSS recovery probe while the platform gps is replaced (D-052) -->
+    <string name="mock_targets_hint">Поки канал GPS підмінений, справжні GNSS-фікси до застосунку не доходять, а дані про супутники доходять. Щоб дізнатись, чи GPS повернувся, застосунок може на кілька секунд віддати канал назад.</string>
+    <string name="probe_use">Перевіряти, чи повернувся GPS</string>
+    <string name="probe_hint">Приблизно раз на хвилину, коли GPS-чип виглядає здоровим, інші застосунки до 20 с бачать справжній GPS. Якщо сигнал підроблений, вони в цей час побачать підроблену позицію.</string>
+    <string name="hero_probing">Перевіряю справжній GPS…</string>
+    <string name="hero_probing_sub">Інші застосунки на мить бачать справжній GPS-сигнал.</string>
+    <string name="hero_own">Веду за датчиками</string>
+    <string name="hero_own_sub_no_gps">Придатного справжнього GPS немає. Інші застосунки отримують нашу позицію.</string>
+    <string name="hero_own_sub_chip_ok">GPS-чип бачить супутники. Перевірю його через %1$d с.</string>
+    <string name="ev_gps_chip">GPS-чип</string>
+    <string name="probe_last_recovered">Остання перевірка: GPS повернувся, позицію виправлено (%1$d с тому).</string>
+    <string name="probe_last_failed">Остання перевірка: справжньому GPS не довіряю (%1$d с тому).</string>
+    <string name="probe_none_yet">Перевірки GPS ще не було.</string>
 </resources>

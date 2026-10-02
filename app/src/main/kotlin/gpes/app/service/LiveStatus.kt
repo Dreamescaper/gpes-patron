@@ -10,6 +10,7 @@ import gpes.core.model.LocSource
 import gpes.core.model.PositionEstimate
 import gpes.core.model.TrustAssessment
 import gpes.core.model.TrustState
+import gpes.core.trust.ProbeStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -50,6 +51,8 @@ data class Status(
     val speedScale: Pair<Double, Double>? = null,
     /** Road tiles (null when the road map is off). */
     val roadMap: RoadMapStatus? = null,
+    /** GNSS recovery probe (platform gps replaced, D-052); null when it does not apply. */
+    val probe: ProbeStatus? = null,
     val notes: List<String> = emptyList(),
 )
 

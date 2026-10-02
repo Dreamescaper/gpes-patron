@@ -42,6 +42,8 @@ class MockLocationPublisher(
     private val lm = context.getSystemService(LocationManager::class.java)
     private val fused = LocationServices.getFusedLocationProviderClient(context)
     private val active = HashSet<MockTarget>()
+    /** Targets whose test provider is removed for a moment so that real fixes flow (GNSS probe window, D-052). */
+    private val suspended = HashSet<MockTarget>()
 
     @Volatile var lastError: String? = null
         private set
@@ -104,9 +106,41 @@ class MockLocationPublisher(
         }
     }
 
+    /**
+     * Give a platform provider back to the real hardware for a probe window. Emits RESTORED, so trust accepts the real
+     * fixes that follow. Only for platform providers; the fused mock is not touched.
+     */
+    @SuppressLint("MissingPermission")
+    fun suspend(t: MockTarget) {
+        if (t == MockTarget.FUSED || t !in active || t in suspended) return
+        val name = platformName(t)
+        try {
+            lm.removeTestProvider(name)
+            suspended += t
+            onProviderEvent(ProviderEvent(SystemClock.elapsedRealtimeNanos(), name, ProviderEvent.Kind.RESTORED))
+        } catch (ex: Exception) {
+            lastError = context.getString(R.string.mock_err_failed, t.name, ex.message)
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun resume(t: MockTarget) {
+        if (t !in suspended) return
+        val name = platformName(t)
+        try {
+            addTestProvider(name)
+            lm.setTestProviderEnabled(name, true)
+            suspended -= t
+            onProviderEvent(ProviderEvent(SystemClock.elapsedRealtimeNanos(), name, ProviderEvent.Kind.OVERRIDDEN))
+        } catch (ex: Exception) {
+            lastError = context.getString(R.string.mock_err_failed, t.name, ex.message)
+        }
+    }
+
     @SuppressLint("MissingPermission")
     fun publish(e: PositionEstimate) {
         for (t in active) {
+            if (t in suspended) continue
             val loc = toLocation(e, platformName(t))
             try {
                 if (t == MockTarget.FUSED) fused.setMockLocation(loc) else lm.setTestProviderLocation(platformName(t), loc)
@@ -120,6 +154,7 @@ class MockLocationPublisher(
     @SuppressLint("MissingPermission")
     fun stop() {
         for (t in active) {
+            if (t in suspended) continue // already restored; the event was emitted when the window opened
             try {
                 if (t == MockTarget.FUSED) fused.setMockMode(false) else {
                     val name = platformName(t)
@@ -130,6 +165,7 @@ class MockLocationPublisher(
             }
         }
         active.clear()
+        suspended.clear()
     }
 
     private fun toLocation(e: PositionEstimate, provider: String) = Location(provider).apply {

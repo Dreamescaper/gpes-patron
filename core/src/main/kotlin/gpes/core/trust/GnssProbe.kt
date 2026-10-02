@@ -1,0 +1,149 @@
+package gpes.core.trust
+
+import gpes.core.model.GnssStatusSnapshot
+import gpes.core.model.LocSource
+import gpes.core.model.TrustAssessment
+import gpes.core.model.TrustReason
+import gpes.core.model.TrustState
+import kotlinx.serialization.Serializable
+import kotlin.math.min
+import kotlin.math.sqrt
+
+/**
+ * Policy for finding out whether real GNSS is back while we replace the platform `gps` provider (D-052).
+ *
+ * With the test provider installed, real GNSS *fixes* do not reach us, but `GnssStatus` keeps arriving. When
+ * the chip looks healthy for a while, the app removes the test provider for a short window so that real fixes
+ * flow through trust and the estimator again. This class only decides *when* to open and close the window; it
+ * has no clock and no Android dependencies (times are `elapsedRealtimeNanos` passed in).
+ */
+@Serializable
+data class GnssProbeConfig(
+    /** The chip must use at least this many satellites in its fix. */
+    val minUsedSats: Int = 5,
+    val minMeanCn0DbHz: Double = 20.0,
+    /** Spread of C/N0 among the used satellites; real skies are varied, a spoofer's signals are uniform. Above the trust check's 1.0 dB. */
+    val minCn0StdDb: Double = 1.5,
+    /** The chip must look healthy continuously for this long before a window opens. */
+    val healthyForS: Double = 10.0,
+    /** Minimum time between windows; doubled after each failed window, back to this after a success. */
+    val intervalS: Double = 60.0,
+    val maxIntervalS: Double = 300.0,
+    /**
+     * Longest a window stays open. Trust accepts returning GNSS after a consistent stream of 10 s
+     * (questionable, after an outage) or 15 s (rejected, with a agreeing network fix).
+     */
+    val windowMaxS: Double = 20.0,
+    /** Close at once when no real fix arrives within this time after opening. */
+    val noFixAbortS: Double = 4.0,
+    /** `GnssStatus` older than this does not count as healthy. */
+    val statusMaxAgeS: Double = 3.0,
+)
+
+enum class ProbePhase { IDLE, WINDOW }
+
+enum class ProbeResult { NONE, RECOVERED, FAILED }
+
+enum class ProbeAction { NONE, OPEN, CLOSE }
+
+/** What the GNSS chip says about itself; independent of the Location fixes we replace. */
+data class ChipHealth(val used: Int, val meanCn0DbHz: Double?, val stdCn0Db: Double?, val healthy: Boolean)
+
+data class ProbeStatus(
+    val phase: ProbePhase,
+    val health: ChipHealth?,
+    /** Seconds until a window may open, or null while the chip is not healthy. */
+    val nextProbeInS: Double?,
+    val lastResult: ProbeResult,
+    val lastResultAgoS: Double?,
+)
+
+class GnssProbeController(private val cfg: GnssProbeConfig = GnssProbeConfig()) {
+    var phase = ProbePhase.IDLE
+        private set
+    var lastResult = ProbeResult.NONE
+        private set
+
+    private var health: ChipHealth? = null
+    private var statusNs: Long? = null
+    private var healthySinceNs: Long? = null
+    private var intervalS = cfg.intervalS
+    private var lastEndNs: Long? = null
+    private var lastResultNs: Long? = null
+    private var windowStartNs = 0L
+    private var firstFixNs: Long? = null
+    private var pending: ProbeResult? = null
+
+    fun onStatus(s: GnssStatusSnapshot) {
+        val used = s.sats.filter { it.usedInFix }
+        val mean = if (used.isEmpty()) null else used.sumOf { it.cn0DbHz } / used.size
+        val std = if (used.size < 2) null else sqrt(used.sumOf { (it.cn0DbHz - mean!!) * (it.cn0DbHz - mean) } / (used.size - 1))
+        val ok = used.size >= cfg.minUsedSats && mean!! >= cfg.minMeanCn0DbHz && std!! >= cfg.minCn0StdDb
+        health = ChipHealth(used.size, mean, std, ok)
+        statusNs = s.tNs
+        healthySinceNs = if (ok) healthySinceNs ?: s.tNs else null
+    }
+
+    /** Feed every GNSS trust assessment; only those of fixes delivered inside the open window count. */
+    fun onAssessment(a: TrustAssessment) {
+        if (phase != ProbePhase.WINDOW || a.source != LocSource.GNSS || a.tNs < windowStartNs) return
+        if (TrustReason.SOURCE_OVERRIDDEN in a.reasons || TrustReason.SYNTHETIC_INPUT in a.reasons) return
+        if (firstFixNs == null) firstFixNs = a.tNs
+        pending = when {
+            a.state == TrustState.TRUSTED -> ProbeResult.RECOVERED
+            // Disagreeing with our estimate is ambiguous: our drift or a spoofer, and trust itself waits for a
+            // consistent stream. Anything else (impossible speed, bad course, OBD mismatch...) is not.
+            a.state == TrustState.REJECTED && !a.reasons.all { it in AMBIGUOUS } -> ProbeResult.FAILED
+            else -> pending
+        }
+    }
+
+    /** Call about once a second. OPEN: remove the test provider. CLOSE: put it back (see [lastResult]). */
+    fun step(tNs: Long): ProbeAction {
+        when (phase) {
+            ProbePhase.IDLE -> {
+                val fresh = statusNs?.let { (tNs - it) / 1e9 <= cfg.statusMaxAgeS } == true
+                val since = healthySinceNs
+                val waited = lastEndNs?.let { (tNs - it) / 1e9 >= intervalS } ?: true
+                if (fresh && since != null && (tNs - since) / 1e9 >= cfg.healthyForS && waited) {
+                    phase = ProbePhase.WINDOW
+                    windowStartNs = tNs
+                    firstFixNs = null
+                    pending = null
+                    return ProbeAction.OPEN
+                }
+            }
+            ProbePhase.WINDOW -> {
+                val elapsed = (tNs - windowStartNs) / 1e9
+                val result = pending ?: when {
+                    elapsed >= cfg.windowMaxS -> ProbeResult.FAILED
+                    firstFixNs == null && elapsed >= cfg.noFixAbortS -> ProbeResult.FAILED
+                    else -> null
+                }
+                if (result != null) {
+                    phase = ProbePhase.IDLE
+                    lastResult = result
+                    lastResultNs = tNs
+                    lastEndNs = tNs
+                    intervalS = if (result == ProbeResult.RECOVERED) cfg.intervalS else min(intervalS * 2, cfg.maxIntervalS)
+                    return ProbeAction.CLOSE
+                }
+            }
+        }
+        return ProbeAction.NONE
+    }
+
+    fun status(tNs: Long): ProbeStatus {
+        val since = healthySinceNs
+        val next = if (since == null) null else maxOf(
+            cfg.healthyForS - (tNs - since) / 1e9,
+            lastEndNs?.let { intervalS - (tNs - it) / 1e9 } ?: 0.0,
+            0.0,
+        )
+        return ProbeStatus(phase, health, next, lastResult, lastResultNs?.let { (tNs - it) / 1e9 })
+    }
+
+    private companion object {
+        val AMBIGUOUS = setOf(TrustReason.INNOVATION_GATE, TrustReason.RECOVERING)
+    }
+}

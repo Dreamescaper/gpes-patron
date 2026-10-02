@@ -51,6 +51,10 @@ import gpes.core.pipeline.MeasurementSource
 import gpes.core.pipeline.PipelineConfig
 import gpes.core.pipeline.PipelineListener
 import gpes.core.trust.DefaultTrustEvaluator
+import gpes.core.trust.GnssProbeController
+import gpes.core.trust.ProbeAction
+import gpes.core.trust.ProbeResult
+import gpes.core.trust.ProbeStatus
 import gpes.recording.DriveWriter
 import gpes.recording.db.DriveDatabase
 import app.cash.sqldelight.driver.android.AndroidSqliteDriver
@@ -95,14 +99,16 @@ class DriveService : Service() {
         const val EXTRA_USE_QUESTIONABLE = "useQuestionable"
         const val EXTRA_OBD_ADDRESS = "obdAddress"
         const val EXTRA_ROADS = "roads"
+        const val EXTRA_PROBE = "probe"
         private const val CHANNEL = "drive"
         /** Louder than [CHANNEL] (still silent): shown on the lock screen while our output replaces the system location. */
         private const val CHANNEL_SPOOF = "spoof"
         private const val NOTIF_ID = 1
 
-        fun start(ctx: Context, mode: RunMode, targets: Set<MockTarget>, useQuestionable: Boolean = false, obdAddress: String? = null, roads: Boolean = false) {
+        fun start(ctx: Context, mode: RunMode, targets: Set<MockTarget>, useQuestionable: Boolean = false, obdAddress: String? = null, roads: Boolean = false, probe: Boolean = false) {
             val i = Intent(ctx, DriveService::class.java).setAction(ACTION_START)
                 .putExtra(EXTRA_ROADS, roads)
+                .putExtra(EXTRA_PROBE, probe)
                 .putExtra(EXTRA_MODE, mode.name)
                 .putExtra(EXTRA_OBD_ADDRESS, obdAddress)
                 .putExtra(EXTRA_USE_QUESTIONABLE, useQuestionable)
@@ -137,6 +143,7 @@ class DriveService : Service() {
                 session = Session(
                     this, mode, if (mode.mock) targets else emptySet(), baseline, intent.getStringExtra(EXTRA_OBD_ADDRESS),
                     roads = intent.getBooleanExtra(EXTRA_ROADS, false),
+                    probe = intent.getBooleanExtra(EXTRA_PROBE, false),
                     onStatus = ::updateNotification,
                 ).also { it.start() }
             }
@@ -225,6 +232,7 @@ private class Session(
     private val baselineConfig: BaselineConfig,
     private val obdAddress: String?,
     private val roads: Boolean,
+    private val probe: Boolean,
     private val onStatus: (Status) -> Unit,
 ) {
     private val id = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
@@ -267,6 +275,33 @@ private class Session(
 
     private var geomagAt: gpes.core.model.LocationMeasurement? = null
 
+    /**
+     * Real GNSS fixes cannot reach us while the platform `gps` provider is replaced, so now and then the test provider
+     * is removed for a short window (D-052). Only when the user left it on and `gps` is a mock target.
+     */
+    private val probeController: GnssProbeController? =
+        if (probe && mode.mock && MockTarget.GPS in targets) GnssProbeController() else null
+    @Volatile private var probeStatus: ProbeStatus? = null
+    private val probeTick = object : Runnable {
+        override fun run() {
+            val c = probeController ?: return
+            val now = SystemClock.elapsedRealtimeNanos()
+            when (c.step(now)) {
+                ProbeAction.OPEN -> {
+                    publisher?.suspend(MockTarget.GPS)
+                    sink.emit(gpes.core.model.Annotation(now, "gps_probe_open"))
+                }
+                ProbeAction.CLOSE -> {
+                    publisher?.resume(MockTarget.GPS)
+                    sink.emit(gpes.core.model.Annotation(now, if (c.lastResult == ProbeResult.RECOVERED) "gps_probe_recovered" else "gps_probe_failed"))
+                }
+                ProbeAction.NONE -> Unit
+            }
+            probeStatus = c.status(now)
+            handler.postDelayed(this, 1000)
+        }
+    }
+
     private val sink: MeasurementSink = MeasurementSink { m: Measurement ->
         writer.write(m)
         if (m is gpes.core.model.LocationMeasurement && !m.isSynthetic) {
@@ -275,7 +310,7 @@ private class Session(
             if (m.source == LocSource.NETWORK && lastEstimate == null) roadMap?.onPosition(m.lat, m.lon, System.currentTimeMillis())
         }
         when (m) {
-            is GnssStatusSnapshot -> lastStatus = m
+            is GnssStatusSnapshot -> { lastStatus = m; probeController?.onStatus(m) }
             is CellScan -> lastCells = m
             is WifiScan -> lastWifi = m
             else -> Unit
@@ -313,6 +348,7 @@ private class Session(
                     override fun onTrust(a: TrustAssessment) {
                         writer.write(a)
                         lastTrust[a.source] = a
+                        probeController?.onAssessment(a)
                     }
 
                     override fun onEstimate(e: PositionEstimate) {
@@ -334,6 +370,7 @@ private class Session(
                 publisher = MockLocationPublisher(ctx, targets) { ev -> sink.emit(ev) }.also { it.start() }
             }
             sources.forEach { it.start(sink) }
+            if (probeController != null) handler.postDelayed(probeTick, 1000)
         }
 
         LiveStatus.set(Status(running = true, mode = mode, mockTargets = targets, sessionId = id, startedElapsedNs = startNs))
@@ -386,6 +423,7 @@ private class Session(
                 obd = obd?.status,
                 speedScale = estimator?.speedScaleStatus,
                 roadMap = roadMap?.status,
+                probe = probeStatus,
             )
         }
         onStatus(LiveStatus.flow.value)
@@ -403,6 +441,7 @@ private class Session(
     fun stop() {
         val done = java.util.concurrent.CountDownLatch(1)
         handler.post {
+            handler.removeCallbacks(probeTick)
             sources.forEach { runCatching { it.stop() } }
             publisher?.stop() // emits RESTORED events into the sink
             pipeline?.flush()

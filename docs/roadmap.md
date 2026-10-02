@@ -339,3 +339,13 @@ Road-constraint follow-ups (R-020):
 - **P2 Trips**: duration, distance and mini-track per drive (needs reading the estimate table).
 - **P3** App icon and a real notification small icon; spoken or haptic alert when the GNSS verdict changes; lock
   settings above 5 km/h; dark-mode and TalkBack pass.
+
+## GNSS recovery while spoofing `gps` (D-052)
+- **P1 First real drive with spoofing on**: does the chip resume at once after `removeTestProvider`, how does Waze
+  react to a window (no fix for a few seconds?), are the healthy-chip thresholds right (C/N0 spread on real skies)?
+  Turn what is found into tests.
+- **P2 Own PVT from raw measurements** (option 2 of D-052): an independent position without windows; only if the
+  windows turn out to disturb navigators or the chip hides data.
+- **P3** Hand-over: when real GNSS is TRUSTED for long, stop replacing `gps` and pass it through, re-installing
+  the mock the moment it degrades.
+

@@ -629,3 +629,23 @@ Alternatives: Navigation Compose (a dependency for four static tabs); an in-app 
 material-icons-extended (about 10 MB of dependency; glyph characters suffice for now); hiding the notification
 action in non-mock modes (kept everywhere: stopping a recording from the shade is also useful).
 Consequences: no change in `:core` or in recordings. Trust reasons are still English codes in the data.
+
+## D-052: Mock the platform `gps` and probe for returning GNSS — Accepted (2026-10-02)
+Context: D-009 made Fused the default target because it keeps real fixes flowing. The user's navigator (Waze)
+refuses to guide without a platform GPS, so `gps` must be replaced (D-009's "optional" target becomes the main one).
+While it is replaced, real Location fixes do not reach us, so a returning GNSS cannot be recognised and the
+estimator stays on dead reckoning (drifting) for good.
+Decision: `gps` is the default target (Fused off); `GnssProbeController` (estimation-algorithm.md §3f) opens a short
+window now and then in which the test provider is removed, gated by a healthy `GnssStatus` (satellites used, C/N0
+level and spread), closed by trust verdicts or time, with back-off on failure. A user setting turns it off.
+Alternatives: (2) own PVT from raw measurements (independent position, no windows, but a large separate project,
+and devices differ in what they expose); (3) never give the provider back, record only (no risk, but no online
+return to GPS). Fixed short windows (6 s): rejected, because trust needs 10–15 s of a consistent stream after an
+outage, so a short window only ever sees QUESTIONABLE fixes that the estimator ignores. Aborting on every
+REJECTED fix: rejected, it would abort exactly the case the probe exists for (a drifted estimate disagreeing with
+the returned GNSS, INNOVATION_GATE).
+Consequences: other apps see the real GPS during a window; if it is spoofed they see the spoofed position for up to
+20 s. Unverified on a device: the emulator reports no satellites, so only the plumbing was checked (window open →
+`gps provider` without `[mock]`, a real fix delivered to the app and to Fused, closed → `[mock]` again); whether
+the real Pixel 8 GNSS hardware resumes at once after `removeTestProvider`, and what Waze shows during a window,
+are not known. Revisit with the first real drive; thresholds are in `GnssProbeConfig`.

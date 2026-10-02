@@ -65,6 +65,8 @@ import gpes.app.source.ObdState
 import gpes.core.estimator.CompassVerdict
 import gpes.core.model.LocSource
 import gpes.core.model.TrustState
+import gpes.core.trust.ProbePhase
+import gpes.core.trust.ProbeResult
 
 @StringRes
 private fun shortLabel(m: RunMode) = when (m) {
@@ -154,7 +156,7 @@ private fun IdleContent(settings: AppSettings, refreshKey: Int, ctx: Context, on
                 if (settings.gps) add(MockTarget.GPS)
                 if (settings.network) add(MockTarget.NETWORK)
             }
-            DriveService.start(ctx, mode, targets, settings.useQuestionable, settings.obdAddress.takeIf { settings.obdEnabled }, settings.roads)
+            DriveService.start(ctx, mode, targets, settings.useQuestionable, settings.obdAddress.takeIf { settings.obdEnabled }, settings.roads, settings.probe)
         },
         enabled = ready,
         modifier = Modifier.fillMaxWidth().height(64.dp),
@@ -197,13 +199,24 @@ private fun RunningContent(s: Status, ctx: Context) {
     }
 
     // Hero: one verdict about the GNSS signal, in words and colour.
+    // With the platform gps replaced (probe != null) real fixes do not reach us, so the GNSS trust state is not
+    // meaningful; the verdict is then about our own position and what the GNSS chip says.
+    val probe = s.probe
+    val chipOk = probe?.health?.healthy == true
     val (title, sub, tint) = when {
-        !s.mode.estimate -> Triple(R.string.hero_recording, R.string.hero_recording_sub, MaterialTheme.colorScheme.primary)
-        e == null -> Triple(R.string.hero_waiting, R.string.hero_waiting_sub, c.idle)
-        gnss == TrustState.TRUSTED -> Triple(R.string.hero_trusted, R.string.hero_trusted_sub, c.good)
-        gnss == TrustState.QUESTIONABLE -> Triple(R.string.hero_questionable, R.string.hero_questionable_sub, c.warn)
-        gnss == TrustState.REJECTED -> Triple(R.string.hero_rejected, R.string.hero_rejected_sub, c.bad)
-        else -> Triple(R.string.hero_no_gnss, R.string.hero_no_gnss_sub, c.warn)
+        !s.mode.estimate -> Triple(R.string.hero_recording, stringResource(R.string.hero_recording_sub), MaterialTheme.colorScheme.primary)
+        probe?.phase == ProbePhase.WINDOW -> Triple(R.string.hero_probing, stringResource(R.string.hero_probing_sub), c.warn)
+        e == null -> Triple(R.string.hero_waiting, stringResource(R.string.hero_waiting_sub), c.idle)
+        probe != null -> Triple(
+            R.string.hero_own,
+            if (!chipOk) stringResource(R.string.hero_own_sub_no_gps)
+            else probe.nextProbeInS?.let { stringResource(R.string.hero_own_sub_chip_ok, it.toInt()) }.orEmpty(),
+            MaterialTheme.colorScheme.primary,
+        )
+        gnss == TrustState.TRUSTED -> Triple(R.string.hero_trusted, stringResource(R.string.hero_trusted_sub), c.good)
+        gnss == TrustState.QUESTIONABLE -> Triple(R.string.hero_questionable, stringResource(R.string.hero_questionable_sub), c.warn)
+        gnss == TrustState.REJECTED -> Triple(R.string.hero_rejected, stringResource(R.string.hero_rejected_sub), c.bad)
+        else -> Triple(R.string.hero_no_gnss, stringResource(R.string.hero_no_gnss_sub), c.warn)
     }
     Card(
         Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
@@ -214,7 +227,7 @@ private fun RunningContent(s: Status, ctx: Context) {
             Box(Modifier.size(16.dp).background(tint, CircleShape))
             Column {
                 Text(stringResource(title), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text(stringResource(sub), fontSize = 14.sp)
+                Text(sub, fontSize = 14.sp)
             }
         }
     }
@@ -235,7 +248,10 @@ private fun RunningContent(s: Status, ctx: Context) {
     if (s.mode.estimate) {
         Text(stringResource(R.string.evidence_title), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            EvidenceChip(
+            if (probe != null) EvidenceChip(
+                stringResource(R.string.ev_gps_chip),
+                if (chipOk) Evidence.ON else Evidence.OFF,
+            ) else EvidenceChip(
                 stringResource(R.string.ev_gps),
                 when (gnss) { TrustState.TRUSTED -> Evidence.ON; TrustState.QUESTIONABLE -> Evidence.WARN; else -> Evidence.OFF },
             )
@@ -255,8 +271,18 @@ private fun RunningContent(s: Status, ctx: Context) {
                 )
             }
         }
+        probe?.let { p ->
+            Text(
+                when (p.lastResult) {
+                    ProbeResult.RECOVERED -> stringResource(R.string.probe_last_recovered, (p.lastResultAgoS ?: 0.0).toInt())
+                    ProbeResult.FAILED -> stringResource(R.string.probe_last_failed, (p.lastResultAgoS ?: 0.0).toInt())
+                    ProbeResult.NONE -> stringResource(R.string.probe_none_yet)
+                },
+                fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         val reasons = s.lastTrust[gnssSource]?.reasons.orEmpty()
-        if (gnss != null && gnss != TrustState.TRUSTED && reasons.isNotEmpty()) {
+        if (probe == null && gnss != null && gnss != TrustState.TRUSTED && reasons.isNotEmpty()) {
             Text(stringResource(R.string.why_title), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
             reasons.take(3).forEach { Text("• " + stringResource(reasonText(it)), fontSize = 14.sp) }
         }

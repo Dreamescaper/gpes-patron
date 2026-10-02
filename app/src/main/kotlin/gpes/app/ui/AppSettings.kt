@@ -9,12 +9,13 @@ import gpes.app.service.RunMode
 /** User choices that survive restarts. Observable from Compose; every setter writes through to preferences. */
 class AppSettings(private val prefs: SharedPreferences) {
     private var modeState by mutableStateOf(RunMode.entries.firstOrNull { it.name == prefs.getString("mode", null) } ?: RunMode.RECORD_ONLY)
-    private var fusedState by mutableStateOf(prefs.getBoolean("target_fused", true))
-    private var gpsState by mutableStateOf(prefs.getBoolean("target_gps", false))
+    private var fusedState by mutableStateOf(prefs.getBoolean("target_fused", false))
+    private var gpsState by mutableStateOf(prefs.getBoolean("target_gps", true))
     private var networkState by mutableStateOf(prefs.getBoolean("target_network", false))
     private var questionableState by mutableStateOf(prefs.getBoolean("use_questionable", false))
     private var obdEnabledState by mutableStateOf(prefs.getBoolean("obd_enabled", false))
     private var obdAddressState by mutableStateOf(prefs.getString("obd_address", null))
+    private var probeState by mutableStateOf(prefs.getBoolean("gps_probe", true))
     private var roadsState by mutableStateOf(prefs.getBoolean("roads_enabled", true))
 
     var mode: RunMode
@@ -38,6 +39,9 @@ class AppSettings(private val prefs: SharedPreferences) {
     var obdAddress: String?
         get() = obdAddressState
         set(v) { obdAddressState = v; prefs.edit().putString("obd_address", v).apply() }
+    var probe: Boolean
+        get() = probeState
+        set(v) { probeState = v; prefs.edit().putBoolean("gps_probe", v).apply() }
     var roads: Boolean
         get() = roadsState
         set(v) { roadsState = v; prefs.edit().putBoolean("roads_enabled", v).apply() }

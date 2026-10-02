@@ -11,7 +11,7 @@
     <string name="use_questionable">Also fuse QUESTIONABLE GNSS (noise ×4; for emulators/quirky devices)</string>
     <string name="mock_targets">Mock targets</string>
     <string name="target_fused">Fused (Google Maps; keeps real GPS input)</string>
-    <string name="target_gps">Platform GPS (overrides real GNSS Location input!)</string>
+    <string name="target_gps">Platform GPS (what Waze and most navigators read)</string>
     <string name="target_network">Platform network</string>
     <string name="mock_app_not_selected">This app is not the selected mock location app. Developer options → Select mock location app, or:\nadb shell appops set %1$s android:mock_location allow</string>
     <string name="start">Start</string>
@@ -195,4 +195,17 @@
     <string name="reason_reset_after_consistent_stream">The signal is stable again; trust is being restored.</string>
     <string name="reason_coarse_odometry_mismatch">The coarse fix does not match the distance driven.</string>
 
+    <!-- GNSS recovery probe while the platform gps is replaced (D-052) -->
+    <string name="mock_targets_hint">While the GPS channel is replaced, real GNSS fixes do not reach the app; satellite data still does. To tell whether GPS is back, the app can give the channel back for a few seconds.</string>
+    <string name="probe_use">Check whether GPS is back</string>
+    <string name="probe_hint">About once a minute, when the GPS chip looks healthy, the real GPS is shown to other apps for up to 20 s. If the signal is spoofed, they see the spoofed position during that time.</string>
+    <string name="hero_probing">Checking real GPS…</string>
+    <string name="hero_probing_sub">Other apps briefly see the real GPS signal.</string>
+    <string name="hero_own">Tracking by sensors</string>
+    <string name="hero_own_sub_no_gps">No usable real GPS. Other apps get our position.</string>
+    <string name="hero_own_sub_chip_ok">The GPS chip sees satellites. Checking it in %1$d s.</string>
+    <string name="ev_gps_chip">GPS chip</string>
+    <string name="probe_last_recovered">Last check: GPS is back, position corrected (%1$d s ago).</string>
+    <string name="probe_last_failed">Last check: real GPS not trusted (%1$d s ago).</string>
+    <string name="probe_none_yet">No GPS check yet.</string>
 </resources>

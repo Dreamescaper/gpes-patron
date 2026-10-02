@@ -72,6 +72,18 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Log
 
+### 2026-10-02 — Spoofing the platform GPS (Waze) and the GNSS recovery probe (D-052)
+- Spoof mode now targets `gps` by default; Fused is optional. New setting "Check whether GPS is back" (default on).
+- `GnssProbeController` (core, pure) + `MockLocationPublisher.suspend/resume`, wired in `DriveService` through a
+  1 s handler tick; `Status.probe`; Drive tab: "GPS chip" evidence chip, hero "Tracking by sensors" / "Checking real
+  GPS…", last-check line; annotations `gps_probe_*`.
+- Verified: `GnssProbeTest` (9 tests: healthy/uniform/few satellites/stale status, no fix, hard rejection, ambiguous
+  rejection until the limit, recovery keeps the base interval, ignored foreign assessments); build and lint pass;
+  emulator plumbing with a temporary debug hook (removed): window open → real `gps` provider, a real fix delivered to the app
+  and Fused, trust evaluated it, close → `[mock]` again, no crash. **Not verified**: the probe's own trigger on a device
+  (the emulator has no satellites), a real GNSS chip after `removeTestProvider`, how Waze behaves during a window
+  or on a spoofed signal, thresholds. Real-drive cases have to be turned into tests after the first drive.
+
 ### 2026-10-02 — App UI redesign and "turn off" notification (D-051)
 - Four tabs, driver screen with a single GNSS verdict, evidence chips, plain-language trust reasons, pinned Stop,
   trips list with date titles and delete (confirm dialog; removes WAL/SHM too), Diagnostics (old raw panel),

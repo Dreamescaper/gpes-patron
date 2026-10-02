@@ -99,9 +99,10 @@ Offline, `ReplayRunner` feeds recorded measurements, transformed by a `Scenario`
    ignore `isSynthetic` fixes.
 3. `MockLocationPublisher` is only an estimate sink. It never emits measurements, except
    `ProviderEvent(OVERRIDDEN/RESTORED)`, which tells trust that a platform provider is ours.
-4. Fused mock mode (the default) leaves the platform `gps` provider real, so real GNSS keeps
-   flowing to trust and recovery. Overriding `gps` is optional, and it marks GNSS Location input
-   UNAVAILABLE.
+4. Fused mock mode leaves the platform `gps` provider real, so real GNSS keeps flowing to trust and
+   recovery. The main target is now platform `gps` (navigators such as Waze read it, D-052): it marks GNSS Location
+   input UNAVAILABLE, and `GnssProbeController` periodically gives the provider back for a short window to see
+   whether real GNSS has returned (estimation-algorithm.md §3f).
 5. Verified on the emulator (2026-09-28): the fused stream returned our mock and was
    `REJECTED/SYNTHETIC_INPUT`. `PipelineTest` covers it as well.
 

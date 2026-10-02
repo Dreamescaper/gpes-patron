@@ -63,6 +63,8 @@ fun SettingsTab(modifier: Modifier, settings: AppSettings, running: Boolean) {
             SwitchRow(stringResource(R.string.target_fused), null, settings.fused, !running) { settings.fused = it }
             SwitchRow(stringResource(R.string.target_gps), null, settings.gps, !running) { settings.gps = it }
             SwitchRow(stringResource(R.string.target_network), null, settings.network, !running) { settings.network = it }
+            Text(stringResource(R.string.mock_targets_hint), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SwitchRow(stringResource(R.string.probe_use), stringResource(R.string.probe_hint), settings.probe, !running) { settings.probe = it }
         }
 
         SettingsCard(stringResource(R.string.settings_advanced)) {

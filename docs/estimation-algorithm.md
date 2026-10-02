@@ -323,6 +323,32 @@ replay rungs `+osm`).
   street name.
 - Without OBD the speed σ condition switches the updates off (except with GNSS speed): measured neutral.
 
+## 3f. GNSS recovery probe while the platform `gps` is replaced (D-052)
+
+Waze and most navigators read the platform `gps` provider, so the mock output must replace it (D-009 kept
+Fused only so that real fixes kept flowing). While the test provider is installed, real Location fixes do not
+reach us, but `GnssStatus` does, so `GnssProbeController` (`core/.../trust/GnssProbe.kt`, pure, driven by
+`tNs`) decides when to give the provider back for a window:
+
+- **Healthy chip**: ≥ 5 satellites used in the fix, mean C/N0 ≥ 20 dB-Hz, C/N0 spread ≥ 1.5 dB (a spoofer's
+  signals are uniform; trust's own `CN0_UNIFORM` threshold is 1.0), `GnssStatus` not older than 3 s, continuously
+  for 10 s.
+- **Open** when healthy and at least `intervalS` (60 s) since the last window. The app removes the `gps` test
+  provider (`ProviderEvent RESTORED`), so real fixes go through trust and the estimator as always.
+- **Close**: a TRUSTED GNSS assessment (recovered; interval back to 60 s); a REJECTED one with a reason other than
+  `INNOVATION_GATE`/`RECOVERING` (impossible speed, bad course, OBD mismatch...: closed at once); no real fix within
+  4 s; or the window limit of 20 s. A failed window doubles the interval (up to 300 s). The app then re-installs the
+  test provider (`OVERRIDDEN`).
+- **Why windows can be long**: a returning GNSS that disagrees with a drifted estimate is accepted by trust only
+  after a consistent stream (10 s when QUESTIONABLE after an outage, D-038; 15 s REJECTED with an agreeing network
+  fix; 120 s otherwise). A disagreeing fix is ambiguous (our drift or a spoofer), so such a window stays open
+  until trust decides or the limit is reached.
+- **Exposure**: during a window other apps see the real GPS. If the signal is spoofed, they see the spoofed position
+  for 1 s (hard rejection) up to 20 s (ambiguous). The healthy-chip filter and the back-off reduce this, not remove
+  it. The user can turn the probe off (setting "Check whether GPS is back").
+- Recorded as `Annotation` labels `gps_probe_open`, `gps_probe_recovered`, `gps_probe_failed`, plus the
+  `ProviderEvent`s. Replay ignores them for estimation (the provider events already drive trust).
+
 ## 4. What the baseline cannot do (by design)
 
 - Absolute heading without GNSS relies on the compass (§3b), untested on real cars yet, or on the

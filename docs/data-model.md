@@ -33,7 +33,7 @@ Code: `core/src/main/kotlin/gpes/core/model/`. All classes are `@Serializable` a
 | `power` | `PowerState` | plug (NONE/AC/USB/WIRELESS/DOCK/OTHER), charging, currentUa, voltageMv, levelPct, temperatureC |
 | `vehicle_speed` | `VehicleSpeedMeasurement` | speedMps, stdMps, source ("obd:elm327", "synthetic", …). ELM327: integer km/h, stamped at the request/response midpoint |
 | `obd_raw` | `ObdExchange` (DriveRecord, not a pipeline input) | request, response, latencyMs: every adapter exchange, for debugging |
-| `annotation` | `Annotation` | label, note (user marks, timebase check) |
+| `annotation` | `Annotation` | label, note (user marks, timebase check; `gps_probe_open` / `gps_probe_recovered` / `gps_probe_failed` from the GNSS recovery probe, D-052) |
 | `trust` | `TrustAssessment` | source, provider, state, confidence 0..1, reasons[], innovationNis, impliedSpeedMps |
 | `estimate` | `PositionEstimate` | estimator, lat/lon, cov (Cov2 m² ENU), headingRad (bearing), headingStdRad, speedMps, speedStdMps, mode, confidence, hypotheses[], road |
 
