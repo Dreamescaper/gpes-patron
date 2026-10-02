@@ -775,7 +775,11 @@ is shown in Settings, is the User-Agent of the road download, and goes into ever
 (so a recording says which commit made it). CI fetches the full history (`fetch-depth: 0`) and names the APK from
 `./gradlew -q :app:printVersion`; a shallow clone fails the build when `CI` is set, because its commit count would be
 wrong. `-PversionCode` is gone.
-Alternatives: Nerdbank.GitVersioning itself (a .NET tool on every dev machine and runner, only to read two numbers);
+Alternatives: GitVersion (GitTools; not tried): SemVer from tags, branch names and commit-message bumps, with
+pre-release labels per branch, a .NET tool (also a Docker image and a GitHub Action); it fits when releases are tagged and
+branches matter, but it still gives no per-commit `versionCode`, and needs .NET on every machine and runner, so it is
+the first thing to swap in if tag-driven SemVer is wanted (call it from `app/build.gradle.kts` for the name and keep the
+code as it is). Nerdbank.GitVersioning itself (a .NET tool on every dev machine and runner, only to read two numbers);
 axion-release or git-versioning plugins (versions come from tags, so every release needs a tag and the code is not
 monotonic per commit; `gradle-git-versioning` would also be one more plugin to keep in step with AGP 9); the CI run
 number (differs between CI and local builds, so reinstalls break); a manual bump (what we had).

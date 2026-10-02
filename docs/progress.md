@@ -75,8 +75,10 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 ### 2026-10-02 — Automatic versioning (D-059)
 - `version.json` + git in `app/build.gradle.kts`: `versionName` `0.1.<height>+<sha>[.dirty]`, `versionCode` 200 + commit
   count; `:app:printVersion`; CI with full history and APK names from the version, `-PversionCode` removed.
-- Verified locally: `printVersion` gives `0.1.0+52a5163.dirty (235)` before committing; see the next line for the
-  committed result and the shallow-clone check. **Not verified**: a CI run.
+- Verified locally: `printVersion` gave `0.1.0+52a5163.dirty (235)` before committing and `0.1.0+e9037e0 (236)` after;
+  the debug APK installed over the emulator's older build (code 112 → 236) and Settings shows `GPES Patron 0.1.0+e9037e0`;
+  a shallow clone with `CI=1` fails the build with the explanatory message (without `CI` it silently gives a wrong code,
+  201). **Not verified**: a CI run (nothing was pushed), the height increasing on later commits (it is 0 until the next one).
 
 ### 2026-10-02 — Estimation before spoofing; stale mock cleanup (D-058)
 - Tracking (estimate only) starts by itself on the Drive and Map tabs and stops with them; the big button turns spoofing
