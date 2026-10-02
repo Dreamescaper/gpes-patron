@@ -1,0 +1,32 @@
+<!doctype html>
+<!-- Feature graphic 1024x500 for Google Play. Render: Chrome headless, window 1024x500, URL feature-graphic.html?lang=en|uk (see docs/play/pages.md or assets/README.md). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; width: 1024px; height: 500px; overflow: hidden; }
+  body { background: #0B5CAD; color: #fff; font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; display: flex; align-items: center; }
+  .icon { width: 360px; height: 360px; margin-left: 64px; flex: none; }
+  .text { margin-left: 36px; margin-right: 48px; }
+  h1 { font-size: 72px; line-height: 1; margin: 0 0 22px; font-weight: 700; letter-spacing: -1px; white-space: nowrap; }
+  p.tag { font-size: 35px; line-height: 1.22; margin: 0; font-weight: 500; color: #EAF2FB; }
+  p.sub { font-size: 26px; margin: 22px 0 0; color: #FFD500; font-weight: 600; }
+  [lang="uk"] { display: none; }
+  html[data-lang="uk"] [lang="en"] { display: none; }
+  html[data-lang="uk"] [lang="uk"] { display: block; }
+</style>
+<script>
+  if (new URLSearchParams(location.search).get("lang") === "uk") document.documentElement.dataset.lang = "uk";
+</script>
+</head>
+<body>
+  <img class="icon" src="icon-store.svg" alt="">
+  <div class="text">
+    <h1>GPES Patron</h1>
+    <p class="tag" lang="en">Keeps your position when GPS is jammed or spoofed</p>
+    <p class="tag" lang="uk">Зберігає позицію, коли GPS глушать чи підміняють</p>
+    <p class="sub" lang="en">Works with your navigator</p>
+    <p class="sub" lang="uk">Працює з вашим навігатором</p>
+  </div>
+</body>
+</html>

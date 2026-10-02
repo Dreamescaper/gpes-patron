@@ -829,3 +829,15 @@ in the history; env variables work the same locally and in CI); `proguard-androi
 Consequences: only the owner holds the upload key; losing it means a reset through Play support. R8 can break reflection-based code: the release APK was
 exercised end to end on the emulator (tracking, spoofing, recording and its serialization, the map), but a release build must be re-checked after a
 new library or a reflection use is added. Upload key created 2026-10-02 (PKCS12, RSA 2048, valid to 2054; certificate SHA-256 `3A:24:4C:AF:15:3C:61:EE:51:4E:0C:EF:89:70:92:E9:7B:1D:A6:8B:32:23:A7:E8:3F:D6:BF:1E:55:4C:43:80`), stored as the four CI secrets, and verified in CI: the signed AAB `gpes-patron-0.1.4-e1f6fd7-240-signed.aab` carries exactly that certificate. Not verified: a Play upload, the signed AAB installed through Play, the wake lock on a long drive.
+
+## D-063: Play graphics rendered from the app's vector icon, committed with their sources — Accepted (2026-10-02)
+Context: Play needs a 512×512 icon, a 1024×500 feature graphic and 2–8 phone screenshots, per language for the text ones.
+Decision: `tools/play-assets/make_icon_svg.py` converts the launcher's vector drawables to SVG (so the store icon is the launcher artwork, cropped
+to a square with a wider margin than the launcher's 72 dp window); Chrome headless renders PNGs from the SVG and from `feature-graphic.html`
+(one file, English and Ukrainian by `?lang=`); screenshots come from a debug build on an emulator set to 1080×2160 (Play accepts at most 2:1, and
+today's phones are 20:9), with the demo-mode status bar. Everything is in `docs/play/assets/` (about 2 MB of PNG); the generator, the HTML and the
+steps to repeat it are committed.
+Alternatives: exporting from a design tool (no source in the repository, and the icon would drift from the app); Android Studio's Image Asset
+(the launcher crop, with little margin); taking screenshots on the Pixel 8 (better, but it was not connected, and a real drive is needed for a real verdict).
+Consequences: the screenshots show the emulator's simulated GNSS (the verdict reads "GPS is not trusted"), so they are a placeholder for real-drive
+ones. The icon PNG is RGB, not RGBA; Play accepts that for a full-square icon, but check on upload. If the icon or the UI changes, regenerate.

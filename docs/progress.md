@@ -81,6 +81,13 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
   201). CI run (2026-10-02, after the push): green, APK `gpes-patron-main-0.1.2-05321b1-238.apk`, height 2 as expected.
 
 
+### 2026-10-02 — Play graphics (D-063)
+- `docs/play/assets/`: `icon-512.png`, `feature-graphic-{en,uk}.png` (1024×500), and 4 screenshots per language (1080×2160), plus the generator
+  (`tools/play-assets/make_icon_svg.py`), `feature-graphic.html` and a README with the steps.
+- Verified: sizes and formats checked (PNG, exact dimensions, 50 KB to 230 KB each); every image viewed (the first icon crop was too tight and the first
+  feature graphic wrapped the title, both fixed); the screenshots show the clean demo status bar. **Not verified**: Play Console's own checks on upload;
+  the screenshots are from the emulator, with simulated GNSS.
+
 ### 2026-10-02 — Release build: R8, upload-key signing, AAB, bounded wake lock (D-062)
 - `release` build type: R8 and resource shrinking, signing from `GPES_UPLOAD_*` (unsigned without them), `proguard-rules.pro` (empty on purpose);
   CI builds `bundleRelease`, signs it when the secrets exist, uploads the AAB and `mapping.txt`; wake lock 10 min, renewed every 5 min;

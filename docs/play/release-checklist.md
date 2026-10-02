@@ -7,7 +7,8 @@ Status as of 2026-10-02. "Done" means checked in this repository, not in Play Co
 | Developer account | Done (the owner's) | Personal accounts created after 2023-11-13 need a closed test with 12 testers for 14 days before production; organisation accounts do not. |
 | Developer verification | Check in Play Console | Required from 2026-09-30 in some countries and globally in 2027 (Android developer verification). |
 | Privacy policy and terms, two languages | Done | `site/`, published with GitHub Pages ([pages.md](pages.md)). Linked in the app (Settings → About). |
-| Store listing text (English, Ukrainian) | Done | [store-listing.md](store-listing.md). Needs screenshots (phone, 2–8), a 512×512 icon and a 1024×500 feature graphic. |
+| Store listing text (English, Ukrainian) | Done | [store-listing.md](store-listing.md). |
+| Icon 512×512, feature graphic 1024×500, phone screenshots | Done (screenshots from the emulator) | [assets/](assets/README.md). Replace the screenshots with real-drive ones from a Pixel 8 when available. |
 | Data safety form | Drafted | [data-safety.md](data-safety.md). |
 | Foreground service declaration and video | Drafted | [foreground-service.md](foreground-service.md). The video is still to be recorded. |
 | Content rating (IARC), target audience, ads | To do in Play Console | Answers in the listing doc. |
