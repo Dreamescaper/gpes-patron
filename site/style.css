@@ -1,0 +1,37 @@
+:root {
+  --bg: #f7f9fc; --fg: #14202e; --muted: #526173; --card: #ffffff; --line: #d7dfe9;
+  --accent: #0b5cad; --accent-fg: #ffffff; --warn-bg: #fff4e0; --warn-line: #e8a33a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101418; --fg: #e6edf5; --muted: #9fb0c3; --card: #1b2128; --line: #2c3540;
+    --accent: #9cc7f5; --accent-fg: #00315b; --warn-bg: #3a2c12; --warn-line: #c58a2a;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+header.top {
+  display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between;
+  max-width: 760px; margin: 0 auto; padding: 16px 16px 0;
+}
+header.top a.brand { font-weight: 600; color: var(--fg); text-decoration: none; }
+nav.lang a, nav.pages a { margin-right: 12px; }
+a { color: var(--accent); }
+h1 { font-size: 1.7rem; line-height: 1.25; margin: 8px 0 4px; }
+h2 { font-size: 1.2rem; margin: 32px 0 8px; }
+p, li { max-width: 68ch; }
+.meta { color: var(--muted); font-size: 0.9rem; margin: 0 0 24px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin: 16px 0; }
+.warn { background: var(--warn-bg); border-color: var(--warn-line); }
+table { border-collapse: collapse; width: 100%; font-size: 0.95rem; margin: 12px 0; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+th { background: var(--card); }
+code { font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--card); padding: 1px 5px; border-radius: 4px; }
+footer { color: var(--muted); font-size: 0.85rem; margin-top: 48px; border-top: 1px solid var(--line); padding-top: 16px; }
+html[data-lang="uk"] [lang="en"], html[data-lang="en"] [lang="uk"] { display: none; }
+.big-links a { display: block; margin: 10px 0; padding: 14px 16px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; text-decoration: none; }

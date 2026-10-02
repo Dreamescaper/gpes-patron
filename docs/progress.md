@@ -80,6 +80,15 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
   a shallow clone with `CI=1` fails the build with the explanatory message (without `CI` it silently gives a wrong code,
   201). **Not verified**: a CI run (nothing was pushed), the height increasing on later commits (it is 0 until the next one).
 
+
+### 2026-10-02 — Documents for Google Play, GitHub Pages, OpenStreetMap attribution (D-061)
+- `site/` (privacy policy, terms of use, home; English and Ukrainian on each page), `.github/workflows/pages.yml`, `docs/play/` (store
+  listing in both languages, Data safety answers, foreground service declaration and video script, release checklist, Pages note).
+- App: Settings → About links to the policy and the terms (per language), and "© OpenStreetMap contributors" on the map and in About.
+- Verified: the pages parse (balanced tags) and read correctly in both languages; the policy was checked against the code and the manifest
+  (permissions, the single network call, optional recording); build and lint pass; on the emulator the About links and the map attribution show.
+  **Not verified**: the deployed pages (see the push), a Play Console review, the video (not recorded), the legal wording (not a lawyer's work).
+- Open: a release build as an Android App Bundle, the wake-lock limit, the rights to the name and icon (`docs/play/release-checklist.md`).
 ### 2026-10-02 — Estimation before spoofing; stale mock cleanup (D-058)
 - Tracking (estimate only) starts by itself on the Drive and Map tabs and stops with them; the big button turns spoofing
   on in the running session (`ACTION_SPOOF_ON`, `Session.startSpoof`, recording begins there if enabled); developer

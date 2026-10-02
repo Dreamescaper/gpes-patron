@@ -242,4 +242,12 @@
     <string name="tracking_starting">Starting position tracking…</string>
     <string name="hero_own_sub_chip_seen">The GPS chip sees satellites.</string>
     <string name="stale_spoof_cleaned">The previous spoofing was not turned off properly. The leftover fake location was removed.</string>
+
+    <!-- Public documents and map attribution (D-061) -->
+    <string name="privacy_policy">Privacy policy</string>
+    <string name="terms_of_use">Terms of use</string>
+    <string name="privacy_url">https://dreamescaper.github.io/gpes-patron/privacy.html?lang=en</string>
+    <string name="terms_url">https://dreamescaper.github.io/gpes-patron/terms.html?lang=en</string>
+    <string name="osm_attribution" translatable="false">© OpenStreetMap contributors</string>
+    <string name="osm_url" translatable="false">https://www.openstreetmap.org/copyright</string>
 </resources>

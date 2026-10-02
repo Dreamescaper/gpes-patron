@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPES Patron: Privacy Policy / Політика конфіденційності</title>
+<meta name="description" content="Privacy policy of the GPES Patron Android app. Політика конфіденційності застосунку GPES Patron.">
+<link rel="stylesheet" href="style.css">
+<script>
+(function () {
+  var p = new URLSearchParams(location.search).get("lang");
+  var l = p || (navigator.language || "en").slice(0, 2);
+  document.documentElement.dataset.lang = (l === "uk" || l === "en") ? l : "en";
+})();
+</script>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="./">GPES Patron</a>
+  <nav class="lang"><a href="?lang=en">English</a><a href="?lang=uk">Українська</a></nav>
+</header>
+<main>
+
+<section lang="en">
+<h1>Privacy Policy</h1>
+<p class="meta">GPES Patron for Android · effective 2026-10-02 · <a href="terms.html?lang=en">Terms of Use</a></p>
+
+<div class="card">
+<strong>In short.</strong> The app works on your phone. It has no accounts, no ads, no analytics and no crash-reporting service.
+By default the only thing that leaves the phone is a request for road map data: a square of about 5.6 km around you, sent to a
+public map server. Recording of drives is off; if you turn it on, the files stay on the phone until you share them yourself.
+</div>
+
+<h2>1. Who we are</h2>
+<p>GPES Patron (“the app”) is an experimental Android app that helps keep a vehicle's position when satellite navigation (GNSS) is
+jammed or spoofed. It is made by an individual developer, Oleksandr Liakhevych (“we”). Contact: open an issue at
+<a href="https://github.com/Dreamescaper/gpes-patron/issues">github.com/Dreamescaper/gpes-patron/issues</a>, or use the developer contact shown on the app's
+Google Play page.</p>
+
+<h2>2. What the app uses, and why</h2>
+<table>
+<tr><th>Data / permission</th><th>Why</th></tr>
+<tr><td>Precise and approximate location (<code>ACCESS_FINE_LOCATION</code>, <code>ACCESS_COARSE_LOCATION</code>): GNSS fixes, network location, Google's fused location</td><td>To work out where the vehicle is and to judge whether GNSS can be trusted. Processed on the phone.</td></tr>
+<tr><td>Raw satellite data (signal levels, satellites used, measurements)</td><td>To detect jamming or spoofing. Processed on the phone.</td></tr>
+<tr><td>Motion sensors (accelerometer, gyroscope, magnetometer and similar)</td><td>To follow the vehicle's movement when GNSS is unavailable. Processed on the phone.</td></tr>
+<tr><td>Wi-Fi scan results (identifiers and signal strength of nearby access points) and mobile cell information (cell identity and signal), <code>ACCESS_WIFI_STATE</code>, <code>CHANGE_WIFI_STATE</code></td><td>As extra evidence of position. Used on the phone; written to a recording only if you enable recording.</td></tr>
+<tr><td>Bluetooth (<code>BLUETOOTH_CONNECT</code>, and <code>BLUETOOTH</code>/<code>BLUETOOTH_ADMIN</code> on old Android)</td><td>Only if you enable it: to read vehicle speed from an OBD-II adapter that you chose from your paired devices. The app does not scan for devices.</td></tr>
+<tr><td>Power and charging state</td><td>To judge magnetic interference with the compass.</td></tr>
+<tr><td>Notifications (<code>POST_NOTIFICATIONS</code>), foreground service of type location, wake lock</td><td>To keep working with the screen off and to show a notification with a “Turn off” button while the app is running.</td></tr>
+<tr><td>Internet (<code>INTERNET</code>)</td><td>Only to download road map data (section 3).</td></tr>
+<tr><td>Mock location (<code>ACCESS_MOCK_LOCATION</code>)</td><td>To give other apps (for example a navigator) the position the app has estimated. It works only after you select GPES Patron as the mock location app in Android's developer options, and you can turn it off at any time.</td></tr>
+</table>
+
+<h2>3. What leaves your phone</h2>
+<ul>
+<li><strong>Road map data.</strong> If the road map is on (the default), the app downloads roads from a public Overpass API server (<code>overpass-api.de</code>) over HTTPS.
+The request contains the bounding box of the map square it needs (about 5.6 km wide, so an approximate location), and, like any web request, your IP address and the
+app name and version. It does not contain your route or track. The server is run by a third party and has its own policies. The downloaded roads are cached on the phone.
+You can turn the road map off in Settings, and then the app makes no network request at all.</li>
+<li><strong>Google Play services.</strong> The app asks Android and Google's fused location provider (part of Google Play services) for location. How Google handles that is described in
+<a href="https://policies.google.com/privacy">Google's privacy policy</a>. If you allow it in Android, Google Play may also give us anonymous crash and performance statistics (Android vitals); we receive no personal data from it, and the app itself has no crash-reporting service.</li>
+<li><strong>Other apps.</strong> While spoofing is on, other apps on your phone (for example a navigator) receive the position estimated by this app instead of the system's.
+What they do with it is governed by their own policies.</li>
+<li>We do not sell data, show ads, build profiles, or use analytics or advertising identifiers.</li>
+</ul>
+
+<h2>4. Optional recording (off by default)</h2>
+<p>If you turn on “Record drives” in Settings, the app saves each drive in a file on your phone: location fixes, satellite measurements, sensor data, Wi-Fi access point
+identifiers and signal strength, mobile cell identifiers, power state, the app's own estimates and, if used, OBD data. The files are in the app's own storage
+(<code>Android/data/gpes.patron/files/drives</code>). <strong>Nothing is sent automatically.</strong> You can share a file with the system share menu, for example with the developer to
+help improve positioning. Such a file contains precise locations and may reveal places such as your home or work, so share it only if you are comfortable with that. You can delete
+recordings in the app (Recordings tab).</p>
+<p>If you send us a recording, we use it only to improve the positioning algorithms, keep it only as long as needed, do not publish it, and delete it when you ask. Test cases we
+derive from recordings use invented local offsets, not real coordinates.</p>
+
+<h2>5. Keeping and deleting data</h2>
+<p>Everything the app stores is on your phone: settings, the road cache and recordings. Uninstalling the app removes it. The only copies we hold are recordings you chose to send us.
+To have such a recording deleted, contact us (section 1).</p>
+
+<h2>6. Your choices</h2>
+<ul>
+<li>Withdraw the location permission in Android settings, or turn spoofing off, at any time.</li>
+<li>Leave the road map, OBD and recording off; they are optional.</li>
+<li>Remove the mock location setting in Android's developer options to stop the app from providing positions to other apps.</li>
+</ul>
+
+<h2>7. Security</h2>
+<p>Network requests use HTTPS. Data on the phone is kept in the app's own storage area. No method of storage is perfectly secure, and recordings you share leave that protection.</p>
+
+<h2>8. Children</h2>
+<p>The app is not directed to children, and we do not knowingly collect data from them.</p>
+
+<h2>9. Your rights</h2>
+<p>We normally hold no personal data about you. If you send us a recording, you may ask to access, correct or delete it, and, depending on where you live (for example under the GDPR or
+Ukrainian data-protection law), you may complain to your data-protection authority.</p>
+
+<h2>10. Third-party data and credits</h2>
+<p>Road data is © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>, available under the Open Database License (ODbL).</p>
+
+<h2>11. Changes</h2>
+<p>If this policy changes we will update the date above and publish the new text here. For significant changes we will also say so in the app's release notes.</p>
+
+<h2>12. Contact</h2>
+<p><a href="https://github.com/Dreamescaper/gpes-patron/issues">github.com/Dreamescaper/gpes-patron/issues</a>, or the developer contact on the app's Google Play page.</p>
+</section>
+
+<section lang="uk">
+<h1>Політика конфіденційності</h1>
+<p class="meta">GPES Patron для Android · діє з 2026-10-02 · <a href="terms.html?lang=uk">Умови використання</a></p>
+
+<div class="card">
+<strong>Коротко.</strong> Застосунок працює на вашому телефоні. У ньому немає облікових записів, реклами, аналітики чи сервісів звітів про збої.
+За замовчуванням із телефона виходить лише запит даних про дороги: квадрат близько 5,6 км навколо вас, який надсилається на публічний сервер карт.
+Запис поїздок вимкнено; якщо ви його ввімкнете, файли залишаються на телефоні, доки ви самі не поділитеся ними.
+</div>
+
+<h2>1. Хто ми</h2>
+<p>GPES Patron («застосунок») — експериментальний застосунок для Android, який допомагає зберегти позицію транспортного засобу, коли супутникова навігація (GNSS) глушиться
+або підміняється. Його створює індивідуальний розробник Олександр Ляхевич («ми»). Контакт: створіть звернення на
+<a href="https://github.com/Dreamescaper/gpes-patron/issues">github.com/Dreamescaper/gpes-patron/issues</a> або скористайтеся контактом розробника на сторінці застосунку в Google Play.</p>
+
+<h2>2. Що використовує застосунок і навіщо</h2>
+<table>
+<tr><th>Дані / дозвіл</th><th>Навіщо</th></tr>
+<tr><td>Точна й приблизна геолокація (<code>ACCESS_FINE_LOCATION</code>, <code>ACCESS_COARSE_LOCATION</code>): GNSS-фікси, мережева локація, об'єднана локація Google</td><td>Щоб визначити, де перебуває транспорт, і оцінити, чи можна довіряти GNSS. Обробляється на телефоні.</td></tr>
+<tr><td>Сирі супутникові дані (рівні сигналу, використані супутники, вимірювання)</td><td>Щоб виявляти глушіння чи спуфінг. Обробляються на телефоні.</td></tr>
+<tr><td>Датчики руху (акселерометр, гіроскоп, магнітометр тощо)</td><td>Щоб відстежувати рух транспорту, коли GNSS недоступний. Обробляються на телефоні.</td></tr>
+<tr><td>Результати сканування Wi-Fi (ідентифікатори й рівень сигналу точок доступу поблизу) та дані мобільних вишок (ідентифікатор вишки й сигнал), <code>ACCESS_WIFI_STATE</code>, <code>CHANGE_WIFI_STATE</code></td><td>Як додаткове свідчення про позицію. Використовуються на телефоні; потрапляють у запис лише якщо ви ввімкнули запис.</td></tr>
+<tr><td>Bluetooth (<code>BLUETOOTH_CONNECT</code>, а на старих версіях Android ще <code>BLUETOOTH</code>/<code>BLUETOOTH_ADMIN</code>)</td><td>Лише якщо ви це ввімкнете: щоб читати швидкість авто з OBD-II-адаптера, який ви обрали зі спарених пристроїв. Застосунок не шукає пристрої.</td></tr>
+<tr><td>Стан живлення й заряджання</td><td>Щоб оцінити магнітні завади для компаса.</td></tr>
+<tr><td>Сповіщення (<code>POST_NOTIFICATIONS</code>), foreground-сервіс типу location, wake lock</td><td>Щоб працювати з вимкненим екраном і показувати сповіщення з кнопкою «Вимкнути», поки застосунок працює.</td></tr>
+<tr><td>Інтернет (<code>INTERNET</code>)</td><td>Лише щоб завантажувати дані про дороги (розділ 3).</td></tr>
+<tr><td>Фіктивна локація (<code>ACCESS_MOCK_LOCATION</code>)</td><td>Щоб віддавати іншим застосункам (наприклад, навігатору) позицію, яку оцінив застосунок. Працює лише після того, як ви оберете GPES Patron застосунком для фіктивних місцезнаходжень у параметрах розробника Android, і ви можете вимкнути це будь-коли.</td></tr>
+</table>
+
+<h2>3. Що виходить за межі телефона</h2>
+<ul>
+<li><strong>Дані про дороги.</strong> Якщо карта доріг увімкнена (за замовчуванням), застосунок завантажує дороги з публічного сервера Overpass API (<code>overpass-api.de</code>) через HTTPS.
+Запит містить рамку потрібного квадрата карти (близько 5,6 км завширшки, тобто приблизну локацію) і, як будь-який веб-запит, вашу IP-адресу та назву й версію застосунку.
+Він не містить вашого маршруту чи треку. Сервер належить третій стороні й має власні правила. Завантажені дороги кешуються на телефоні.
+Карту доріг можна вимкнути в налаштуваннях, і тоді застосунок взагалі не робить мережевих запитів.</li>
+<li><strong>Сервіси Google Play.</strong> Застосунок запитує локацію в Android і в об'єднаного провайдера локації Google (частина сервісів Google Play). Як Google це обробляє, описано в
+<a href="https://policies.google.com/privacy?hl=uk">політиці конфіденційності Google</a>. Якщо ви дозволите це в Android, Google Play може також передавати нам анонімну статистику збоїв і продуктивності (Android vitals); персональних даних ми з неї не отримуємо, а сам застосунок не має сервісу звітів про збої.</li>
+<li><strong>Інші застосунки.</strong> Поки підміна ввімкнена, інші застосунки на телефоні (наприклад, навігатор) отримують позицію, оцінену цим застосунком, замість системної.
+Що вони з нею роблять, визначають їхні власні правила.</li>
+<li>Ми не продаємо дані, не показуємо реклами, не складаємо профілів і не використовуємо аналітику чи рекламні ідентифікатори.</li>
+</ul>
+
+<h2>4. Необов'язковий запис (вимкнений за замовчуванням)</h2>
+<p>Якщо ви ввімкнете «Записувати поїздки» в налаштуваннях, застосунок зберігатиме кожну поїздку у файл на вашому телефоні: геолокації, супутникові вимірювання, дані датчиків,
+ідентифікатори й рівні сигналу точок Wi-Fi, ідентифікатори мобільних вишок, стан живлення, власні оцінки застосунку та, якщо використовується, дані OBD. Файли лежать у власному сховищі застосунку
+(<code>Android/data/gpes.patron/files/drives</code>). <strong>Автоматично нічого не надсилається.</strong> Файлом можна поділитися через системне меню, наприклад із розробником, щоб допомогти покращити
+визначення позиції. Такий файл містить точні координати й може розкрити місця на кшталт дому чи роботи, тож діліться ним, лише якщо вас це влаштовує. Записи можна видалити в застосунку (вкладка «Записи»).</p>
+<p>Якщо ви надішлете нам запис, ми використаємо його лише для покращення алгоритмів позиціювання, зберігатимемо лише доки потрібно, не публікуватимемо й видалимо на ваш запит. Тестові випадки,
+які ми робимо із записів, використовують вигадані локальні зсуви, а не справжні координати.</p>
+
+<h2>5. Зберігання й видалення даних</h2>
+<p>Усе, що зберігає застосунок, лежить на вашому телефоні: налаштування, кеш доріг і записи. Видалення застосунку їх прибирає. Єдині копії, які ми тримаємо, — записи, які ви самі вирішили нам надіслати.
+Щоб такий запис видалили, зв'яжіться з нами (розділ 1).</p>
+
+<h2>6. Ваші можливості</h2>
+<ul>
+<li>Будь-коли відкликайте дозвіл на геолокацію в налаштуваннях Android або вимикайте підміну.</li>
+<li>Тримайте карту доріг, OBD і запис вимкненими: вони необов'язкові.</li>
+<li>Приберіть налаштування фіктивної локації в параметрах розробника Android, щоб застосунок більше не передавав позицію іншим застосункам.</li>
+</ul>
+
+<h2>7. Безпека</h2>
+<p>Мережеві запити використовують HTTPS. Дані на телефоні лежать у власній області сховища застосунку. Жоден спосіб зберігання не є абсолютно безпечним, а записи, якими ви поділились, виходять за межі цього захисту.</p>
+
+<h2>8. Діти</h2>
+<p>Застосунок не призначений для дітей, і ми свідомо не збираємо їхніх даних.</p>
+
+<h2>9. Ваші права</h2>
+<p>Зазвичай ми не маємо жодних ваших персональних даних. Якщо ви надішлете нам запис, ви можете попросити доступ до нього, виправлення чи видалення, а залежно від місця проживання (наприклад, за GDPR або
+українським законодавством про захист персональних даних) — поскаржитися до органу із захисту даних.</p>
+
+<h2>10. Дані третіх сторін і подяки</h2>
+<p>Дані про дороги © <a href="https://www.openstreetmap.org/copyright">учасники OpenStreetMap</a>, доступні за відкритою ліцензією баз даних (ODbL).</p>
+
+<h2>11. Зміни</h2>
+<p>Якщо ця політика зміниться, ми оновимо дату вгорі й опублікуємо новий текст тут. Про суттєві зміни також повідомимо в примітках до випуску застосунку.</p>
+
+<h2>12. Контакти</h2>
+<p><a href="https://github.com/Dreamescaper/gpes-patron/issues">github.com/Dreamescaper/gpes-patron/issues</a> або контакт розробника на сторінці застосунку в Google Play.</p>
+</section>
+
+<footer>© OpenStreetMap contributors (road data) · <a href="./">GPES Patron</a></footer>
+</main>
+</body>
+</html>

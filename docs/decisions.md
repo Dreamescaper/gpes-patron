@@ -787,3 +787,28 @@ Consequences: rewriting history (rebase, squash of published commits) changes th
 rebuilt app (installs then fail with a downgrade: raise the offset in `version.json`). Tags `v*` still publish a release but
 do not set the version: bump `version` in `version.json` before tagging a release. Not verified: a CI run (no push was
 made).
+
+## D-061: Public documents on GitHub Pages from `site/`, one bilingual page each; Play texts in `docs/play/` — Accepted (2026-10-02)
+Context: Google Play needs a privacy policy URL (the app handles location, which is sensitive) and a Data safety form, and the
+app has a foreground service of type location to declare. The owner wants the documents in English and Ukrainian, in the repository and
+on GitHub Pages.
+Decision: `site/` (plain HTML and one CSS file, no build step) holds `privacy.html`, `terms.html` and `index.html`; each page contains both
+languages (`lang="en"`, `lang="uk"` sections), chosen by `?lang=` or the browser language, both visible without JavaScript; the Play field gets
+one URL (`/privacy.html`). `.github/workflows/pages.yml` deploys `site/` on every push to `main` that changes it (Pages source: "GitHub
+Actions"). The policy states what the code does (checked against it on 2026-10-02): everything is processed on the phone; the only request that
+leaves it is the road download to an Overpass server (bounding box of a ≈5.6 km tile, IP address, app name and version), which switching the road
+map off removes; recording is optional, local and shared only by the user; no accounts, ads, analytics or crash reporting; Google Play services
+supply the fused location. The terms say it is experimental and not safety-critical, that spoofing replaces the location for every app, and set
+acceptable use. `docs/play/` holds what is pasted into Play Console: the store listing (both languages), the Data safety answers, the foreground
+service declaration with a video script, a release checklist and a note on the Pages site. The app links to the policy and the terms (a different URL
+per language) in Settings → About, and shows "© OpenStreetMap contributors" on the map and in About (the ODbL asks for it).
+Contact is the GitHub issues page and the developer contact on the Play page; the developer's name (Oleksandr Liakhevych, as in the git history)
+is named as the controller; no e-mail address is published.
+Alternatives: Pages from `docs/` (would also publish the developer documentation and the explanatory video); a `gh-pages` branch (a second
+history to keep); a page per language (two copies of every sentence in separate files, easy to let them drift; we kept the pair in one file, in the same place);
+Markdown with a Jekyll theme (a build step, and a theme that can change); an external host such as Notion or Google Sites (another account and a URL
+we do not control).
+Consequences: the policy has to change with the app: a new network call, an SDK, a new permission or a change of what a recording holds means
+updating `site/privacy.html` (both languages and the date), `docs/play/data-safety.md` and the permissions table. The policy is a statement
+about the code, not legal advice; the owner should read it, and the choice of controller name and contact is theirs. Not verified: Play's review of the
+declarations.

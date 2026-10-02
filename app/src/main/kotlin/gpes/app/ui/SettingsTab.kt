@@ -7,8 +7,11 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
@@ -41,6 +45,7 @@ import gpes.app.BuildConfig
 import gpes.app.R
 
 /** Everything that is set once and rarely touched; locked while a drive is running. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsTab(modifier: Modifier, settings: AppSettings, running: Boolean) {
     Column(
@@ -76,8 +81,17 @@ fun SettingsTab(modifier: Modifier, settings: AppSettings, running: Boolean) {
         }
 
         SettingsCard(stringResource(R.string.settings_about)) {
+            val ctx = LocalContext.current
             Text(stringResource(R.string.app_name) + " " + BuildConfig.VERSION_NAME, fontWeight = FontWeight.Medium)
             Text(stringResource(R.string.tagline), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = { openUrl(ctx, R.string.privacy_url) }) { Text(stringResource(R.string.privacy_policy)) }
+                TextButton(onClick = { openUrl(ctx, R.string.terms_url) }) { Text(stringResource(R.string.terms_of_use)) }
+            }
+            Text(
+                stringResource(R.string.osm_attribution), fontSize = 12.sp, color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clickable { openUrl(ctx, R.string.osm_url) },
+            )
         }
     }
 }
@@ -137,5 +151,15 @@ private fun ObdCard(enabled: Boolean, address: String?, locked: Boolean, onEnabl
                 Text("${d.name ?: "?"}  ${d.address}", Modifier.padding(start = 8.dp), fontSize = 14.sp)
             }
         }
+    }
+}
+
+/** Opens a web page in the browser; the URL is a string resource so that each language gets its own page. */
+internal fun openUrl(ctx: android.content.Context, @androidx.annotation.StringRes url: Int) {
+    runCatching {
+        ctx.startActivity(
+            android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(ctx.getString(url)))
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
     }
 }

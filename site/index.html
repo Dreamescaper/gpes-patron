@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPES Patron</title>
+<meta name="description" content="GPES Patron: an Android app that helps keep your position when GPS is jammed or spoofed. Застосунок, що допомагає зберегти позицію, коли GPS глушать чи підміняють.">
+<link rel="stylesheet" href="style.css">
+<script>
+(function () {
+  var p = new URLSearchParams(location.search).get("lang");
+  var l = p || (navigator.language || "en").slice(0, 2);
+  document.documentElement.dataset.lang = (l === "uk" || l === "en") ? l : "en";
+})();
+</script>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="./">GPES Patron</a>
+  <nav class="lang"><a href="?lang=en">English</a><a href="?lang=uk">Українська</a></nav>
+</header>
+<main>
+
+<section lang="en">
+<h1>GPES Patron</h1>
+<p>An experimental Android app that helps keep your position when GPS is jammed or spoofed, and hands it to your navigator.</p>
+<div class="big-links">
+<a href="privacy.html?lang=en"><strong>Privacy Policy</strong><br><span class="meta">What the app uses and what leaves the phone</span></a>
+<a href="terms.html?lang=en"><strong>Terms of Use</strong><br><span class="meta">What it is, what it is not, acceptable use</span></a>
+<a href="https://github.com/Dreamescaper/gpes-patron"><strong>Source code and issues</strong><br><span class="meta">github.com/Dreamescaper/gpes-patron</span></a>
+</div>
+</section>
+<section lang="uk">
+<h1>GPES Patron</h1>
+<p>Експериментальний застосунок для Android, який допомагає зберегти позицію, коли GPS глушать чи підміняють, і віддає її навігатору.</p>
+<div class="big-links">
+<a href="privacy.html?lang=uk"><strong>Політика конфіденційності</strong><br><span class="meta">Що використовує застосунок і що виходить за межі телефона</span></a>
+<a href="terms.html?lang=uk"><strong>Умови використання</strong><br><span class="meta">Що це таке, чим воно не є, допустиме використання</span></a>
+<a href="https://github.com/Dreamescaper/gpes-patron"><strong>Вихідний код і звернення</strong><br><span class="meta">github.com/Dreamescaper/gpes-patron</span></a>
+</div>
+</section>
+
+<footer>© OpenStreetMap contributors (road data) · <a href="./">GPES Patron</a></footer>
+</main>
+</body>
+</html>

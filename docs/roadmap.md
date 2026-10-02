@@ -378,3 +378,10 @@ Road-constraint follow-ups (R-020):
   frozen car), if Android lets a mock location expire.
 - **P3** Tracking in the background for a few minutes after the app is left, so the estimator stays warm when the user
   switches to the navigator (a notification and a time limit).
+
+## Publishing to Google Play (after D-061)
+- **P1** Release build type and an Android App Bundle with an upload key and Play App Signing (CI builds a debug APK today); shorten the 12 h wake lock;
+  record the foreground service video; screenshots, a 512×512 icon and a feature graphic.
+- **P1** Check the rights to the name and the dog, and keep the listing free of any suggestion of an official affiliation.
+- **P2** Closed test (12 testers, 14 days) if the account is a personal one created after 2023-11-13.
+- **P3** An in-app consent screen the first time recording is turned on, naming what a file holds.

@@ -3,6 +3,7 @@ package gpes.app.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -69,6 +70,7 @@ private val MAJOR_ROADS = setOf(
  */
 @Composable
 fun MapTab(modifier: Modifier, status: Status) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     val density = LocalDensity.current.density
     val cfg = LocalConfiguration.current
     val colors = LocalStatusColors.current
@@ -164,6 +166,16 @@ fun MapTab(modifier: Modifier, status: Status) {
                 drawCircle(accent, 6.5.dp.toPx(), o)
             }
         }
+
+        // OpenStreetMap asks for this wherever its data is shown (ODbL).
+        Text(
+            stringResource(R.string.osm_attribution),
+            Modifier.align(Alignment.TopEnd).padding(12.dp)
+                .background(scheme.surface.copy(alpha = 0.85f), RoundedCornerShape(6.dp))
+                .clickable { openUrl(ctx, R.string.osm_url) }
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+            fontSize = 11.sp, color = scheme.primary,
+        )
 
         // Top: how sure we are, and where.
         Surface(
