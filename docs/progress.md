@@ -87,8 +87,9 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
   fix: a recording begun when spoofing starts has the right mode in its header.
 - Verified locally with a throwaway key (scratchpad, not committed): `assembleRelease` and `bundleRelease` succeed, no R8 warnings; the release APK is 2.9 MB
   (debug about 11 MB), the AAB 3.6 MB and `jarsigner -verify` accepts it; on the emulator the release APK ran tracking, spoofing with recording
-  (a 1.1 MB `.db`, header `MOCK_OUTPUT`, `["GPS"]`, no crash in the log) and the map. **Not verified**: a CI run of the new steps (nothing pushed yet),
-  a Play upload, the wake lock over a long drive, the Pixel 8.
+  (a 1.1 MB `.db`, header `MOCK_OUTPUT`, `["GPS"]`, no crash in the log) and the map. Then the upload key was created and put into the four CI
+  secrets, the work was pushed, CI went green and built `gpes-patron-0.1.4-e1f6fd7-240-signed.aab`, whose certificate matches the key's fingerprint (D-062).
+  **Not verified**: a Play upload, the wake lock over a long drive, the Pixel 8.
 
 ### 2026-10-02 — Documents for Google Play, GitHub Pages, OpenStreetMap attribution (D-061)
 - `site/` (privacy policy, terms of use, home; English and Ukrainian on each page), `.github/workflows/pages.yml`, `docs/play/` (store

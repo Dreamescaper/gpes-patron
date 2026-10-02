@@ -828,4 +828,4 @@ in the history; env variables work the same locally and in CI); `proguard-androi
 `-optimize`, no reason for it); a long wake lock with no renewal (what we had: 12 h).
 Consequences: only the owner holds the upload key; losing it means a reset through Play support. R8 can break reflection-based code: the release APK was
 exercised end to end on the emulator (tracking, spoofing, recording and its serialization, the map), but a release build must be re-checked after a
-new library or a reflection use is added. Not verified: a Play upload, the signed AAB installed through Play, the wake lock on a long drive.
+new library or a reflection use is added. Upload key created 2026-10-02 (PKCS12, RSA 2048, valid to 2054; certificate SHA-256 `3A:24:4C:AF:15:3C:61:EE:51:4E:0C:EF:89:70:92:E9:7B:1D:A6:8B:32:23:A7:E8:3F:D6:BF:1E:55:4C:43:80`), stored as the four CI secrets, and verified in CI: the signed AAB `gpes-patron-0.1.4-e1f6fd7-240-signed.aab` carries exactly that certificate. Not verified: a Play upload, the signed AAB installed through Play, the wake lock on a long drive.
