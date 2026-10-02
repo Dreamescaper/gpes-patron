@@ -57,6 +57,15 @@ class GnssProbeTest {
     }
 
     @Test
+    fun `brief dips of the spread (indoors, a few satellites) do not restart the healthy period`() {
+        // Pixel 8 indoors, 2026-10-02: 6–7 satellites, spread 0.6–1.4 dB for a few seconds between 2–3 dB. Built here
+        // with the same numbers: levels around 26 dB-Hz, a spread alternating between narrow and wide.
+        val c = GnssProbeController(cfg)
+        val t = run(c, 0.0, 30) { status(it, used = 6, cn0 = { i -> 26.0 + (if (it.toInt() % 3 == 2) 0.4 else 2.5) * (i % 3 - 1) }) }
+        assertEquals(cfg.healthyForS, t)
+    }
+
+    @Test
     fun `too few satellites in the fix never open a window`() {
         val c = GnssProbeController(cfg)
         assertNull(run(c, 0.0, 120) { status(it, used = 3) })
@@ -75,7 +84,7 @@ class GnssProbeTest {
         val c = GnssProbeController(cfg)
         val open = run(c, 0.0, 30)!!
         var closeAt: Double? = null
-        for (i in 1..10) {
+        for (i in 1..30) {
             val t = open + i
             c.onStatus(status(t))
             if (c.step(s(t)) == ProbeAction.CLOSE) { closeAt = t; break }

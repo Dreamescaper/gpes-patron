@@ -330,14 +330,16 @@ Fused only so that real fixes kept flowing). While the test provider is installe
 reach us, but `GnssStatus` does, so `GnssProbeController` (`core/.../trust/GnssProbe.kt`, pure, driven by
 `tNs`) decides when to give the provider back for a window:
 
-- **Healthy chip**: ≥ 5 satellites used in the fix, mean C/N0 ≥ 20 dB-Hz, C/N0 spread ≥ 1.5 dB (a spoofer's
-  signals are uniform; trust's own `CN0_UNIFORM` threshold is 1.0), `GnssStatus` not older than 3 s, continuously
+- **Healthy chip**: ≥ 5 satellites used in the fix, mean C/N0 ≥ 20 dB-Hz, C/N0 spread ≥ 1.0 dB (the same as trust's
+  `CN0_UNIFORM`; a spoofer's signals are uniform), taken as the largest spread over the last 5 statuses because
+  indoors the spread of 5–7 satellites dips to 0.6–1.4 dB for seconds, `GnssStatus` not older than 3 s, continuously
   for 10 s.
 - **Open** when healthy and at least `intervalS` (60 s) since the last window. The app removes the `gps` test
   provider (`ProviderEvent RESTORED`), so real fixes go through trust and the estimator as always.
 - **Close**: a TRUSTED GNSS assessment (recovered; interval back to 60 s); a REJECTED one with a reason other than
   `INNOVATION_GATE`/`RECOVERING` (impossible speed, bad course, OBD mismatch...: closed at once); no real fix within
-  4 s; or the window limit of 20 s. A failed window doubles the interval (up to 300 s). The app then re-installs the
+  12 s (Pixel 8: the first fix came 1.1–3.1 s after the provider was given back in three windows, not within 4 s
+  and 8 s in two; until it arrives other apps have no GPS at all); or the window limit of 20 s. A failed window doubles the interval (up to 300 s). The app then re-installs the
   test provider (`OVERRIDDEN`).
 - **Why windows can be long**: a returning GNSS that disagrees with a drifted estimate is accepted by trust only
   after a consistent stream (10 s when QUESTIONABLE after an outage, D-038; 15 s REJECTED with an agreeing network

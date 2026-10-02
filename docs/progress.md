@@ -72,6 +72,17 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Log
 
+### 2026-10-02 — First run of the GNSS probe on the Pixel 8 (D-052)
+- Pixel 8 (SDK 37), indoors and stationary, spoof mode with `gps` as the target, ≈ 3 min.
+  Chip healthy (7–13 satellites in the fix after a ~20 s cold start). Windows opened, the real GPS returned its first fix
+  1.1–3.1 s later and trust accepted it within 2–6 s: three `gps_probe_recovered` in a row. A first 70 s session with
+  the 4 s no-fix abort ended in `gps_probe_failed` (no fix yet), hence the 8 s limit; the C/N0-spread threshold was
+  relaxed to 1.0 dB over the last 5 statuses (`GnssProbeTest`, case from this session in miniature). A third
+  session with an 8 s abort again failed its first window (32–40 s): NMEA and the status kept flowing, the chip had a
+  fix, but no `Location` came, so the abort became 12 s. In total 3 of 5 windows recovered.
+- The device keeps the old install's recorded drives (installed over it with a higher versionCode).
+- **Not verified**: Waze during a window, driving, a real spoofed or jammed signal, hand-over (roadmap P3).
+
 ### 2026-10-02 — Spoofing the platform GPS (Waze) and the GNSS recovery probe (D-052)
 - Spoof mode now targets `gps` by default; Fused is optional. New setting "Check whether GPS is back" (default on).
 - `GnssProbeController` (core, pure) + `MockLocationPublisher.suspend/resume`, wired in `DriveService` through a

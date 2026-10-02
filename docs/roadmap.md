@@ -341,9 +341,12 @@ Road-constraint follow-ups (R-020):
   settings above 5 km/h; dark-mode and TalkBack pass.
 
 ## GNSS recovery while spoofing `gps` (D-052)
-- **P1 First real drive with spoofing on**: does the chip resume at once after `removeTestProvider`, how does Waze
-  react to a window (no fix for a few seconds?), are the healthy-chip thresholds right (C/N0 spread on real skies)?
-  Turn what is found into tests.
+- **P1 First real drive with spoofing on** (the chip resumes within 1–3 s after `removeTestProvider`, measured
+  indoors 2026-10-02): how does Waze react to a window (no fix for a few seconds?), are the healthy-chip thresholds
+  right in motion and in the open (C/N0 spread, satellites)? Turn what is found into tests.
+- **P1 Waze during a window**: while no real `Location` arrives (1 s to more than 8 s indoors) other apps have no GPS
+  at all. Check what Waze shows and whether it keeps guiding; if it complains, options: windows only when stopped, or
+  longer pauses, or own PVT below.
 - **P2 Own PVT from raw measurements** (option 2 of D-052): an independent position without windows; only if the
   windows turn out to disturb navigators or the chip hides data.
 - **P3** Hand-over: when real GNSS is TRUSTED for long, stop replacing `gps` and pass it through, re-installing

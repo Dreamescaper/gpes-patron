@@ -649,3 +649,15 @@ Consequences: other apps see the real GPS during a window; if it is spoofed they
 `gps provider` without `[mock]`, a real fix delivered to the app and to Fused, closed → `[mock]` again); whether
 the real Pixel 8 GNSS hardware resumes at once after `removeTestProvider`, and what Waze shows during a window,
 are not known. Revisit with the first real drive; thresholds are in `GnssProbeConfig`.
+
+Measured (Pixel 8, 2026-10-02, indoors, stationary, 3 sessions): after `RESTORED` the first real fix came after
+3.1 s (it had POOR_ACCURACY, QUESTIONABLE), 1.3 s and 1.1 s; trust reached TRUSTED 6.1 s, 2.0 s and 2.0 s after the
+window opened (window-closed → `gps_probe_recovered`), so the real GPS agreed with our estimate (NIS 0.4–2.6) and
+windows lasted 2–6 s. Two other windows (4 s and 8 s no-fix aborts) saw no real `Location` although NMEA and the
+satellite status kept flowing (the chip had a fix; the delay of the first `Location` after the provider is given back
+varies from about 1 s to more than 8 s indoors), so the abort is 12 s. A C/N0 spread threshold of 1.5 dB flapped
+indoors and became 1.0 dB over the last 5 statuses. While no `Location` arrives other apps have no GPS at all: whether
+that bothers Waze is the open question. All 65 `gps`
+locations received while the provider was replaced were our own mock (`is_mock=1`) and were rejected as
+SYNTHETIC_INPUT, which confirms the feedback guard on a device. Still unknown: how Waze reacts to a window, behaviour
+while driving and under real jamming or spoofing.

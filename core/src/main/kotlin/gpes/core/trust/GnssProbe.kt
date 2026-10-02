@@ -22,8 +22,13 @@ data class GnssProbeConfig(
     /** The chip must use at least this many satellites in its fix. */
     val minUsedSats: Int = 5,
     val minMeanCn0DbHz: Double = 20.0,
-    /** Spread of C/N0 among the used satellites; real skies are varied, a spoofer's signals are uniform. Above the trust check's 1.0 dB. */
-    val minCn0StdDb: Double = 1.5,
+    /**
+     * Spread of C/N0 among the used satellites; real skies are varied, a spoofer's signals are uniform. The same
+     * 1.0 dB as trust's `CN0_UNIFORM`. Indoors the spread of 5–7 satellites dips to 0.6–1.4 dB for a few seconds
+     * (Pixel 8, 2026-10-02), so the largest spread over the last [spreadStatuses] statuses is used.
+     */
+    val minCn0StdDb: Double = 1.0,
+    val spreadStatuses: Int = 5,
     /** The chip must look healthy continuously for this long before a window opens. */
     val healthyForS: Double = 10.0,
     /** Minimum time between windows; doubled after each failed window, back to this after a success. */
@@ -34,8 +39,12 @@ data class GnssProbeConfig(
      * (questionable, after an outage) or 15 s (rejected, with a agreeing network fix).
      */
     val windowMaxS: Double = 20.0,
-    /** Close at once when no real fix arrives within this time after opening. */
-    val noFixAbortS: Double = 4.0,
+    /**
+     * Close when no real fix arrives within this time after opening. Measured on a Pixel 8: the first real fix came
+     * 1.1–3.1 s after the provider was given back in three windows, and not within 4 s and 8 s in two others (NMEA
+     * kept flowing). Until it arrives other apps have no GPS at all, so this also bounds that outage.
+     */
+    val noFixAbortS: Double = 12.0,
     /** `GnssStatus` older than this does not count as healthy. */
     val statusMaxAgeS: Double = 3.0,
 )
@@ -73,12 +82,16 @@ class GnssProbeController(private val cfg: GnssProbeConfig = GnssProbeConfig()) 
     private var windowStartNs = 0L
     private var firstFixNs: Long? = null
     private var pending: ProbeResult? = null
+    private val recentStd = ArrayDeque<Double>()
 
     fun onStatus(s: GnssStatusSnapshot) {
         val used = s.sats.filter { it.usedInFix }
         val mean = if (used.isEmpty()) null else used.sumOf { it.cn0DbHz } / used.size
         val std = if (used.size < 2) null else sqrt(used.sumOf { (it.cn0DbHz - mean!!) * (it.cn0DbHz - mean) } / (used.size - 1))
-        val ok = used.size >= cfg.minUsedSats && mean!! >= cfg.minMeanCn0DbHz && std!! >= cfg.minCn0StdDb
+        recentStd.addLast(std ?: 0.0)
+        while (recentStd.size > cfg.spreadStatuses) recentStd.removeFirst()
+        val spread = recentStd.max()
+        val ok = used.size >= cfg.minUsedSats && mean!! >= cfg.minMeanCn0DbHz && spread >= cfg.minCn0StdDb
         health = ChipHealth(used.size, mean, std, ok)
         statusNs = s.tNs
         healthySinceNs = if (ok) healthySinceNs ?: s.tNs else null
