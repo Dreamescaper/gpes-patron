@@ -695,7 +695,7 @@ Consequences: no basemap labels, buildings or water, only roads, so it is a moni
 roads appear only with the road map on and downloaded. Heading-up, rotation, route preview and tap-to-inspect are not
 done.
 
-## D-055: App icon: a dog-face map pin (Patron), supplied as an adaptive icon — Accepted (2026-10-02)
+## D-055: App icon: a dog-face map pin (Patron), supplied as an adaptive icon — Superseded by D-057 (the artwork; the adaptive structure stands) (2026-10-02)
 Context: the app needs an icon; the name comes from "Пес Патрон", and the app is about location, hence a dog and a map
 pin. Many variants were drawn and compared (face in the pin, a Jack Russell, a paw, a head-shaped pin, profile, nose,
 signal arcs, bone, palettes). A nose alone read as a wine glass (the muzzle line under it looked like a stem and a
@@ -727,3 +727,13 @@ Alternatives: keeping the export in developer mode (nobody needs it on the phone
 swipe-to-delete (no confirmation for big files, no batch share).
 Consequences: JSONL and GnssLogger text come only from the CLI. Recordings are still ~4 MB per minute (the IMU at
 about 800 Hz dominates); making the files themselves smaller is a separate change of the recording format.
+
+## D-057: Updated icon artwork — Accepted (2026-10-02)
+Context: the user replaced the icon set from D-055 with a new one (`gpes_patron_android_icon`).
+Decision: the new set is used as supplied: a white pin with a larger Jack Russell face (orange head patches and small
+ears, brows, eyes with highlights, dark nose, muzzle line) on the app's blue `#0B5CAD`; `ic_launcher_background` (a
+colour shape), `ic_launcher_foreground` and `ic_launcher_monochrome` (themed icon), `mipmap-anydpi-v26/ic_launcher.xml`
+and a separate `ic_launcher_round.xml`, `roundIcon` pointing at it. The set already scales the artwork by 0.82 into the
+safe zone, so nothing is changed. The old drawables, `mipmap-anydpi` and the SVG in `docs/assets` were removed.
+Consequences: there is no SVG source in the repository now (the set has none); the vector drawables are the source.
+Still not checked: the Pixel 8 launcher, the themed icon, other masks.

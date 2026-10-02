@@ -72,6 +72,11 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Log
 
+### 2026-10-02 — New icon artwork (D-057)
+- Replaced the icon with the user's updated set (see D-057): drawables `ic_launcher_*`, `mipmap-anydpi-v26`
+  (`ic_launcher`, `ic_launcher_round`), manifest `roundIcon`. Verified: build and lint pass; on the emulator's
+  launcher the new icon sits inside the round mask. Not verified: Pixel 8, themed icon, other masks.
+
 ### 2026-10-02 — Recordings list: compact rows, multi-select, no export (D-056)
 - Removed the in-app "Export JSONL + GnssLogger" (`DriveStorage.export`, its strings). One compact row per recording;
   long press selects, tap toggles, batch Share and Delete (confirmation with count and total size, Ukrainian plural
