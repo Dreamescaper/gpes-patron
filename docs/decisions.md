@@ -694,3 +694,21 @@ and keys, and our mock location would feed it); only a track plot (no roads, no 
 Consequences: no basemap labels, buildings or water, only roads, so it is a monitoring view and not navigation;
 roads appear only with the road map on and downloaded. Heading-up, rotation, route preview and tap-to-inspect are not
 done.
+
+## D-055: App icon: a dog-face map pin (Patron), supplied as an adaptive icon — Accepted (2026-10-02)
+Context: the app needs an icon; the name comes from "Пес Патрон", and the app is about location, hence a dog and a map
+pin. Many variants were drawn and compared (face in the pin, a Jack Russell, a paw, a head-shaped pin, profile, nose,
+signal arcs, bone, palettes). A nose alone read as a wine glass (the muzzle line under it looked like a stem and a
+base).
+Decision: the user's own design (folder `gpes_patron_android_icon`): a white pin on the app's blue `#0B5CAD`, a
+Jack Russell face inside it (orange ear patches, eyes with brows, dark nose with nostrils and a muzzle line).
+Adaptive icon (`mipmap-anydpi/ic_launcher.xml`, background colour, vector foreground, monochrome layer for Android 13+
+themed icons), used for `icon` and `roundIcon`. The source SVG is kept in `docs/assets/gpes_patron_icon.svg`.
+The artwork reaches y 14..94 of the 108 dp canvas, beyond the visible 72 dp circle, so the foreground and the
+monochrome layer are wrapped in a `<group>` scaled by 0.82 about the centre (pin 21..87, inside the 66 dp safe zone);
+the SVG itself is unchanged.
+Alternatives: the several variants above (kept in the conversation, not in the repository); a raster icon (no theming,
+several densities to keep).
+Consequences: the in-app palette could follow the icon (the blue is shared; the yellow and the orange of the
+variants are not used). Not checked: other launchers' masks (squircle, teardrop) and the themed monochrome icon on
+a device.

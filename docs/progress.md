@@ -72,6 +72,12 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Log
 
+### 2026-10-02 — App icon (D-055)
+- Adaptive icon from the user's `gpes_patron_android_icon` set: dog-face pin on blue, foreground and monochrome
+  layers scaled to the safe zone (0.82), `icon` and `roundIcon` in the manifest, source SVG in `docs/assets`.
+- Verified: build and lint pass; on the emulator's launcher the whole pin sits inside the round mask. **Not
+  verified**: the Pixel 8 launcher (the phone was not connected), the themed (monochrome) icon, other masks.
+
 ### 2026-10-02 — Recording and start modes made developer options (D-053)
 - Main screen: only "turn on spoofing". Recording is optional and off by default; developer mode adds Diagnostics,
   record-only / estimate-only modes, marks and the QUESTIONABLE toggle. Tabs are dynamic (2–4).
