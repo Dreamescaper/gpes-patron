@@ -217,7 +217,11 @@ adb pull /storage/emulated/0/Android/data/gpes.patron/files/drives/<id>.db   # p
   (R-007). Recordings go to `recordings/` (not in git). A second drive under jamming (no GNSS fix at
   all) was recorded the same day (R-008). Kyiv has persistent GNSS jamming, so real jammed data is
   easy to get.
-- **P26 Android UI test details (emulator).** The launcher activity is `gpes.patron/gpes.app.ui.MainActivity`
+- **P33 Setting app preferences from adb (debug build).** `run-as` cannot create files in `/data/local`: push the XML to
+  `/data/local/tmp`, then `run-as gpes.patron sh -c 'mkdir -p shared_prefs && cp /data/local/tmp/x.xml shared_prefs/gpes.xml'`
+  with the app force-stopped. It is how developer mode, the start mode and the QUESTIONABLE toggle were set in the
+  map test. BSD `sed -i` needs `-i ''`, and an emulator install needs a `-PversionCode` above the installed one.
+- **P32 Android UI test details (emulator).** The launcher activity is `gpes.patron/gpes.app.ui.MainActivity`
   (`am start -n gpes.patron/.ui.MainActivity` fails). `adb install -r` kills the app, so wait about 3 s before
   tapping. Collapse the shade (`cmd statusbar collapse`) before screenshots. `Theme.Material.DayNight` does not
   exist as an android style: use `Theme.DeviceDefault.DayNight`. `adb emu geo fix` needs a few repeats before the

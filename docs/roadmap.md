@@ -358,3 +358,9 @@ Road-constraint follow-ups (R-020):
 - **P2** "Send to the developer": share the recording with one tap, optionally strip or coarsen the location, and offer
   to delete it afterwards; a size indicator and a free-space warning; clean-up of old recordings.
 - **P3** An opt-in explanation screen the first time recording is enabled (what is stored, that nothing is sent).
+
+## Map (after D-054)
+- **P2** Heading-up mode and rotation; tap a road to see its name and class; trail colouring by trust or speed.
+- **P2** A route preview (planned route as an extra constraint, see Phase 3) and the road tiles downloading as an
+  area outline.
+- **P3** Place names and water for orientation (a small offline extract), and a night palette tuned for driving.

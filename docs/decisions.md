@@ -678,3 +678,19 @@ hidden (privacy, storage 4 MB/min); a separate research build (two builds to kee
 Consequences: the estimator and `:core` are unchanged; `Status.recording` tells the UI; event marks exist only while
 recording. Revisit: an in-app "send to the developer" flow and clear-on-share, a recording size/space indicator,
 automatic clean-up of old recordings.
+
+## D-054: Own vector map on a Canvas, no map SDK and no raster tiles — Accepted (2026-10-02)
+Context: the app had no map. The point is to show where we think the car is next to what GPS claims, so a spoofed
+or jammed GPS is visible.
+Decision: a "Map" tab drawn with a Compose `Canvas` from data the app already has: roads from the OSM tiles of the
+road matcher (`RoadNetwork.segmentsWithin`, major roads thicker), our estimate with its uncertainty circle and
+heading, its recent track (3 m minimum step, 1200 points), and the real GNSS fixes coloured by trust (green, amber,
+red) and network fixes as hollow rings (`MapTrack`, 300 fixes, the trust verdict joined by fix time). North-up, pan,
+pinch and buttons to zoom, a button to follow the car, scale bar and legend. `MapView` (core, tested) holds the
+projection and the scale-bar rounding. The tab is always present; after a session it shows the last one.
+Alternatives: osmdroid or MapLibre (a dependency, raster or vector tile downloads, a second source of map data that
+disagrees with the matcher's roads, and no offline use without more work); Google Maps (proprietary, needs network
+and keys, and our mock location would feed it); only a track plot (no roads, no context).
+Consequences: no basemap labels, buildings or water, only roads, so it is a monitoring view and not navigation;
+roads appear only with the road map on and downloaded. Heading-up, rotation, route preview and tap-to-inspect are not
+done.

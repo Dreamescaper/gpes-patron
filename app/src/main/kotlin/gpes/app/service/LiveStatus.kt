@@ -55,6 +55,8 @@ data class Status(
     val roadMap: RoadMapStatus? = null,
     /** GNSS recovery probe (platform gps replaced, D-052); null when it does not apply. */
     val probe: ProbeStatus? = null,
+    /** Track, fixes and roads for the map tab. */
+    val map: MapSnapshot? = null,
     val notes: List<String> = emptyList(),
 )
 

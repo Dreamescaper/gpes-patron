@@ -216,4 +216,20 @@
     <string name="dev_hint">Shows Diagnostics, the start modes (record only, estimate only) and the experimental options.</string>
     <string name="record_on_hint">Recording is on: the drive will be saved on this phone.</string>
     <string name="recording_now">Recording this drive (for the developer).</string>
+
+    <!-- Map tab (D-054) -->
+    <string name="tab_map">Map</string>
+    <string name="map_idle">The map appears while spoofing is on.</string>
+    <string name="map_last_session">Last session</string>
+    <string name="map_no_roads">No roads yet (the road map is off or still downloading).</string>
+    <string name="map_zoom_in">Zoom in</string>
+    <string name="map_zoom_out">Zoom out</string>
+    <string name="map_recenter">Follow the car</string>
+    <string name="map_legend_estimate">Our position</string>
+    <string name="map_legend_gps_ok">GPS, trusted</string>
+    <string name="map_legend_gps_doubt">GPS, doubtful</string>
+    <string name="map_legend_gps_bad">GPS, not trusted</string>
+    <string name="map_legend_network">Network</string>
+    <string name="map_scale_m">%1$d m</string>
+    <string name="map_scale_km">%1$d km</string>
 </resources>

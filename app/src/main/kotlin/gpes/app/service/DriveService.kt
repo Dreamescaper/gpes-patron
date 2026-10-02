@@ -340,8 +340,11 @@ private class Session(
         }
     }
 
+    private val mapTrack = MapTrack()
+
     private val sink: MeasurementSink = MeasurementSink { m: Measurement ->
         writer.write(m)
+        if (m is gpes.core.model.LocationMeasurement) mapTrack.addFix(m)
         if (m is gpes.core.model.LocationMeasurement && !m.isSynthetic) {
             maybeGeomag(m)
             // Before the estimator has a position, a network fix is enough to pick road tiles.
@@ -385,12 +388,14 @@ private class Session(
                     override fun onTrust(a: TrustAssessment) {
                         writer.write(a)
                         lastTrust[a.source] = a
+                        mapTrack.setTrust(a)
                         probeController?.onAssessment(a)
                     }
 
                     override fun onEstimate(e: PositionEstimate) {
                         writer.write(e)
                         lastEstimate = e
+                        mapTrack.addEstimate(e)
                         roadMap?.onPosition(e.lat, e.lon, System.currentTimeMillis())
                         publisher?.publish(e)
                     }
@@ -461,6 +466,7 @@ private class Session(
                 speedScale = estimator?.speedScaleStatus,
                 roadMap = roadMap?.status,
                 probe = probeStatus,
+                map = mapTrack.snapshot(roadMap?.network),
             )
         }
         onStatus(LiveStatus.flow.value)

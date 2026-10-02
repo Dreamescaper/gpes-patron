@@ -56,6 +56,7 @@ internal fun isMockAppSelected(ctx: Context): Boolean {
 
 private enum class Tab(val label: Int, val glyph: String) {
     DRIVE(R.string.tab_drive, "◉"),
+    MAP(R.string.tab_map, "◈"),
     TRIPS(R.string.tab_trips, "☰"),
     DIAGNOSTICS(R.string.tab_diagnostics, "∿"),
     SETTINGS(R.string.tab_settings, "⚙"),
@@ -82,15 +83,15 @@ private fun Screen() {
     val hasDrives = remember(refresh, status.running) { DriveStorage.list(ctx).isNotEmpty() }
     val visible = Tab.entries.filter {
         when (it) {
-            Tab.DRIVE, Tab.SETTINGS -> true
+            Tab.DRIVE, Tab.MAP, Tab.SETTINGS -> true
             Tab.TRIPS -> settings.record || settings.developer || hasDrives
             Tab.DIAGNOSTICS -> settings.developer
         }
     }
     val tab = Tab.entries[tabIndex].takeIf { it in visible } ?: Tab.DRIVE
 
-    // A driver glances at the phone: keep it awake while a drive is running on the Drive tab.
-    val keepAwake = status.running && tab == Tab.DRIVE
+    // A driver glances at the phone: keep it awake while a drive is running on the Drive or Map tab.
+    val keepAwake = status.running && (tab == Tab.DRIVE || tab == Tab.MAP)
     val activity = ctx as? Activity
     DisposableEffect(keepAwake) {
         if (keepAwake) activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -106,7 +107,14 @@ private fun Screen() {
                         selected = tab == t,
                         onClick = { tabIndex = t.ordinal },
                         icon = { Text(t.glyph, fontSize = 20.sp) },
-                        label = { Text(stringResource(t.label), fontWeight = if (tab == t) FontWeight.Bold else FontWeight.Normal) },
+                        label = {
+                            // Five tabs in developer mode: one line, a little smaller.
+                            Text(
+                                stringResource(t.label), maxLines = 1, softWrap = false,
+                                fontSize = if (visible.size > 4) 10.sp else 12.sp,
+                                fontWeight = if (tab == t) FontWeight.Bold else FontWeight.Normal,
+                            )
+                        },
                     )
                 }
             }
@@ -115,6 +123,7 @@ private fun Screen() {
         val m = Modifier.padding(padding)
         when (tab) {
             Tab.DRIVE -> DriveTab(m, settings, status, refresh) { refresh++ }
+            Tab.MAP -> MapTab(m, status)
             Tab.TRIPS -> TripsTab(m, refresh, status.running)
             Tab.DIAGNOSTICS -> DiagnosticsTab(m, status)
             Tab.SETTINGS -> SettingsTab(m, settings, status.running)

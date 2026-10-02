@@ -217,4 +217,20 @@
     <string name="dev_hint">Показує діагностику, режими запуску (лише запис, лише оцінка) та експериментальні опції.</string>
     <string name="record_on_hint">Запис увімкнено: поїздку буде збережено на цьому телефоні.</string>
     <string name="recording_now">Іде запис цієї поїздки (для розробника).</string>
+
+    <!-- Map tab (D-054) -->
+    <string name="tab_map">Карта</string>
+    <string name="map_idle">Карта з’явиться, коли ввімкнена підміна.</string>
+    <string name="map_last_session">Остання сесія</string>
+    <string name="map_no_roads">Доріг ще немає (карту доріг вимкнено або вона ще завантажується).</string>
+    <string name="map_zoom_in">Збільшити</string>
+    <string name="map_zoom_out">Зменшити</string>
+    <string name="map_recenter">Стежити за авто</string>
+    <string name="map_legend_estimate">Наша позиція</string>
+    <string name="map_legend_gps_ok">GPS, довіряю</string>
+    <string name="map_legend_gps_doubt">GPS, сумнівний</string>
+    <string name="map_legend_gps_bad">GPS, не довіряю</string>
+    <string name="map_legend_network">Мережа</string>
+    <string name="map_scale_m">%1$d м</string>
+    <string name="map_scale_km">%1$d км</string>
 </resources>
