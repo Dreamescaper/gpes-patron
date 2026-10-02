@@ -72,6 +72,16 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Log
 
+### 2026-10-02 — Recordings list: compact rows, multi-select, no export (D-056)
+- Removed the in-app "Export JSONL + GnssLogger" (`DriveStorage.export`, its strings). One compact row per recording;
+  long press selects, tap toggles, batch Share and Delete (confirmation with count and total size, Ukrainian plural
+  forms), All, Cancel, Back leaves selecting.
+- Verified on the emulator (copies of one recording): selection by long press and tap, the header, the delete dialog
+  ("Видалити 2 записи?", 4.1 MB), deletion of two files (disk and list updated), the system chooser "Sharing 2 files".
+  Build and lint pass. **Not verified**: on the Pixel 8, sharing a 100+ MB file to a real target, TalkBack (the row's
+  long press has no custom action label).
+- Not done: smaller recording files (IMU about 800 Hz is most of the 4 MB per minute); a size and free-space indicator.
+
 ### 2026-10-02 — App icon (D-055)
 - Adaptive icon from the user's `gpes_patron_android_icon` set: dog-face pin on blue, foreground and monochrome
   layers scaled to the safe zone (0.82), `icon` and `roundIcon` in the manifest, source SVG in `docs/assets`.

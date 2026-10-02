@@ -87,12 +87,7 @@
     <!-- Поїздки -->
     <string name="recorded_drives">Записані поїздки (%1$d)</string>
     <string name="stored_in">Зберігаються в %1$s</string>
-    <string name="drive_size">%1$s  %2$.1f МБ</string>
     <string name="drive_recording">(йде запис)</string>
-    <string name="share_db">Поділитися .db</string>
-    <string name="export_jsonl">Експорт JSONL + GnssLogger</string>
-    <string name="exporting">Експорт %1$s…</string>
-    <string name="export_failed">Помилка експорту: %1$s</string>
     <string name="share_drive">Поділитися поїздкою</string>
 
     <!-- Сервіс / фіктивна локація -->
@@ -166,8 +161,6 @@
     <string name="trips_empty">Записів ще немає. Увімкніть «Записувати поїздки» в налаштуваннях.</string>
     <string name="delete">Видалити</string>
     <string name="cancel">Скасувати</string>
-    <string name="delete_title">Видалити цю поїздку?</string>
-    <string name="delete_text">Запис від %1$s буде видалено з цього телефона. Це незворотно.</string>
     <string name="channel_spoof">Підміна координат</string>
     <string name="notif_title_spoof">GPES підміняє вашу позицію</string>
     <string name="notif_waiting">Чекаю на позицію…</string>
@@ -233,4 +226,18 @@
     <string name="map_legend_network">Мережа</string>
     <string name="map_scale_m">%1$d м</string>
     <string name="map_scale_km">%1$d км</string>
+
+    <!-- Recordings list: selection (D-056) -->
+    <string name="size_mb">%1$.1f МБ</string>
+    <string name="sel_count">Вибрано: %1$d</string>
+    <string name="sel_share">Поділитися</string>
+    <string name="sel_all">Усі</string>
+    <string name="trips_hint">Утримуйте запис, щоб вибрати кілька.</string>
+    <string name="delete_batch_text">З цього телефона буде видалено %1$.1f МБ. Це незворотно.</string>
+    <plurals name="delete_batch_title">
+        <item quantity="one">Видалити %1$d запис?</item>
+        <item quantity="few">Видалити %1$d записи?</item>
+        <item quantity="many">Видалити %1$d записів?</item>
+        <item quantity="other">Видалити %1$d запису?</item>
+    </plurals>
 </resources>

@@ -364,3 +364,8 @@ Road-constraint follow-ups (R-020):
 - **P2** A route preview (planned route as an extra constraint, see Phase 3) and the road tiles downloading as an
   area outline.
 - **P3** Place names and water for orientation (a small offline extract), and a night palette tuned for driving.
+
+## Smaller recordings
+- **P2** Recordings are about 4 MB per minute, mostly `ImuSample` at about 800 Hz. Options: store IMU in compressed
+  blocks (a blob per second) or decimate the raw rate; keep original timestamps (never resample, AGENTS.md). Needs
+  a format version bump and a reader that handles both, and a check that replay results do not change.

@@ -51,7 +51,7 @@ select kind, count(*) from imu group by kind;
 ## Exports
 
 - **JSONL**: one record per line, `{"type": "...", ...}` in canonical order. Also a valid replay
-  input. Written with `replay export --format jsonl` or the app's Export button.
+  input. Written with `replay export --format jsonl` (the app has no export: it shares the `.db`, D-056).
 - **CSV**: one file per table-like record kind (`location.csv`, `imu.csv`, `trust.csv`,
   `estimate.csv`, …). Written with `replay export --format csv --out dir/`.
 - **GnssLogger text**: a best-effort compatible subset (`Raw`, `Fix`, `Status`, `UncalAccel`,

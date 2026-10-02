@@ -712,3 +712,18 @@ several densities to keep).
 Consequences: the in-app palette could follow the icon (the blue is shared; the yellow and the orange of the
 variants are not used). Not checked: other launchers' masks (squircle, teardrop) and the themed monochrome icon on
 a device.
+
+## D-056: No export in the app; recordings share the `.db`, listed compactly with multi-select — Accepted (2026-10-02)
+Context: the Recordings tab had "Share .db" and "Export JSONL + GnssLogger" on a large card per drive, and one
+action at a time. Recordings are now an optional hand-over to the developer (D-053). The export loaded the whole drive
+into memory (a drive can be 144 MB), gave the developer nothing the `.db` does not (`replay export` does the same on a
+computer), and confused users with a second button.
+Decision: the app only shares the `.db` file(s). `DriveStorage.export` and its strings are removed; the CLI
+`replay export` (jsonl, csv, gnsslogger) and the format tests stay. The list is one row per recording (local date and
+time, size; the recording in progress is marked and cannot be selected). A long press starts selecting, a tap toggles,
+the header shows the count with Share, Delete (with a confirmation that gives the count and the total size), All and
+Cancel; Back leaves selecting. Share sends all selected files in one chooser (`ACTION_SEND_MULTIPLE`).
+Alternatives: keeping the export in developer mode (nobody needs it on the phone); a per-row overflow menu (no batch);
+swipe-to-delete (no confirmation for big files, no batch share).
+Consequences: JSONL and GnssLogger text come only from the CLI. Recordings are still ~4 MB per minute (the IMU at
+about 800 Hz dominates); making the files themselves smaller is a separate change of the recording format.

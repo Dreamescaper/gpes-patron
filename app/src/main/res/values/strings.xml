@@ -86,12 +86,7 @@
     <!-- Drives -->
     <string name="recorded_drives">Recorded drives (%1$d)</string>
     <string name="stored_in">Stored in %1$s</string>
-    <string name="drive_size">%1$s  %2$.1f MB</string>
     <string name="drive_recording">(recording)</string>
-    <string name="share_db">Share .db</string>
-    <string name="export_jsonl">Export JSONL + GnssLogger</string>
-    <string name="exporting">Exporting %1$s…</string>
-    <string name="export_failed">Export failed: %1$s</string>
     <string name="share_drive">Share drive</string>
 
     <!-- Service / mock -->
@@ -165,8 +160,6 @@
     <string name="trips_empty">No recordings yet. Turn on “Record drives” in Settings.</string>
     <string name="delete">Delete</string>
     <string name="cancel">Cancel</string>
-    <string name="delete_title">Delete this drive?</string>
-    <string name="delete_text">The recording from %1$s will be deleted from this phone. This cannot be undone.</string>
     <string name="channel_spoof">Position spoofing</string>
     <string name="notif_title_spoof">GPES is replacing your position</string>
     <string name="notif_waiting">Waiting for a position…</string>
@@ -232,4 +225,16 @@
     <string name="map_legend_network">Network</string>
     <string name="map_scale_m">%1$d m</string>
     <string name="map_scale_km">%1$d km</string>
+
+    <!-- Recordings list: selection (D-056) -->
+    <string name="size_mb">%1$.1f MB</string>
+    <string name="sel_count">%1$d selected</string>
+    <string name="sel_share">Share</string>
+    <string name="sel_all">All</string>
+    <string name="trips_hint">Press and hold a recording to select several.</string>
+    <string name="delete_batch_text">%1$.1f MB will be deleted from this phone. This cannot be undone.</string>
+    <plurals name="delete_batch_title">
+        <item quantity="one">Delete %1$d recording?</item>
+        <item quantity="other">Delete %1$d recordings?</item>
+    </plurals>
 </resources>

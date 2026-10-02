@@ -3,8 +3,6 @@ package gpes.app.service
 import android.content.Context
 import androidx.sqlite.db.SupportSQLiteDatabase
 import app.cash.sqldelight.driver.android.AndroidSqliteDriver
-import gpes.recording.DriveReader
-import gpes.recording.Exporters
 import gpes.recording.db.DriveDatabase
 import java.io.File
 
@@ -30,20 +28,4 @@ object DriveStorage {
             }
         },
     )
-
-    /** Export a drive to JSONL and GnssLogger text in the cache dir (for sharing). Loads the whole drive in memory. */
-    fun export(context: Context, file: File): List<File> {
-        val outDir = File(context.cacheDir, "exports").also { it.mkdirs() }
-        val driver = open(context, file)
-        try {
-            val records = DriveReader(DriveDatabase(driver)).allRecords()
-            val jsonl = File(outDir, file.nameWithoutExtension + ".jsonl")
-            jsonl.bufferedWriter().use { Exporters.jsonl(records, it) }
-            val gl = File(outDir, file.nameWithoutExtension + ".gnsslogger.txt")
-            gl.bufferedWriter().use { Exporters.gnssLogger(records, it) }
-            return listOf(jsonl, gl)
-        } finally {
-            driver.close()
-        }
-    }
 }
