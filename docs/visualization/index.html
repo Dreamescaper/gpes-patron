@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Як телефон шукає себе без GPS</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+  <div class="canvas-wrap">
+    <canvas id="cv" width="960" height="540"></canvas>
+    <div id="sub"></div>
+    <div id="loading">Рахуємо модельну поїздку…</div>
+    <div id="startcard"><div><div class="big">Як телефон шукає себе без GPS</div><div class="small">Відео-пояснення без формул «для своїх»: крок за кроком, на прикладах з карти. ≈ 16 хвилин, з голосом.</div><div class="go">▶ Дивитися</div></div></div>
+  </div>
+  <div id="bar">
+    <button id="play" title="Пауза / пуск (пробіл)">▶</button>
+    <div class="scrubwrap"><input id="scrub" type="range" min="0" max="10000" value="0" aria-label="Час"><div id="ticks"></div></div>
+    <span id="time">0:00</span>
+    <select id="rate" title="Швидкість"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select>
+    <button id="voice" title="Голос за кадром (Леся) — увімкнути / вимкнути">🔈 Озвучка</button>
+    <button id="full" title="На весь екран">⛶</button>
+  </div>
+  <div id="chap"></div>
+  <p class="foot">Навчальна модель: спрощений фільтр на синтетичному «місті», а не запис реальної поїздки. Реальний алгоритм — <code>docs/estimation-algorithm.md</code>, виміряні числа — <code>docs/progress.md</code>. Для тих, хто читає формули: <a href="formal.html" style="color:#58c4dd">формальна версія</a> (спектри, фільтри, EKF). Клавіші: пробіл — пауза, ←/→ — ±10 с, ↑/↓ — сцена.</p>
+</div>
+<script src="audio/stretch.js"></script>
+<script src="engine.js"></script>
+<script src="app.js"></script>
+<script src="scenes-a.js"></script>
+<script src="scenes-b.js"></script>
+<script src="scenes-c.js"></script>
+<script src="scenes-d.js"></script>
+</body>
+</html>

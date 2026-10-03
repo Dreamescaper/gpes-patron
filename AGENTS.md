@@ -23,6 +23,8 @@ road graph, OBD speed, planned route) improve it?*
 | [docs/recording-format.md](docs/recording-format.md) | SQLite drive bundle, JSONL/CSV/GnssLogger exports |
 | [docs/replay-and-scenarios.md](docs/replay-and-scenarios.md) | Replay CLI, scenario format, variants, metrics |
 | [docs/research.md](docs/research.md) | Existing projects evaluated, and what was reused or rejected |
+| [docs/visualization/index.html](docs/visualization/index.html) | Explanatory **video** (Ukrainian, for non-mathematicians): open in a browser. A teaching JS model, not the real code (D-060). Changed a subtitle? `EDGE_TTS=<path to edge-tts> node docs/visualization/make-audio.js` (D-068) |
+| [docs/visualization/formal.html](docs/visualization/formal.html) | **Formal** math video (formulas, spectra, filters, EKF…): KaTeX + Plotly from CDN (D-067). Voice: `node docs/visualization/make-audio.js formal` |
 | [docs/dev-guide.md](docs/dev-guide.md) | **Recipes** (add a measurement, trust check, EKF state, variant, sim feature, UI text), test and emulator workflow, **pitfalls already hit** |
 
 ## Documentation rules (keep docs in sync during implementation)

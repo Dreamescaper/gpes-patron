@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Математика оцінки позиції без GPS</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="formal.css">
+</head>
+<body>
+<div id="stage">
+  <div id="wrap" class="canvas-wrap">
+    <div id="view"><div id="layer"></div></div>
+    <div id="titlecard"></div>
+    <div id="sub"></div>
+    <div id="startcard"><div><div class="big">Математика оцінки позиції без GPS</div><div class="small">Формальна версія: сигнали й спектри, фільтри, EKF, χ²-ворота, гармонічний аналіз компаса, суміш гаусіанів, прихована марковська модель. Формули відповідають коду <code>core/</code>.</div><div class="go">▶ Дивитися</div></div></div>
+  </div>
+  <div id="bar">
+    <button id="play" title="Пауза / пуск (пробіл)">▶</button>
+    <div class="scrubwrap"><input id="scrub" type="range" min="0" max="10000" value="0" aria-label="Час"><div id="ticks"></div></div>
+    <span id="time">0:00</span>
+    <select id="rate" title="Швидкість"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select>
+    <button id="voice" class="on" title="Голос за кадром (Леся)">🔊 Озвучка</button>
+    <button id="full" title="На весь екран">⛶</button>
+  </div>
+  <div id="chap"></div>
+  <p class="foot">Формули відповідають коду <code>core/</code> (стан, коефіцієнти, пороги). Графіки — синтетичні сигнали та розрахунки за цими формулами, не записи реальних поїздок. Потрібен інтернет (KaTeX і Plotly з CDN). Популярна версія: <a href="index.html">index.html</a>. Клавіші: пробіл — пауза, ←/→ — ±10 с, ↑/↓ — сцена.</p>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script src="audio-formal/stretch.js"></script>
+<script>window.AUDIO_DIR = 'audio-formal';</script>
+<script src="engine.js"></script>
+<script src="formal-num.js"></script>
+<script src="formal-player.js"></script>
+<script src="formal-1.js"></script>
+<script src="formal-2.js"></script>
+<script src="formal-3.js"></script>
+<script src="formal-4.js"></script>
+<script>startFormal(FSC);</script>
+</body>
+</html>
