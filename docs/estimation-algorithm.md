@@ -149,7 +149,7 @@ bearing, gyro bias about up, vehicle-speed/OBD scale error).
 ψ ← ψ − (ω_up − b)·dt
 e ← e + v·sin ψ·dt          (only while heading is known)
 n ← n + v·cos ψ·dt
-v ← v                       (random walk σ = 0.7 m/s/√s)
+v ← v                       (random walk σ = 0.7 m/s/√s; 1.5 after 5 s with no GNSS fix of any trust, D-075)
 b ← b                       (random walk σ = 2e−4 rad/s/√s)
 s ← s                       (random walk σ = 2e−5 /√s; speedometer scale)
 ```
@@ -157,6 +157,13 @@ s ← s                       (random walk σ = 2e−5 /√s; speedometer scale)
 - The position follows ψ: **non-holonomic constraint** (no lateral or vertical velocity) by
   construction.
 - Q: position 0.3 m/√s; heading 0.01 rad/√s plus a 2% gyro scale error on each turn increment.
+  **Phone movement (D-076):** add `handYawNoise² · max(0, tiltRateRms − handTiltRateFloor)² · dt` to heading variance,
+  with defaults 0.5 and 0.2 rad/s. The latest motion update supplies the 0.5-s non-yaw rate RMS, saved in snapshots.
+  Unlike D-073's 60-s mount classification, this reacts immediately to a burst of phone movement. It leaves the gyro
+  heading increment intact but admits that it may be the phone's turn, allowing subsequent position fixes to correct
+  heading through the EKF cross-covariance. Below the floor propagation is unchanged; `handYawNoise = 0` disables it.
+  A rotation purely about up has no tilt signal and remains a blind spot. This is an uncertainty model, not a detector
+  of vehicle turns; recovery can take several coarse fixes, and R-032 records a GNSS recovery regression on 140822.
 - **Heading unknown** (for example a network-only start): position is not propagated
   directionally. Its covariance grows isotropically by the worst-case distance D = Σ(|v| + 2σ_v)·dt
   (per-axis variance D²/2), and D resets on every position update.

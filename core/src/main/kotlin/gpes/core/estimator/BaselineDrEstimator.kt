@@ -39,6 +39,15 @@ data class BaselineConfig(
     val minCourseSpeedMps: Double = 5.0,
     /** Longitudinal speed random walk (m/s per √s). Controls how fast speed becomes unknown. */
     val speedRandomWalk: Double = 0.7,
+    /**
+     * The same random walk once no GNSS fix at all (of any trust) arrived for [speedRandomWalkDrAfterS] and no speed
+     * source drives v (no OBD, accelerometer speed off): a city car goes 0 → 15 m/s in 20 s, and 0.7 m/s/√s claimed a
+     * radius half the error (drive 20261003-153540 without GNSS: within68 0.20). While GNSS fixes arrive, even untrusted
+     * ones, 0.7 keeps the innovation gate tight against a spoofer (1.5 after 5 s without a *trusted* fix:
+     * `gnss_ramp_capture` missed 0.16 → 0.48). null = [speedRandomWalk] always (D-075).
+     */
+    val speedRandomWalkDr: Double? = 1.5,
+    val speedRandomWalkDrAfterS: Double = 5.0,
     /** Speed assumed right after leaving a stop when no speed source exists (with [unknownSpeedStd]). */
     val pullAwaySpeedMps: Double = 8.0,
     /** Position process noise (m/√s), for lateral slip and model error. */
@@ -80,6 +89,14 @@ data class BaselineConfig(
      * consistent for the reduced gain (Joseph form).
      */
     val coarseHeadingGain: Double = 1.0,
+    /**
+     * Heading noise from a phone moving in the hand: the gyro cannot tell the phone turning in the hand from the car
+     * turning. Each second of tilt-rate RMS above [handTiltRateFloor] adds (this × excess)² rad² of heading variance
+     * (drive 20261003-153540 at 186–208 s: 70° of spurious turn while tr reached 0.2–0.6 rad/s; σ_ψ stayed 5°, so the
+     * correct network fixes could not turn it back). Holders sit at 0.045–0.067 rad/s median, p90 ≤ 0.14. 0 = off (D-076).
+     */
+    val handYawNoise: Double = 0.5,
+    val handTiltRateFloor: Double = 0.2,
     /** A stream reset keeps the heading if GNSS was used this recently (s). */
     val coarseStreamGnssRecentS: Double = 60.0,
     /** Use QUESTIONABLE GNSS with R inflated by this factor; null = don't use. */
@@ -203,7 +220,7 @@ class BaselineDrEstimator(
         val gyroHist: List<Pair<Double, Double>>, val cumGyro: Double, val lastRoadAlongOdo: Double,
         val heldOffset: Double?, val heldT: Long, val obdHist: List<Pair<Long, Double>>, val lastCornerOdo: Double,
         val lastALong: Double?, val lastObdT: Long, val centLat: Double, val centYaw: Double, val centN: Int, val centT: Long,
-        val stillSinceT: Long, val lastFixT: Long, val tiltRateLp: Double?,
+        val stillSinceT: Long, val lastFixT: Long, val tiltRateLp: Double?, val lastGnssSeenT: Long, val lastTiltRate: Double,
     )
 
     /** A coarse fix that disagreed strongly with the prediction. */
@@ -231,12 +248,16 @@ class BaselineDrEstimator(
     private var centN = 0
     private var centT = Long.MIN_VALUE
     private var stillSinceT = Long.MIN_VALUE
+    /** Latest [MotionUpdate.tiltRateRms] (rad/s): a phone moving in the hand (D-076). */
+    private var lastTiltRate = 0.0
     /** [MotionUpdate.tiltRateRms] low-passed over [AccelSpeedConfig.unsteadyTauS] while moving (null until the first). */
     private var tiltRateLp: Double? = null
     /** Last position fix (coarse or GNSS) the estimator used. */
     private var lastFixT = Long.MIN_VALUE
     private var stationary = false
     private var lastGnssT = Long.MIN_VALUE
+    /** Last GNSS fix of any trust except UNAVAILABLE (our own mock), used or not: GNSS is jammed only when this is old. */
+    private var lastGnssSeenT = Long.MIN_VALUE
     private var dirlessDist = 0.0
     private var compass = Compass(cfg.compass)
     private var nextCompassT = Long.MIN_VALUE
@@ -295,6 +316,7 @@ class BaselineDrEstimator(
         propagateTo(u.tNs, lastYawRate)
         lastYawRate = u.yawRateUp
         lastALong = u.longitudinalAccel
+        lastTiltRate = u.tiltRateRms
         if (!stationary && !u.stillLoose) tiltRateLp = tiltRateLp?.let { it + (u.tiltRateRms - it) * (u.dtS / cfg.accelSpeed.unsteadyTauS).coerceAtMost(1.0) } ?: u.tiltRateRms
         val accelMode = accelReady(u.tNs)
         // The real-car stop rule only where a stop is plausible: a car cannot be at 15 m/s one moment and stopped
@@ -640,6 +662,7 @@ class BaselineDrEstimator(
 
     private fun onLocation(m: LocationMeasurement, trust: TrustAssessment?) {
         val state = trust?.state ?: return
+        if (m.source == LocSource.GNSS && state != TrustState.UNAVAILABLE && !m.isSynthetic) lastGnssSeenT = m.tNs
         val usable = when (m.source) {
             LocSource.GNSS -> true
             LocSource.FUSED -> cfg.useFused
@@ -807,7 +830,8 @@ class BaselineDrEstimator(
         gyroTurn -= (yawRate - x[IDX_B]) * dt
         f[IDX_PSI, IDX_B] = dt
         val turn = (yawRate - x[IDX_B]) * dt * cfg.gyroScaleError
-        q[IDX_PSI, IDX_PSI] = cfg.headingRandomWalk * cfg.headingRandomWalk * dt + turn * turn
+        val hand = cfg.handYawNoise * max(0.0, lastTiltRate - cfg.handTiltRateFloor)
+        q[IDX_PSI, IDX_PSI] = cfg.headingRandomWalk * cfg.headingRandomWalk * dt + turn * turn + hand * hand * dt
         val aL = lastALong
         if (aL != null && accelMode(lastT)) {
             // Specific force along the vehicle drives the speed; its bias is a state (never open-loop, D-050).
@@ -817,7 +841,9 @@ class BaselineDrEstimator(
             val rw = cfg.accelSpeed.biasRandomWalk * unsteadyScale()
             q[IDX_BA, IDX_BA] = rw * rw * dt
         } else {
-            q[IDX_V, IDX_V] = cfg.speedRandomWalk * cfg.speedRandomWalk * dt
+            val dr = cfg.speedRandomWalkDr?.takeIf { lastGnssSeenT == Long.MIN_VALUE || (lastT - lastGnssSeenT) / 1e9 > cfg.speedRandomWalkDrAfterS }
+            val rw = dr ?: cfg.speedRandomWalk
+            q[IDX_V, IDX_V] = rw * rw * dt
         }
         q[IDX_B, IDX_B] = cfg.biasRandomWalk * cfg.biasRandomWalk * dt
         q[IDX_S, IDX_S] = cfg.speedScaleRandomWalk * cfg.speedScaleRandomWalk * dt
@@ -982,7 +1008,7 @@ class BaselineDrEstimator(
         matcher?.copy(), lastRoadOdo, gyroTurn, recentTurns, lastRoadHeadingOdo, lastRoadCrossOdo,
         roadSteps, seenFreeSteps, roadRejects, free?.snapshot(), gyroHist, cumGyro, lastRoadAlongOdo,
         heldOffset, heldT, obdHist, lastCornerOdo,
-        lastALong, lastObdT, centLat, centYaw, centN, centT, stillSinceT, lastFixT, tiltRateLp,
+        lastALong, lastObdT, centLat, centYaw, centN, centT, stillSinceT, lastFixT, tiltRateLp, lastGnssSeenT, lastTiltRate,
     )
 
     override fun restore(snapshot: Any) {
@@ -1001,7 +1027,7 @@ class BaselineDrEstimator(
         gyroHist = s.gyroHist; cumGyro = s.cumGyro; lastRoadAlongOdo = s.lastRoadAlongOdo
         heldOffset = s.heldOffset; heldT = s.heldT; obdHist = s.obdHist; lastCornerOdo = s.lastCornerOdo
         lastALong = s.lastALong; lastObdT = s.lastObdT; centLat = s.centLat; centYaw = s.centYaw; centN = s.centN; centT = s.centT
-        stillSinceT = s.stillSinceT; lastFixT = s.lastFixT; tiltRateLp = s.tiltRateLp
+        stillSinceT = s.stillSinceT; lastFixT = s.lastFixT; tiltRateLp = s.tiltRateLp; lastGnssSeenT = s.lastGnssSeenT; lastTiltRate = s.lastTiltRate
         if (free != null && s.free != null) free.restore(s.free)
     }
 

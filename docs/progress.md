@@ -37,8 +37,9 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
   (conservative); along-track error between turns is only partly corrected (M4 fires a few times per
   drive); not yet run in the app or a car.
 
-- **Almost no real-world data.** Two drives (Pixel 8, R-007 with GNSS, R-008 jammed); all other
-  numbers come from the simulator. Live ESTIMATE/MOCK modes have not run in a car yet.
+- **Limited real-world data.** Six Pixel 8 recordings, including two hand-held drives recorded with mock output on
+  2026-10-03 (build 0.1.6). Four have usable GPS truth for the current replay comparison; 153540 has only 50 interpolated
+  truth ticks in seven windows. D-075/D-076 are verified offline; neither has run in a car.
 - **Chip dead-reckoning fixes pass as GNSS.** The Pixel 8 keeps emitting `gps` fixes with hAcc
   3–10 m for ~50 s after losing all satellites (NMEA GGA quality 6). The trust evaluator TRUSTS them
   and replay truth includes them.
@@ -48,7 +49,10 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 - Real-drive numbers before 2026-09-28 for gyro-only / phone-only / phone+network include the
   recorded OBD (D-033).
 - **Hand-held phone (D-073):** detected after ~1 min of driving from the tilt rate; the accelerometer speed then helps only
-  briefly after anchors, and the speed is often too low (5–12 m/s at a true 20) with an optimistic radius without GNSS.
+  briefly after anchors, and the speed is often wrong by 5–10 m/s; without GNSS the radius is honest at 95 % (D-075) but
+  within68 is 0.48–0.72 with D-076 on the two hand-held drives. D-076 admits heading error during non-yaw phone motion,
+  but recovery takes multiple fixes, pure yaw phone rotations remain invisible, and 140822 has a new two-tick GPS
+  recovery error of 391–408 m (R-032). The simulated holder cannot validate hand movement or that regression.
 - **Pull-away assumes the phone is in a moving car.** After the engine is off and the phone is
   handled, the estimator drives off at 8 m/s (R-007: 577 m in 100 s).
 - `gnss_status` was empty on the Pixel 8 (the GnssStatus callback delivered nothing); NMEA GSA/GSV
@@ -73,6 +77,28 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 - The GnssLogger export is a best-effort subset (no carrier-phase derived fields).
 
 ## Log
+
+### 2026-10-04 — Hand movement contributes heading process noise (D-076)
+- Diagnosed the left detour on 20261003-153540: the gyro integrated phone movement as a vehicle turn, while its heading
+  covariance stayed too narrow for correct network fixes to turn it back. Built `handYawNoise` 0.5 above a 0.2 rad/s
+  tilt-rate floor, with snapshot state and `HandYawTest` (three cases). The gyro mean is retained.
+- Verified: 126 core + 6 recording tests, Android debug assembly and lint (exit 0); the correction test fails with noise
+  disabled (36.3° heading error vs the 25° bound). Four real-drive replay matrices, three simulation seeds (R-032).
+  Simulation has 0 changed summary pairs out of 117 per seed. No validation in a car of these working-tree changes.
+- Updated map: `recordings/20261003-153540-map-v2.html`, before = D-073 + D-075, after also D-076. Network and actual GPS
+  are shown; the GPS colors describe recorded 0.1.6 trust, while the readout separately shows replay trust. Replay
+  295.1 s is session/map 301.1 s. The original map is retained. Local replay evidence is under `recordings/analysis/d076/`.
+- Limitations: the false turn initially persists, 153540 absent within68 is only 0.48, and 140822 regresses (clean max
+  2.1 → 408 m; absent p95 380 → 407 m). Kept explicitly in the results and roadmap; pre-window medians are supplementary.
+
+### 2026-10-04 — Drive 20261003-153540 analysed; wider speed walk in pure dead reckoning (D-075)
+- Fourth real drive in the hand (16.5 min, no OBD, 11 probe windows, recorded with 0.1.6: only 13 of 61 real GPS fixes TRUSTED).
+  D-073 alone made it worse without GNSS (within68 0.60 → 0.20): the fallback random-walk speed is overconfident in a city.
+- Built: `speedRandomWalkDr` (1.5 m/s/√s when no GNSS fix of any trust for 5 s), `DrSpeedWalkTest`. Map with three versions:
+  `recordings/20261003-153540-map.html`.
+- Verified: `:core:test :recording:test` pass; four real drives and the simulated matrix (R-031). Not verified: in a car.
+- Uncertain: the 295 s window of 153540 (estimate 166 m off at a claimed 80 m; speed 9 m/s at a true 4) is unexplained; within68
+  there is 0.36. Only 7 short windows of truth on that drive.
 
 ### 2026-10-04 — Hand-held speed run-away and a trust lock-out fixed (D-073, D-074)
 - Traced the remaining problems of drive 20261003-140822 (speed 67–73 m/s, 1919 m before a window, the 1459→1460 "teleport",
@@ -555,6 +581,51 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 - Research doc, core module, SQLDelight recording, replay CLI, 11 scenarios. 24 unit tests.
 
 ## Results log
+
+### R-032 (2026-10-04, 80ab792 + working tree) — D-076 heading noise during hand movement, vs D-075
+Same inputs, timestamps, default trust, no FUSED or recorded OBD; before sets `handYawNoise = 0`, after uses 0.5 / floor 0.2.
+Truth is the same trusted real-GPS stream from the passthrough truth-building pass, independent of these estimator settings.
+`clean` here means the original stream with recorded probe windows; it does not create continuous GPS. Truth covers 50 / 94
+ticks on 153540 / 140822. Pre-window error compares the immediately preceding estimate with the first truth tick of each
+window (includes about one second of motion); use it alongside the ordinary metrics, not instead of them.
+
+| Drive | Scenario / metric | D-075 | D-075 + D-076 |
+|---|---|---|---|
+| 20261003-153540, hand | `clean` max / RMSE, m | 166.0 / 23.5 | 3.5 / 1.4 |
+| 20261003-153540, hand | Before 7 GPS windows: median / max, m | 107.7 / 163.7 | 56.3 / 153.0 |
+| 20261003-153540, hand | `absent` p95 / max, m | 120.4 / 154.2 | 110.8 / 157.0 |
+| 20261003-153540, hand | `absent` within68 / within95 | 0.36 / 0.98 | 0.48 / 1.00 |
+| 20261003-153540, hand | `drop_10min` p95, m | 120.4 | 81.1 |
+| 20261003-140822, hand | `clean` max / RMSE, m | 2.1 / 0.7 | 408.4 / 58.3 |
+| 20261003-140822, hand | Before 12 GPS windows: median / max, m | 73.9 / 444.2 | 72.0 / 441.3 |
+| 20261003-140822, hand | `absent` p95 / max, m | 379.7 / 434.2 | 407.3 / 443.0 |
+| 20261003-140822, hand | `absent` within68 / within95 | 0.71 / 0.98 | 0.72 / 0.98 |
+| 20261003-140822, hand | `drop_10min` p95, m | 97.9 | 126.0 |
+| 20260928-103211, holder | `drop_10min` p95, m | 130.7 | 130.7 |
+| 20260928-103211, holder | `absent` p95, m | 338.4 | 342.7 |
+| 20260929-190523, holder | `drop_10min` p95 / within95 | 113.0 / 0.87 | 113.0 / 0.96 |
+| 20260929-190523, holder | `absent` p95, m | 469.8 | 469.8 |
+
+The 140822 clean regression is at replay 1782.6–1783.6 s (391 and 408 m); returning GPS then becomes trusted. A short
+failure still matters, despite similar pre-window medians. On 153540 the heading initially follows the false turn in both
+versions: at session 221 s ≈ 252° / 253°, then 245 s 261° / 281°, 295 s 291° / 314°. At replay 295.1 s (~session 301.1 s)
+the new version accepts GPS, giving 0.45 m error vs 166 m with D-075. This is delayed correction, not removal of phone yaw.
+
+Standard simulator: 587-s loop, network every 20 s, seeds 1/2/3, all 13 scenarios × 9 variants; on/off summary metrics
+identical for all 117 pairs per seed, including spoof scenarios. No hand-held artifact in that simulation. These results
+support a local improvement on 153540, not a universal accuracy improvement.
+Local outputs: `recordings/analysis/d076/real/<drive>/`, `sim-seed{1,2,3}/`, and variant JSONs; map as above.
+
+### R-031 (2026-10-04, 80ab792 + working tree) — D-075 speed walk, vs the code before D-073 and vs 80ab792
+Replay `phone+network`, truth = trusted real GPS; before = tree of R-030's base, main = 80ab792. p95 / max m (within68 / within95):
+- 20261003-153540 (hand): `absent` before 123 / 132 (0.60 / 0.62), main 131 / 202 (0.20 / 0.54), now 120 / 154 (0.36 / 0.98);
+  `clean` max 6 → 223 → 166; `drop_10min` 123 → 131 → 120 (0.90 → 0.60 → 0.76).
+- 20261003-140822 (hand): `absent` 404 / 620 (0.64 / 0.85) → 332 / 428 (0.47 / 0.73) → 380 / 434 (0.71 / 0.98); `clean` max 2024 →
+  316 → 2.1; `drop_10min` max 2024 → 316 → 141.
+- 20260928-103211 (holder): `drop_10min` 173 (0.81 / 0.91) → 169 → 131 (0.85 / 0.98); `absent` 339 → 340 → 338.
+- 20260929-190523 (holder): `drop_10min` 113 (0.72) → 113 (0.74) → 113 (0.80); `absent` 471 unchanged, within68 0.85 → 0.92.
+Simulated 10-min matrix vs 80ab792: 14 of 113 cells changed, spoof scenarios none (see D-075).
+Map: `recordings/20261003-153540-map.html` (before / main / now).
 
 ### R-030 (2026-10-04, dc7d5e7 + working tree) — unsteady mount (D-073) and trust run outage (D-074), vs the code before
 Replay `phone+network`, truth = trusted real GPS. Base built from the same tree without D-073/D-074.

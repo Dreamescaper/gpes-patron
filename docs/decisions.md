@@ -1042,3 +1042,41 @@ Alternatives: keep the stream timer through the interruption (accepts 7 s sooner
 let network disagreement not interrupt (it is independent evidence against a spoofer).
 Consequences: a spoofer that appears after an outage and is contradicted by the network only intermittently is accepted 10 s after
 the last contradiction, as one that is never contradicted already was (D-038). Tests: `QuestionableResetTest` (fails without it).
+
+## D-075: Wider speed random walk in pure dead reckoning (no GNSS fix of any trust for 5 s) — Accepted (2026-10-04)
+Context: drive 20261003-153540 (phone in hand, no OBD, GNSS only in probe windows): D-073 made the estimator worse there without GNSS
+(p95 123 → 131 m, max 132 → 202 m, within68 0.60 → 0.20). With the bias walk scaled, the accelerometer speed is off more often, and the
+speed falls back to a random walk of 0.7 m/s/√s, which claims σ ≈ 3 m/s after 20 s while a city car goes 0 → 15 m/s in that time:
+the claimed radius was half the error (r68 75 m at 202 m). The same mechanism explains within68 0.64 → 0.47 on 20261003-140822.
+Decision: `speedRandomWalkDr` = 1.5 m/s/√s replaces `speedRandomWalk` (0.7) when no GNSS fix of any trust (except UNAVAILABLE, our
+mock) arrived for 5 s and v is not driven by OBD or the accelerometer. null restores the old behaviour.
+Alternatives: 1.5 for all propagation (`gnss_ramp_capture` within68 0.76 → 0.56); 1.5 after 5 s without a *trusted* fix (spoofed fixes
+are untrusted, so the gate loosened under spoofing: `gnss_ramp_capture` missed 0.16 → 0.48); 1.0 (calibration half-way: within68 0.24 on
+153540); reverting D-073 (the hand-held run-away returns: max 2024 m); D-075 without D-073 (153540 p95 171 m).
+Consequences (R-031): 153540 without GNSS p95 120 m, within95 0.62 → 0.98, but within68 0.36 (old 0.60) and the window at 295 s stays
+166 m off (`clean`; old 6 m); 140822 within68 0.71, `clean` max 2 m; holder drives p95 equal or better (103211 `drop_10min` 173 →
+131 m). Simulated matrix: spoof scenarios unchanged; `drop_10min` phone+network p95 342 → 376 m, `drop_2min` phone+synthNetwork 108 →
+131 m (the simulated car keeps a steady speed, which suits the narrow walk); `absent` within68 0.83 → 0.88.
+Tests: `DrSpeedWalkTest` (a pull-away to 15 m/s without any speed source is within 2.5σ, not with 0.7; untrusted GNSS fixes keep 0.7).
+
+## D-076: Heading uncertainty grows during hand movement — Accepted (2026-10-04)
+Context: 20261003-153540, phone in hand, no OBD. Around replay 186–208 s the gyro integrated an extra left turn of about 70°,
+while the GPS courses before/after differed by about 14°. Non-yaw rate RMS reached 0.2–0.6 rad/s; heading uncertainty remained
+about 5°, so correct network fixes mostly translated the position instead of correcting its heading. This also contributed
+to the later 295 s GPS-window lock-out (166 m error at a claimed 80 m radius).
+Decision: add `[0.5 · max(0, tiltRateRms − 0.2)]² · dt` rad² to heading process covariance. Use the latest 0.5-s motion RMS,
+not the slow D-073 mount average; preserve it in snapshot/restore. `handYawNoise = 0` restores the D-075 behavior.
+Alternatives: retain the holder noise model (the heading stays confidently wrong); remove gyro increments during hand movement
+(tilt does not establish whether the car turned, so genuine turns would be lost); higher noise, or floors 0.10/0.15 rad/s
+(more holder/hand sensitivity without removing the 140822 recovery regression); k = 0.3 (similar results, but less uncertainty
+for the observed movement); k = 1 (153540 absent p95 108 m vs 111, but a larger unvalidated allowance). All tested k values
+still regressed the same short 140822 GPS window; tuning the floor did not solve its cause.
+Consequences (R-032, before = D-073 + D-075): 153540 error immediately before GPS windows median 108 → 56 m, absent p95
+120 → 111 m, within68 0.36 → 0.48; clean max 166 → 3.5 m. The false turn is not prevented: at session 221 s both versions
+still point about 253°, then the new version bends back toward the road over subsequent coarse fixes. 140822 clean max
+2.1 → 408 m (two truth ticks before GNSS is trusted again), absent p95 380 → 407 m; pre-window median 74 → 72 m does not
+erase that regression. Holder drop_10min p95 stays 131 / 113 m. Standard simulated matrix is byte-identical in summary metrics
+with noise on/off for seeds 1, 2 and 3 (117 scenario/variant pairs per seed). Simulation does not reproduce the hand artifact.
+Tests: `HandYawTest` (70° false phone turn corrected by coarse fixes, exact identity below the floor, snapshot/restore during
+the turn); the correction test fails with noise disabled. No car validation of D-075/D-076 yet. Pure yaw-only hand movement
+is not detected; further diagnosis of the 140822 window is deferred.

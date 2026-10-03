@@ -209,6 +209,15 @@ adb pull /storage/emulated/0/Android/data/gpes.patron/files/drives/<id>.db   # p
   *end* of the drive; read `compass_timeline.csv` for what happened while driving. Check each table's row count first
   (`select count(*)` per table) before analysing a new device.
 
+- **P39 A failed regression fixture may have lost its heading, rather than crashed in production.** In the D-076 miniature,
+  the old filter's robust coarse stream restarted the heading search by 100 s, so `headingRad!!` threw. Compare at 80 s,
+  before that reset, and separately check snapshot/restore and holder identity. In real-drive comparisons include errors
+  at the start of GPS windows as well as pre-window medians: a two-tick 408 m recovery failure is still a regression.
+- **P40 Map time and replay time differ.** Replay starts at the first measurement, whereas the drive map starts at the
+  session anchor. For 20261003-153540 the shift is +6.00999952 s: replay 295.1 s is map 301.1 s. Derive it from a matching
+  recorded location and `trust.csv`, rather than assuming the first IMU is the first input. Truth exists only in short
+  GPS windows; an error just before a window compared with its first GPS point also includes about one tick of motion.
+
 ## User context
 
 - The user writes in Ukrainian. Replies are in Ukrainian; code, docs and commits are in English.

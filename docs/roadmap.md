@@ -373,6 +373,12 @@ Road-constraint follow-ups (R-020):
 - Speed in the hand is mostly a random walk around the last anchor and often too low; within68 without GNSS fell to 0.47 on
   20261003-140822. Ideas: a world-frame forward axis from the gyro orientation (D-072 alternative), a speed prior from the
   distance between coarse fixes, recognising hand rotations (gyro yaw without a_lat) so centripetal readings can be trusted again.
+- D-076 mitigates the false hand-held gyro turn on 20261003-153540 and unlocks its 295 s GPS window in replay (R-032).
+  It does not prevent the turn: several coarse fixes are needed to bend the heading back. Detecting phone rotations purely
+  about up, without a non-yaw tilt signal, remains open; do not discard gyro turns without independent vehicle evidence.
+- Diagnose the D-076 regression on 20261003-140822 at replay 1782.6–1783.6 s: 391–408 m before returning GPS is accepted,
+  versus ≤ 2.1 m over all truth ticks with D-075 alone. Pre-window median 74 → 72 m conceals this recovery failure. Absent
+  p95 also worsens 380 → 407 m; validate the heading noise on more hand-held drives before treating it as a general gain.
 - Validate the 0.07 rad/s tilt-rate threshold on more phones, holders and hand-held drives; consider telling the user
   "keep the phone in a holder".
 
