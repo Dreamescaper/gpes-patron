@@ -154,4 +154,93 @@ class GnssProbeTest {
         assertFalse(c.status(s(3.0)).health!!.healthy)
         assertNotNull(c.status(s(3.0)).health!!.meanCn0DbHz)
     }
+
+    // --- D-070: passthrough. Drive 20261003-140822 had a clean GPS all the time (29 windows, 5 m hAcc), but every window
+    // ended with our mock (100–1272 m off) back on `gps`. Built in miniature; nothing is copied from the recording.
+
+    /** Opens a window at the first chance after [from] and answers it with one TRUSTED fix; returns the close/hold time and action. */
+    private fun recoverWindow(c: GnssProbeController, from: Double): Pair<Double, ProbeAction> {
+        val open = run(c, from, 400)!!
+        c.onAssessment(assessment(open + 1, TrustState.TRUSTED))
+        c.onStatus(status(open + 1))
+        return (open + 1) to c.step(s(open + 1))
+    }
+
+    @Test
+    fun `two recovered windows in a row keep the provider removed while real fixes stay trusted`() {
+        val c = GnssProbeController(cfg)
+        val (t1, a1) = recoverWindow(c, 0.0)
+        assertEquals(ProbeAction.CLOSE, a1)
+        val (t2, a2) = recoverWindow(c, t1 + 1)
+        assertEquals(ProbeAction.HOLD, a2)
+        assertEquals(ProbePhase.PASSTHROUGH, c.phase)
+        for (i in 1..120) {
+            val t = t2 + i
+            c.onStatus(status(t))
+            c.onAssessment(assessment(t, TrustState.TRUSTED))
+            assertEquals(ProbeAction.NONE, c.step(s(t)), "t+$i")
+        }
+        assertEquals(ProbePhase.PASSTHROUGH, c.phase)
+    }
+
+    @Test
+    fun `a failed window in between resets the count`() {
+        val c = GnssProbeController(cfg)
+        val (t1, _) = recoverWindow(c, 0.0)
+        val open = run(c, t1 + 1, 400)!!
+        c.onAssessment(assessment(open + 1, TrustState.REJECTED, TrustReason.IMPOSSIBLE_VELOCITY))
+        assertEquals(ProbeAction.CLOSE, c.step(s(open + 1)))
+        assertEquals(ProbeAction.CLOSE, recoverWindow(c, open + 2).second)
+    }
+
+    @Test
+    fun `passthrough ends when no trusted real fix arrives for a few seconds, and probing resumes at the base interval`() {
+        val c = GnssProbeController(cfg)
+        val (t1, _) = recoverWindow(c, 0.0)
+        val (t2, _) = recoverWindow(c, t1 + 1)
+        var closeAt: Double? = null
+        for (i in 1..30) {
+            val t = t2 + i
+            c.onStatus(status(t))
+            if (i <= 10) c.onAssessment(assessment(t, TrustState.TRUSTED))   // then a tunnel: silence
+            if (c.step(s(t)) == ProbeAction.CLOSE) { closeAt = t; break }
+        }
+        assertEquals(t2 + 10 + cfg.passthroughLossS, closeAt)
+        assertEquals(ProbeResult.LOST, c.lastResult)
+        assertEquals(ProbePhase.IDLE, c.phase)
+        assertEquals(closeAt!! + cfg.intervalS, run(c, closeAt + 1, 300))
+    }
+
+    @Test
+    fun `passthrough ends at once on a hard rejection`() {
+        val c = GnssProbeController(cfg)
+        val (t1, _) = recoverWindow(c, 0.0)
+        val (t2, _) = recoverWindow(c, t1 + 1)
+        c.onAssessment(assessment(t2 + 1, TrustState.REJECTED, TrustReason.GEOGRAPHICALLY_IMPOSSIBLE))
+        assertEquals(ProbeAction.CLOSE, c.step(s(t2 + 1)))
+        assertEquals(ProbeResult.LOST, c.lastResult)
+    }
+
+    @Test
+    fun `passthrough ends when the chip turns spoofer-like`() {
+        val c = GnssProbeController(cfg)
+        val (t1, _) = recoverWindow(c, 0.0)
+        val (t2, _) = recoverWindow(c, t1 + 1)
+        var closeAt: Double? = null
+        for (i in 1..30) {
+            val t = t2 + i
+            c.onStatus(status(t, cn0 = { 38.0 + (it % 2) * 0.3 }))
+            c.onAssessment(assessment(t, TrustState.TRUSTED))
+            if (c.step(s(t)) == ProbeAction.CLOSE) { closeAt = t; break }
+        }
+        assertNotNull(closeAt)
+        assertEquals(true, closeAt!! - t2 <= cfg.spreadStatuses + cfg.passthroughUnhealthyS + 1)
+    }
+
+    @Test
+    fun `passthrough can be switched off`() {
+        val c = GnssProbeController(GnssProbeConfig(passthroughAfterRecovered = 0))
+        val (t1, _) = recoverWindow(c, 0.0)
+        assertEquals(ProbeAction.CLOSE, recoverWindow(c, t1 + 1).second)
+    }
 }

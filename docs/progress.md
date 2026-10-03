@@ -47,6 +47,8 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
   when network fixes are correlated or wrong (R-007 GNSS absent: within95 0.79).
 - Real-drive numbers before 2026-09-28 for gyro-only / phone-only / phone+network include the
   recorded OBD (D-033).
+- **Hand-held phone (D-073):** detected after ~1 min of driving from the tilt rate; the accelerometer speed then helps only
+  briefly after anchors, and the speed is often too low (5–12 m/s at a true 20) with an optimistic radius without GNSS.
 - **Pull-away assumes the phone is in a moving car.** After the engine is off and the phone is
   handled, the estimator drives off at 8 m/s (R-007: 577 m in 100 s).
 - `gnss_status` was empty on the Pixel 8 (the GnssStatus callback delivered nothing); NMEA GSA/GSV
@@ -72,14 +74,45 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Log
 
-### 2026-10-02 — Automatic versioning (D-059)
-- `version.json` + git in `app/build.gradle.kts`: `versionName` `0.1.<height>+<sha>[.dirty]`, `versionCode` 200 + commit
-  count; `:app:printVersion`; CI with full history and APK names from the version, `-PversionCode` removed.
-- Verified locally: `printVersion` gave `0.1.0+52a5163.dirty (235)` before committing and `0.1.0+e9037e0 (236)` after;
-  the debug APK installed over the emulator's older build (code 112 → 236) and Settings shows `GPES Patron 0.1.0+e9037e0`;
-  a shallow clone with `CI=1` fails the build with the explanatory message (without `CI` it silently gives a wrong code,
-  201). CI run (2026-10-02, after the push): green, APK `gpes-patron-main-0.1.2-05321b1-238.apk`, height 2 as expected.
+### 2026-10-04 — Hand-held speed run-away and a trust lock-out fixed (D-073, D-074)
+- Traced the remaining problems of drive 20261003-140822 (speed 67–73 m/s, 1919 m before a window, the 1459→1460 "teleport",
+  "worse with GNSS") to one cause: a hand-held phone's accelerometer bias wanders faster than the model allowed, and centripetal
+  speeds corrupted by tilt taught the wrong value. The teleport and the S-shaped detour were consequences of that speed.
+- Built: unsteady-mount scale from `tiltRateRms` (bias walk ×k, centripetal tilt term), `UnsteadyMountTest`; trust run keeps its
+  outage status (`runAfterOutage`), new case in `QuestionableResetTest` (fails without the fix). Checked whether coarse position
+  corrections inflate the speed (user's question): ±1–2 m/s typical, ≤ 10 m/s; not limiting them is better (D-073).
+- Verified: `:core:test :recording:test` pass; replay of the three real drives with truth (R-030); simulated 10-min matrix: 0
+  cells changed vs the code before. Map: `recordings/20261003-140822-map-v2.html` (before/after, same conditions).
+- Not verified: in a car; hand detection on other phones/holders (one hand-held drive only). Uncertain: speed in the hand is now
+  often too low and within68 without GNSS fell 0.64 → 0.47 on that drive.
 
+### 2026-10-04 — Up vector corrected quickly at stops (D-072)
+- Diagnosed the speed run-up on the hand-held drive: tilt (up) error 4–15° at stops, long-term mean longitudinal acceleration ±1–2 m/s²;
+  the forward axis itself drifted little. `MotionConfig.upStillTauS` 3 s with stop-rule bridging, speed hint from the pipeline, onset
+  guard. `UpAtStopTest` (2 tests); `:core:test :recording:test` pass. Debug harness (`dbg/D.kt`) deleted.
+- Not verified: in a car. Up still drifts between stops; long stop-free stretches are unaddressed (R-029).
+
+### 2026-10-04 — Innovation gate rejects only beyond 5 km (D-071)
+- `gateRejectMinDistM` 5000 m, `gateDowngraded` waits in the questionable-stream branch; test with the 1347 s case (1272 m, accepted
+  after 10 s) and a 6 km case (rejected). `:core:test :recording:test` pass. Replay matrix in R-028. Not verified in a car.
+
+### 2026-10-04 — GPS passthrough (D-070)
+- `GnssProbeController` gets a PASSTHROUGH phase (2 recovered windows in a row → provider stays removed; ends on 5 s without a TRUSTED
+  fix, unhealthy chip, hard rejection). App: `HOLD` action, annotations, hero card "Real GPS passed through" (UK/EN), "last passthrough
+  ended" line. 6 new `GnssProbeTest` tests; `:core:test :recording:test :app:assembleDebug :app:lintDebug` pass.
+- Not verified: in a car or on the device (what Waze does when `gps` goes from mock to real and back; behaviour at tunnel exits).
+  Replay ignores probe annotations, so there is no before/after number.
+
+### 2026-10-04 — Drive 20261003-140822: trust held back real GPS (D-069)
+- Analysed the third real drive (Pixel 8 in hand, no OBD, MOCK_OUTPUT on `gps`, 37 min, 29 probe windows; map:
+  `recordings/20261003-140822-map.html`). Found: our mock fixes polluted the GNSS trust history (see D-069, P35); the estimate was
+  12–1272 m off before each window (median 87 m, 14/29 within the claimed radius); estimator speed ran up to 69 m/s (182 of 2185
+  estimates > 35 m/s, real ≈ 17), not yet explained (hand-held phone, no OBD).
+- Built: overridden/synthetic fixes no longer change evaluator state; `agreeWithEstimateM` rule; `AGREES_WITH_ESTIMATE` reason with
+  UK/EN strings; `AgreementTrustTest` (5 tests: mock track 300 m ahead, 95 m innovation gate, 130 m still gated, recovery skip,
+  network fix in another country still rejects, fresh OBD keeps the gate). `:core:test :recording:test` pass.
+- Verified: replay of the real drive (R-027); simulated matrix (R-027). Not verified: in a car with the new build.
+- Uncertain: the rule weakens slow-drift detection without OBD (R-027); speed run-up and overconfident covariance are open.
 
 ### 2026-10-03 — Launcher icon 20 % smaller (D-066)
 - Group scale in `ic_launcher_foreground.xml` and `ic_launcher_monochrome.xml` 0.82 → 0.656; Play icon and feature graphics regenerated (the feature graphic keeps the dog's size through
@@ -101,6 +134,40 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
   record-only one dropped our mock fixes and the vague ones), the route map fitted each route and drew roads from the cached tiles with start/end markers
   and the attribution, system Back returned to the list, a long press still selected. Found and fixed on the way: the map painted over its header (no clip),
   a parked recording drew its dot in the corner. **Not verified**: a real long drive, a 100+ MB recording (time to read), the Pixel 8, TalkBack.
+
+### 2026-10-02 — Better voice-over (D-068)
+- Both videos re-voiced with Edge neural voice Ostap (`EDGE_TTS=<venv>/bin/edge-tts node docs/visualization/make-audio.js [formal]`). Lengths now ≈ 18 min (popular) and ≈ 21 min (formal). Verified only that the files load and play; no listening test.
+
+### 2026-10-02 — Formal math video (D-067)
+- `docs/visualization/formal.html`: 12 scenes, ~19.5 min, Ukrainian voice-over (Lesya): problem statement (state, Bayes recursion, EKF);
+  sensor signals and PSD (real FFT: white noise vs random walk, crossover ≈ 0.036 Hz); first-order filters (H(s), H(z), Bode, the six
+  time constants in the code); the up vector as a complementary filter; EKF prediction (F, Q, growth laws t^1.5 and t², Monte Carlo
+  vs the covariance recursion); the update (K, Joseph form, NIS ~ χ², gates 9.21/13.8/25/50); observability, ZUPT and the local
+  (Schmidt) update; robust coarse updates and the odometry chord (rotation invariance, acceptance annulus); compass harmonics (DC +
+  first harmonic) and Kåsa/ellipse least squares; heading bank (Gaussian sum, log-sum-exp, circular mean); road HMM (forward
+  recursion, emission, transition matrix, pseudo-measurement and its skip rule); calibration (k₆₈ = 1.5096, k₉₅ = 2.4477, coverage vs
+  overconfidence factor).
+- Verified: every scene loaded in a browser (no console errors except the favicon 404); numbers computed in the scenes were
+  checked (σ_b after 120 ZUPT updates 2.7·10⁻⁴; crossover 0.036 Hz; coverage 25% at f = 2 and 99% at f = 0.5; bank weight collapse;
+  HMM α before/after the turn). Not checked: Safari/Firefox, a listening test of the pronunciation, offline use (needs the CDNs).
+- Fixed in the popular video while doing this: the compass scene claimed the raw compass is wrong "up to 30°" while the model gave
+  83°; the model now gives ~38° and the text says 40°.
+
+### 2026-10-02 — Explanatory video: "How the phone finds itself without GPS" (D-060)
+- Built `docs/visualization/` (open `index.html`; or `python3 -m http.server --directory docs/visualization`): a ~16-minute
+  linear video in Ukrainian, 10 scenes: GPS can be fooled → a cloud, not a point → counting steps (gyro + speed) → fusing
+  two witnesses (Kalman, 1-D and 2-D) → trusting GNSS (the checks, and the slow-drift blind spot) → network fixes and the
+  odometry check → heading without GPS (compass ellipse, heading bank) → road map (matcher probabilities, corner fix,
+  off-road) → the ladder of improvements on one drive → what we measured on real drives and what we do not know.
+  Controls: play/pause, scrub with scene marks, speed, voice-over on/off, full screen, keys.
+  Voice-over: Lesya (macOS), pre-rendered by `make-audio.js` into `audio/`; the first version used browser speech synthesis and
+  read Ukrainian with an English accent (no Ukrainian voice in the browser), so it was replaced.
+- Verified: every scene loaded in a browser (screenshots at several times, no console errors); the narration pace was
+  checked by script (≤ 15.5 characters per second of subtitle); the engine's ladder on the synthetic drive (post-jam, p95):
+  hold-last-fix 668 m → gyro only 151 → + OBD 102 → + network 50 → + road 34. These come from a simplified teaching model on a
+  synthetic town and are **not** results of the real algorithm; the real numbers shown on the last scene are copied from R-011 and R-020.
+- Uncertain: the audio was checked only for loading and playing (no listening test of the pronunciation of abbreviations such as
+  OBD or GPS, which `make-audio.js` respells); not checked on Safari/Firefox; the text claims must be re-read when the algorithm changes.
 
 ### 2026-10-02 — Play graphics (D-063)
 - `docs/play/assets/`: `icon-512.png`, `feature-graphic-{en,uk}.png` (1024×500), and 4 screenshots per language (1080×2160), plus the generator
@@ -130,6 +197,16 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
   `gpes-patron-main-0.1.2-05321b1-238.apk` (the versioning of D-059 works in CI). **Not verified**: a Play Console review, the video
   (not recorded), the legal wording (not a lawyer's work).
 - Open: a release build as an Android App Bundle, the wake-lock limit, the rights to the name and icon (`docs/play/release-checklist.md`).
+
+### 2026-10-02 — Automatic versioning (D-059)
+- `version.json` + git in `app/build.gradle.kts`: `versionName` `0.1.<height>+<sha>[.dirty]`, `versionCode` 200 + commit
+  count; `:app:printVersion`; CI with full history and APK names from the version, `-PversionCode` removed.
+- Verified locally: `printVersion` gave `0.1.0+52a5163.dirty (235)` before committing and `0.1.0+e9037e0 (236)` after;
+  the debug APK installed over the emulator's older build (code 112 → 236) and Settings shows `GPES Patron 0.1.0+e9037e0`;
+  a shallow clone with `CI=1` fails the build with the explanatory message (without `CI` it silently gives a wrong code,
+  201). CI run (2026-10-02, after the push): green, APK `gpes-patron-main-0.1.2-05321b1-238.apk`, height 2 as expected.
+
+
 ### 2026-10-02 — Estimation before spoofing; stale mock cleanup (D-058)
 - Tracking (estimate only) starts by itself on the Drive and Map tabs and stops with them; the big button turns spoofing
   on in the running session (`ACTION_SPOOF_ON`, `Session.startSpoof`, recording begins there if enabled); developer
@@ -478,6 +555,46 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 - Research doc, core module, SQLDelight recording, replay CLI, 11 scenarios. 24 unit tests.
 
 ## Results log
+
+### R-030 (2026-10-04, dc7d5e7 + working tree) — unsteady mount (D-073) and trust run outage (D-074), vs the code before
+Replay `phone+network`, truth = trusted real GPS. Base built from the same tree without D-073/D-074.
+Drive 20261003-140822 (hand-held):
+- `clean` (as driven, GNSS in probe windows): max 2024 → 316 m; error just before each window median 107 → 87 m, max 1920 → 431 m;
+  estimator speed max 67 → 25 m/s, ticks > 30 m/s 140 → 0; position jumps > 300 m between ticks 8 → 2 (both onto real GPS).
+- `gnss_absent_from_start`: p50 88 → 103 m, p95 404 → 332 m, max 620 → 428 m, within68 / within95 0.64 / 0.85 → 0.47 / 0.73.
+- `gnss_drop_10min`: p95 79 → 92 m, max 2024 → 316 m.
+Holder drives (k = 1), p95 m (within68): 20260928-103211 `drop_10min` 173 (0.81) → 169 (0.81), `absent` 339 (0.69) → 340 (0.68);
+20260929-190523 `drop_10min` 113 (0.72) → 113 (0.74), `absent` 471 (0.85) → 471 (0.86). Simulated 10-min matrix: no cell changed.
+Rejected variants on the hand drive / holders (p95 `absent`): bias walk 0.1 for all 467 / 336 (holder within68 0.69 → 0.58);
+fixed 2° centripetal tilt 379 / 390; `coarseSpeedGain` 0: 585 / 395, 0.5: 389 / 349.
+
+### R-029 (2026-10-04, dc7d5e7 + working tree) — fast up correction at stops (D-072), vs R-028
+Drive 20261003-140822, phone in hand, no OBD, replay `phone+network`, truth = real GPS at probe moments (124 s):
+- `gnss_absent_from_start` (GNSS never): p50 137 → 88 m, p95 877 → 404 m, max 957 → 620 m, within68 0.29 → 0.64.
+- `gnss_drop_10min`: p95 1240 → 79 m, within68 0.62 → 0.95.
+- Variants without the accelerometer speed (`enabled=false`): p95 337 m, within68 0.35 (so the accelerometer still costs p95 on this drive).
+Other recorded drives, `phone+network` before → after (p95): 20260928-103211 `drop_10min` 169 → 173, `absent` 337 → 339; 20260929-190523
+`drop_10min` 165 → 113, `absent` 471 → 471 (20260929-103343 has no truth). Simulated 10-min matrix: 24 cells changed by > 0.05 m, max 0.8 m.
+Tilt error at stops (angle between `up` and the accelerometer): before 4–15° (e.g. 14° at 1518 s); after 20 s of stop 0.5–1.7°.
+
+### R-028 (2026-10-04, dc7d5e7 + working tree) — innovation gate rejects only ≥ 5 km (D-071), vs R-027
+Real drive 20261003-140822, TRUSTED / QUESTIONABLE / REJECTED (GNSS): phone+network 204 / 29 / 16 → 203 / 46 / 0; phone-only 54 / 35 / 45 → 93 / 41 / 0.
+Simulated 10-min drive, before (R-027) → after (rmse m; missed; false rejection): `gnss_drift_gradual` phone-only 390 → 472, 0.971, 0.417 → 0.580;
+phone+network 264 → 279, 0.964, 0.052 → 0.094; `gnss_drift_doppler_consistent` phone+network 267 → 283, 0.052 → 0.094;
+`gnss_ramp_capture` phone+network 597 → 382 m, missed 0.478 → 0.164; with synthetic network+OBD 609 → 558;
+`gnss_noise_overconfident` synthetic network+OBD 6.8 → 20.1 m. Clean unchanged.
+
+### R-027 (2026-10-04, dc7d5e7 + working tree) — trust: mock history fix and 100 m agreement (D-069)
+Real drive 20261003-140822 replayed (`clean`, GNSS assessments; 134 real fixes + 2014 of our mock = UNAVAILABLE), TRUSTED / QUESTIONABLE / REJECTED:
+- phone+network: before 150 / 98 / 1 (includes 115 network fixes) → mock fix only 202 / 31 / 16 → + 100 m rule 204 / 29 / 16.
+- phone-only: 22 / 68 / 44 → 49 / 40 / 45 → 54 / 35 / 45.
+- Left QUESTIONABLE/REJECTED GNSS (phone+network): INNOVATION_GATE 32 (estimate > 100 m off), NETWORK_DISAGREEMENT 10, RECOVERING 3.
+Simulated 10-min drive matrix (`simulate --network-period 20`), phone-only / phone+network, before → after (missed-detection rate, detection latency):
+- gnss_drift_gradual 0.569 → 0.971 / 0.715 → 0.964 (26 → 83 s); gnss_drift_doppler_consistent 0.993 → 1.000 / 0.985 → 0.993;
+  gnss_ramp_capture_doppler_consistent 0.601 → 1.000 / 0.706 → 0.898; gnss_ramp_capture 0.587 → 0.205 / 0.457 → 0.478.
+- gnss_noise_overconfident: rmse 96.8 → 33.9 / 86.3 → 33.5 m, missed 0 → 0.049. Clean: unchanged. Variants with synthetic or real OBD: unchanged.
+- Without the 100 m rule the simulated matrix equals the old one (the simulation has no mock fixes); so the loss of slow-drift
+  detection comes from the rule, while on the real drive the rule adds only 2–5 TRUSTED fixes.
 
 ### R-026 (2026-10-02, 8209e55 + working tree) — speed without OBD (final)
 Full matrix vs 8209e55 (rebuilt in a worktree), same road tiles (`recordings/tiles`, re-downloaded), p95 geo

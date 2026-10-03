@@ -252,6 +252,7 @@ private fun RunningContent(s: Status, ctx: Context, tracking: Boolean, notices: 
     val chipOk = probe?.health?.healthy ?: (s.satsUsed >= 5)
     val (title, sub, tint) = when {
         !s.mode.estimate -> Triple(R.string.hero_recording, stringResource(R.string.hero_recording_sub), MaterialTheme.colorScheme.primary)
+        probe?.phase == ProbePhase.PASSTHROUGH -> Triple(R.string.hero_passthrough, stringResource(R.string.hero_passthrough_sub), c.good)
         probe?.phase == ProbePhase.WINDOW -> Triple(R.string.hero_probing, stringResource(R.string.hero_probing_sub), c.warn)
         e == null -> Triple(R.string.hero_waiting, stringResource(R.string.hero_waiting_sub), c.idle)
         gpsReplaced -> Triple(
@@ -326,6 +327,7 @@ private fun RunningContent(s: Status, ctx: Context, tracking: Boolean, notices: 
                 when (p.lastResult) {
                     ProbeResult.RECOVERED -> stringResource(R.string.probe_last_recovered, (p.lastResultAgoS ?: 0.0).toInt())
                     ProbeResult.FAILED -> stringResource(R.string.probe_last_failed, (p.lastResultAgoS ?: 0.0).toInt())
+                    ProbeResult.LOST -> stringResource(R.string.probe_last_lost, (p.lastResultAgoS ?: 0.0).toInt())
                     ProbeResult.NONE -> stringResource(R.string.probe_none_yet)
                 },
                 fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,

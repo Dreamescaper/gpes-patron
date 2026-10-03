@@ -31,6 +31,8 @@ enum class TrustReason {
     FEW_SATELLITES,
     RECOVERING,
     RESET_AFTER_CONSISTENT_STREAM,
+    /** The fix is close to the estimator's own position, so softer checks were overridden (D-069). */
+    AGREES_WITH_ESTIMATE,
     /** Coarse fix displacement disagrees with the distance driven (OBD + gyro chord). */
     COARSE_ODOMETRY_MISMATCH,
 }

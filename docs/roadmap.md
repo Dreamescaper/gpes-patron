@@ -369,6 +369,13 @@ Road-constraint follow-ups (R-020):
   blocks (a blob per second) or decimate the raw rate; keep original timestamps (never resample, AGENTS.md). Needs
   a format version bump and a reader that handles both, and a check that replay results do not change.
 
+## Hand-held phone (after D-073)
+- Speed in the hand is mostly a random walk around the last anchor and often too low; within68 without GNSS fell to 0.47 on
+  20261003-140822. Ideas: a world-frame forward axis from the gyro orientation (D-072 alternative), a speed prior from the
+  distance between coarse fixes, recognising hand rotations (gyro yaw without a_lat) so centripetal readings can be trusted again.
+- Validate the 0.07 rad/s tilt-rate threshold on more phones, holders and hand-held drives; consider telling the user
+  "keep the phone in a holder".
+
 ## Tracking and spoofing (after D-058)
 - **P1 Hand-over**: spoof only while the GNSS is not trusted and pass the real `gps` through when it is (with the probe's
   logic in reverse), now that the estimator is warm before spoofing starts.

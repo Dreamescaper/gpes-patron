@@ -27,7 +27,7 @@ Output: a `MotionUpdate` at 20 Hz.
    quiet: | ‖a_lp‖ − m | < 0.3 m/s², where m is the 120-s mean of ‖a‖ on this phone (its scale error
    puts ‖a‖ at rest off 9.81 by more than that), |ω·û| low-passed over 0.5 s < 0.05 rad/s, and the
    horizontal part of the smoothed specific force < 0.5 m/s² unless the car is at rest (braking would
-   tilt it; D-050). Android's GRAVITY / rotation
+   tilt it; D-050). At a stop (D-072) up is pulled to the accelerometer with τ 3 s instead of 30 s: stop rule ≥ 3 s (gaps ≤ 1.5 s bridged), estimator speed < 1.5 m/s, steady force. Android's GRAVITY / rotation
    vectors lean towards the apparent gravity in turns (P14); on real drives the correlation of lateral
    accel with v·ω is 0.26–0.31 with Android's up and 0.97–0.98 with ours. Re-seeded from the
    accelerometer on a re-mount. (`upTauS = null` restores the old rotation-vector / low-pass up.)
@@ -72,12 +72,13 @@ by the estimator).
 | Accuracy | hAcc missing → Q; > 30 m → Q; > 150 m → R | Q / R |
 | Implied velocity | (distance to last TRUSTED fix − 2·(hAcc₁+hAcc₂)) / dt > 70 m/s | REJECTED |
 | Implied acceleration | Δspeed/dt > 8 m/s² (dt ≤ 5 s) | Q |
-| Innovation gate | NIS vs estimator prediction, 2 dof: > 13.8 → Q, > 50 → R | Q / R |
+| Innovation gate | NIS vs estimator prediction, 2 dof: > 13.8 → Q, > 50 → R only if the fix is ≥ 5 km from the prediction (D-071), else Q | Q / R |
 | Course vs gyro | GNSS course change vs gyro bearing change, both > 5 m/s, dt ≤ 5 s: diff > 25° + 10°/s·dt | Q |
 | Velocity–position consistency | displacement over ~10 s vs integral of reported (Doppler) velocity: diff > 15 m + 2·(hAcc₁+hAcc₂) | Q |
 | GNSS speed vs OBD speed | fresh OBD (≤ 1.5 s): \|v_gnss − v_obd\| > 1.5 m/s + 8%·v_obd (`SPEED_OBD_MISMATCH`) | Q |
 | Moving while stationary | IMU stationary ≥ 3 s but GNSS speed > 3 m/s | Q |
 | Network disagreement | fresh network fix (≤ 120 s): d > 2·(accNet+accGnss) + 30 m/s·age → Q; beyond that by 20 km → R (`GEOGRAPHICALLY_IMPOSSIBLE`) | Q / R |
+| Agreement with the estimate (D-069) | hAcc ≤ 30 m and fix ≤ 100 m from the predicted position (`agreeWithEstimateM`), no fresh OBD: drops innovation gate, implied acceleration, moving-while-stationary hits; skips the recovery count (`AGREES_WITH_ESTIMATE`). Never overrides impossible velocity/place, network, OBD, velocity–position or course | – |
 | Raw GNSS | sats used < 4 → Q. Used-sat C/N0 std < 1 dB with ≥ 6 sats → `CN0_UNIFORM`, which only lowers confidence (low weight in Phase 1) | Q / info |
 
 Network fixes: synthetic → R, missing accuracy or > 5 km → R, latency > 30 s → Q, otherwise TRUSTED,
@@ -102,6 +103,10 @@ unless the **coarse-odometry check** rejects them (D-031, `COARSE_ODOMETRY_MISMA
 
 ### Hysteresis and reset (inspired by PX4 GPS checks and reset-on-glitch)
 
+- **Our own output is not evidence (D-069).** Fixes of an overridden provider (the mock `gps`) or with the synthetic flag are
+  assessed (UNAVAILABLE / REJECTED) but do not update `prev`, `recent`, hysteresis or stream state of their source. Otherwise the
+  first real fixes of a GNSS probe window are compared with our mock track.
+
 - After any REJECTED fix, the next **5** clean fixes are QUESTIONABLE (`RECOVERING`) before TRUSTED
   returns.
 - **Reset after a consistent stream.** Rejected fixes that are mutually consistent (plausible
@@ -113,7 +118,8 @@ unless the **coarse-odometry check** rejects them (D-031, `COARSE_ODOMETRY_MISMA
     innovation gate (NIS 13.8–50), mutually consistent, in a stream that began after ≥ 30 s with no fix
     of that source at all, are accepted after **10 s**. The estimator ignores QUESTIONABLE GNSS, so on
     its own it could never converge to a returning GNSS (R-007: locked out for 500 s). A spoofer taking
-    over during normal tracking does not qualify (no outage before its stream).
+    over during normal tracking does not qualify (no outage before its stream). The outage status belongs to the whole run
+    of fixes until one is TRUSTED, so a stream restarted by another reason (a wrong network fix) still qualifies (D-074).
   - It is *never* allowed when the reasons include `IMPOSSIBLE_VELOCITY` (for example
     Kyiv→Lima), `GEOGRAPHICALLY_IMPOSSIBLE`, network disagreement, or synthetic input.
   - **Accepted risk:** a patient spoofer whose track stays self-consistent and physically
@@ -293,6 +299,10 @@ from GNSS speed) and may apply ZUPT with the real-car stop rule (`MotionUpdate.s
 otherwise the random walk. Each second with |ω| > 0.07 rad/s, the centripetal speed a_lat/ω is a speed measurement
 (σ = 10 % + 0.5 m/s, χ² gate 9). Negative v is clipped (no reverse detection). Nothing changes with OBD.
 
+**Unsteady mount (D-073).** `tiltRateRms` low-passed over 60 s while moving gives k = clamp(r / 0.07 rad/s, 1, 4) (hand-held ≈ 1.9,
+holders 1). The bias random walk is ×k and the centripetal σ gets g·θ/|ω| with θ = 2°·(k − 1): in the hand the up vector and the
+forward axis move, so the apparent bias wanders ±1–2 m/s² in minutes and a_lat carries gravity. On a holder nothing changes.
+
 ## 3d. Road constraint (Phase 2, D-041…D-044; plan in road-constraint.md)
 
 Active only when the estimator gets a road network (`BaselineDrEstimator(cfg, roads = { network })`;
@@ -348,7 +358,10 @@ reach us, but `GnssStatus` does, so `GnssProbeController` (`core/.../trust/GnssP
 - **Exposure**: during a window other apps see the real GPS. If the signal is spoofed, they see the spoofed position
   for 1 s (hard rejection) up to 20 s (ambiguous). The healthy-chip filter and the back-off reduce this, not remove
   it. The user can turn the probe off (setting "Check whether GPS is back").
-- Recorded as `Annotation` labels `gps_probe_open`, `gps_probe_recovered`, `gps_probe_failed`, plus the
+- **Passthrough (D-070).** After 2 RECOVERED windows in a row the provider is not given back: phase PASSTHROUGH, real fixes
+  keep flowing, other apps see the real GPS. Ends (mock back) after 5 s without a TRUSTED real fix, 5 s of an unhealthy chip, or
+  a hard REJECTED reason; probing then resumes at 60 s. A failed window resets the count.
+- Recorded as `Annotation` labels `gps_passthrough_on`/`gps_passthrough_off`, `gps_probe_open`, `gps_probe_recovered`, `gps_probe_failed`, plus the
   `ProviderEvent`s. Replay ignores them for estimation (the provider events already drive trust).
 
 ## 4. What the baseline cannot do (by design)

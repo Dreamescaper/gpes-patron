@@ -787,6 +787,27 @@ Consequences: rewriting history (rebase, squash of published commits) changes th
 rebuilt app (installs then fail with a downgrade: raise the offset in `version.json`). Tags `v*` still publish a release but
 do not set the version: bump `version` in `version.json` before tagging a release. Verified in CI on 2026-10-02: `0.1.2+05321b1`, code 238.
 
+## D-060: Explanatory video as a standalone web page with a small teaching EKF in JS — Accepted (2026-10-02)
+Context: the algorithm needed a step-by-step explanation for people without a maths background: maps, graphs, formulas,
+in Ukrainian, like a 3Blue1Brown video.
+Decision: `docs/visualization/index.html` (open it in a browser; no build, no dependencies): one linear "video" of 10
+scenes on a canvas, with subtitles as the voice-over (optional browser speech synthesis, `uk-UA`), a title card and a
+summary card per scene ("what we add / how it helps / what it cannot do"). The pictures are computed, not drawn by hand:
+`engine.js` is a small re-implementation of the same ideas (5-state EKF, robust network update, coarse-odometry check,
+road matcher with an off-road state, heading bank) running on a synthetic drive in a synthetic town. Real numbers on the
+last scene are quoted from `progress.md` (R-011, R-020) and `estimation-algorithm.md` §4, with their labels.
+Alternatives: Manim (best look, but renders to a video file, needs Python + LaTeX, cannot be paused or scrubbed in the
+browser, and every text change means a re-render); browser speech synthesis for the voice (tried first: the browser had no Ukrainian
+voice and read the text with an English accent; pre-rendered files sound the same everywhere); a screen recording of the replay plots (shows only our outputs, not
+the idea); an interactive dashboard with chapters and sliders (tried first; rejected by the user: they wanted a
+linear video, not a tool); a JS port of `:core` (heavy, and would need to be kept in sync).
+Consequences: the JS engine is a teaching simplification, NOT the production code, so its numbers are illustrative and
+must not be quoted as results (no real coordinates or traces are used). When the algorithm changes in a way that makes
+a scene false (a rule, a threshold named in the narration, a number from the results log), update the scene text.
+No tests; checked by loading every scene in a browser. The voice-over is generated, not live: after changing a subtitle run `node docs/visualization/make-audio.js`
+(macOS + ffmpeg); it reads at a natural pace and writes `audio/stretch.js`, which slows a scene down where a phrase is longer
+than its slot (~16 min in total). The ~4 MB of `.m4a` files are committed so the video works out of the box.
+
 ## D-061: Public documents on GitHub Pages from `site/`, one bilingual page each; Play texts in `docs/play/` — Accepted (2026-10-02)
 Context: Google Play needs a privacy policy URL (the app handles location, which is sensitive) and a Data safety form, and the
 app has a foreground service of type location to declare. The owner wants the documents in English and Ukrainian, in the repository and
@@ -887,3 +908,137 @@ the dog at its earlier size through its own crop (`icon-feature.svg`, which foll
 Alternatives: changing only the Play icon (the store and the phone would show different sizes); shrinking the artwork itself in the source (the vector files are the source).
 Consequences: with 0.656 the pin fills about half of the canvas, a little less than most launcher icons do, which was the owner's choice; if it looks too small on a
 real launcher, raise the scale (0.72 is a 12 % reduction).
+
+## D-067: Formal math video built with KaTeX and Plotly, not a home-made typesetter — Accepted (2026-10-02)
+Context: a second, formal "video" was wanted for readers of formulas: signals, filters, coefficients, spectra, the EKF
+equations, the compass, the heading bank, the road HMM. A first draft used a small canvas typesetter and hand-made charts.
+Decision: `docs/visualization/formal.html` uses existing libraries from CDNs: **KaTeX** (formulas) and **Plotly** (charts, log
+axes, polar bars, heatmaps, ellipses). A scene is a list of timed items (`TX` formula, `PL` chart, `HT` text) plus subtitles;
+`formal-player.js` shows them by time, with the voice-over of D-060 (Lesya, `audio-formal/`). Where a phrase is longer than its
+slot, only that segment is played slower (`audio-formal/stretch.js` holds per-phrase factors; ~19.5 min in total). Numbers come from
+`core/` (state, Q, thresholds) and `docs/estimation-algorithm.md`; charts are computed from these formulas on synthetic signals.
+Alternatives: the home-made typesetter and plots (dropped: more code to maintain for worse output; the user asked for existing
+libraries); vendoring the libraries into the repository (works offline, but needs ~4 MB and the KaTeX fonts; not done, so the page
+needs internet); MathJax (heavier than KaTeX, no benefit here); Manim (see D-060).
+Consequences: the formal page needs internet. The Fourier transform is **not part of the algorithm** (no FFT in `core/`; the filters
+are first-order IIR); it is used in the video only as an analysis tool (spectra of noise and filters, harmonics of the compass field),
+and the narration says so. Charts of the road and heading-bank scenes are illustrative reimplementations (D-060), not replay output.
+
+## D-068: Voice-over with Microsoft Edge neural voices instead of macOS Lesya — Accepted (2026-10-02)
+Context: Lesya (D-060) sounded unnatural to the user. Better Ukrainian voices are neural, and the local ones are weaker.
+Decision: `make-audio.js` uses the `edge-tts` command (voice `uk-UA-OstapNeural`; `VOICE=uk-UA-PolinaNeural` for the female
+one; `EDGE_RATE`, default +5%) when `EDGE_TTS=/path/to/edge-tts` is set, otherwise the macOS voice. `edge-tts` was installed into a
+throw-away virtualenv (system Python is externally managed), not into the repository. The subtitle texts (public explanations) are
+sent to a Microsoft service for synthesis; nothing else leaves the machine. The result is m4a files in `audio/` and `audio-formal/`
+(~17 MB together; the cache key contains the engine, so switching voice re-renders everything).
+Alternatives: Piper (local, offline, weaker; not chosen); Azure/Google/ElevenLabs with an API key (best quality, needs the user's key);
+browser speech synthesis (D-060: no Ukrainian voice in the browser).
+Consequences: `edge-tts` uses an unofficial endpoint and can change or break; the committed m4a files keep working. The audio is
+a derived artifact: regenerate it after changing subtitles. Not listened to by the author; pronunciation of abbreviations is
+respelled in `make-audio.js`.
+
+## D-069: Trust close-to-estimate GNSS; our own mock output never touches the GNSS history — Accepted (2026-10-04)
+Context: Drive 20261003-140822 (Pixel 8 in hand, no OBD, mock `gps`, GNSS probe windows every ~60 s). Real fixes in a probe
+window (hAcc 5 m, speed and course consistent) were QUESTIONABLE for about 10 s after each window opened: only 32 of 134 real
+fixes were TRUSTED, the estimator ignores QUESTIONABLE ones, so windows stayed open 13–20 s and two failed. Cause: the GNSS
+source's `prev`/`recent`/outage bookkeeping also took our own mock fixes (assessed UNAVAILABLE, but still stored), so the first
+real fixes were compared with our mock track 100–400 m away (velocity–position mismatch; D-038 saw no "outage"). Second: the
+estimate was 12–1272 m off at the start of windows (median 87 m), and fixes within 35–180 m of it were gated.
+Decision: (1) A fix of an overridden provider or a synthetic one returns its verdict and changes no evaluator state.
+(2) `TrustConfig.agreeWithEstimateM` = 100 m: a GNSS/FUSED fix with hAcc ≤ 30 m within 100 m of the estimator's prediction
+drops the innovation gate, implied-acceleration and moving-while-stationary hits and skips the recovery count
+(`AGREES_WITH_ESTIMATE`). It never overrides IMPOSSIBLE_VELOCITY, GEOGRAPHICALLY_IMPOSSIBLE (user: still reject if we are in
+Lima), network or OBD disagreement, velocity–position or course mismatch. It is off while OBD speed is fresh
+(`agreeObdFreshS` 10 s), where the estimate is precise and the strict gate is the R-002 defence.
+Alternatives: the radius from the estimate's covariance (the covariance is overconfident on real drives: 14 of 29 errors within
+the claimed radius; a covariance-based gate is what produced the false alarms); overriding velocity–position and course too
+(these are the slow-drift detectors; after (1) they stopped firing on this drive, so no reason to weaken them); also overriding
+network disagreement (independent evidence; left as is, 10 fixes on this drive).
+Consequences: measured (R-027) (1) gives nearly all of the gain on the real drive; (2) adds only 2–5 TRUSTED fixes there and
+costs slow-drift detection without OBD: `gnss_drift_gradual` missed 0.57 → 0.97 (phone-only), latency 26 → 83 s, because the
+innovation gate used to catch a drift as soon as it left ~40 m and now waits for 100 m (the estimate follows trusted fixes).
+Set `agreeWithEstimateM = null` to get (1) alone. The user has not seen slow spoofing yet and chose trust (2026-10-04).
+Tests: `AgreementTrustTest` (real-drive geometry in miniature).
+
+## D-070: Pass the real GPS through while it is trusted (probe windows no longer always end with the mock) — Accepted (2026-10-04)
+Context: D-052 mocks `gps` for Waze and probes with 2–20 s windows. Drive 20261003-140822: GPS was clean the whole trip, yet every
+window ended with our mock back, so Waze got our dead-reckoned estimate (12–1272 m off) and real GPS reached us once a minute.
+Decision: after `passthroughAfterRecovered` (2) RECOVERED windows in a row the test provider stays removed (phase PASSTHROUGH;
+action HOLD, annotation `gps_passthrough_on`). Real fixes keep flowing through trust and the estimator. It ends (CLOSE, mock back,
+`gps_passthrough_off`, result LOST, probing resumes at the base 60 s interval) when no TRUSTED real fix arrives for 5 s, the chip is
+unhealthy (few satellites, uniform C/N0) for 5 s, or a REJECTED fix has a hard reason (not INNOVATION_GATE/RECOVERING). A failed
+window resets the count. `passthroughAfterRecovered = 0` disables it; the probe setting off disables everything.
+Alternatives: pass through after one window (a single TRUSTED fix is cheap for a patient spoofer); a user switch only (they asked
+for automatic); keep the mock but fix the estimator (cannot match real GPS between windows without OBD).
+Consequences: while passing through, Waze sees whatever the real GPS says. A spoofer that is consistent for ~2 windows and agrees
+with our estimate within 100 m (D-069) gets through until trust or the chip health turns; hard evidence (impossible place, speed,
+network) still ends it. Unverified in a car; the app UI shows "Real GPS passed through". Tests: `GnssProbeTest` (6 new).
+
+## D-071: The innovation gate rejects only beyond 5 km; nearer is QUESTIONABLE and recoverable — Accepted (2026-10-04)
+Context: drive 20261003-140822, probe window at 1347 s: real GPS (the true position, 4.8 m hAcc) came back 63 s after the last fix
+while the dead-reckoned estimate was 1272 m away (claimed ±240 m; NIS 70). NIS > 50 is REJECTED, a REJECTED stream needs 120 s
+(15 s with an agreeing network fix), and a probe window lasts at most 20 s, so the true GPS could never be accepted.
+Decision: `gateRejectMinDistM` = 5000 m. NIS > 50 is REJECTED only for a fix ≥ 5 km from the prediction; nearer it is QUESTIONABLE
+(`INNOVATION_GATE`). The D-038 rule then accepts such a stream after 10 s when it follows an outage (no fix of the source for
+≥ 30 s: always true between probe windows). A stream that does not follow an outage keeps the old waits (120 s, 15 s with network
+agreement) via `gateDowngraded`, so the clean GNSS after a spoofer is not stuck. null restores the old behaviour. The user asked
+for the 5 km interval (2026-10-04).
+Alternatives: extend the 10 s rule to REJECTED fixes (same effect, but REJECTED also triggers hysteresis and stops the probe at
+once); trust a fix because it is consistent with the last trusted real fix (checked: straight extrapolation of the last GPS
+fix after ~62 s misses by 70–2970 m, median ~320 m, no better than the estimate).
+Consequences: a spoofer that teleports < 5 km right after an outage and holds a consistent stream for 10 s is accepted. Spoof
+matrix (R-028): false rejection after a spoof rises a little (0.05 → 0.09–0.11 with network), `gnss_noise_overconfident` with
+synthetic OBD RMSE 6.8 → 20 m; `gnss_ramp_capture` with synthetic network and OBD improves 609 → 558 m. Real drive: phone-only
+TRUSTED 54 → 93 and REJECTED 45 → 0. Tests: `QuestionableResetTest` (1272 m accepted after 10 s, 6 km rejected).
+
+## D-072: Fast gravity correction at stops (hand-held phone: the up vector drifted 4–15°) — Accepted (2026-10-04)
+Context: drive 20261003-140822 without GNSS (replay `gnss_absent_from_start`): positions up to 957 m off, speed ran to 70 m/s. At stops
+(accelerometer = gravity) the tracker's up was 4–15° off the accelerometer, i.e. 0.7–2.5 m/s² of gravity in the "longitudinal"
+acceleration (R-029); the long-term mean of that acceleration was ±1–2 m/s² over minutes. The gyro carries up while driving, a
+hand-held phone drifts it, and the accelerometer correction is gated (quiet only) with τ 30 s: a 10–40 s stop cannot fix 12°.
+Decision: while the real-car stop rule holds (gaps ≤ 1.5 s bridged, because a hand flickers in and out of it) for ≥ 3 s, the
+estimator's own speed is < 1.5 m/s (hint set by the pipeline once a second) and the specific force is steady (|a₀.₁ₛ − a₁ₛ| < 0.15
+m/s², so a pull-away is not tilt), up is pulled to the accelerometer with τ 3 s (`upStillTauS`; null restores τ 30 s).
+Alternatives: world-frame forward axis from the gyro orientation (the forward axis in the phone frame moved mostly 0–6° per
+30 s on this drive, 17–27° in the worst minute, so the up error is the bigger problem; kept as an idea); centripetal-only
+speed (works only in turns); switching accelerometer speed off when hand-held (noAccel was better than before, but worse than
+this: 337 vs 404 m p95 and within68 0.35 vs 0.64); learning the bias from GNSS probe windows (useless in real denial).
+Consequences: between stops the up still drifts (4–15° after 1–7 min), so speed on long drives without stops stays doubtful. A
+stop the estimator does not recognise (its speed stuck above 1.5 m/s) gets no fast correction. The simulator has no vibration, so
+cruising passes the stop rule there; the speed hint and the onset guard keep `AccelSpeedTest` green.
+Tests: `UpAtStopTest` (12° at a stop converges to < 1.5°; without it 8° remain; a 1.5 m/s² pull-away is not mistaken for tilt).
+
+## D-073: Unsteady mount (hand-held phone): faster accelerometer-bias walk and a tilt term in the centripetal σ — Accepted (2026-10-04)
+Context: drive 20261003-140822 (phone in hand, no OBD), replayed as driven (`clean`, GNSS only in probe windows): after the 1252 s
+window the estimator speed went 12 → 67 m/s at a true ~17, and the position ended 1.9–2.0 km off before the 1440 s window (the
+user's "1919 m"), with jumps of 563–1133 m at coarse fixes and at the heading hand-over (the 1459→1460 "teleport" of the
+recording). Trace: the apparent longitudinal bias wandered −1.8 → +1.0 m/s² in 3 min (the hand moves the up vector and the
+forward axis), while the model's bias walk (0.05 m/s²/√s) kept σ_b at the 0.3 threshold, so the accelerometer drove v the whole
+time; centripetal speeds a_lat/ω of 30–38 m/s (gravity leaking into a_lat through the tilt error, divided by a small ω) were
+accepted with σ ≈ 3.5 m/s and taught v and b the wrong value, after which true centripetal readings failed the χ² gate (NIS 43–90).
+Decision: `MotionUpdate.tiltRateRms` (horizontal-axis angular rate RMS) low-passed over 60 s while moving gives a scale
+k = clamp(r / 0.07 rad/s, 1, 4) (`unsteadyTiltRate`; moving medians 0.13 in the hand, 0.045–0.067 on the three holder drives).
+The bias random walk is multiplied by k, and the centripetal σ gets g·θ/|ω| with θ = 2°·(k − 1) (`unsteadyCentripetalTiltDeg`).
+On a holder k = 1 and nothing changes (holder drives and the simulated matrix identical or within noise, R-030).
+Alternatives: bias walk 0.1 for every mount (fixes the hand drive, but holder within68 0.72 → 0.66 and 0.69 → 0.58); a fixed 2°
+centripetal tilt term (holder p95 +15 %: 339 → 390 m, 113 → 129 m); a bias walk learned from the tilt error seen at stops (hand
+0.05–0.08, holder 0.01–0.06 m/s²/√s: does not separate); coarse fixes not updating v and b (`coarseSpeedGain` 0: p95 332 → 585 m
+hand, 340 → 395 m holder; 0.5: mixed; coarse fixes are the main speed anchor without OBD, so the full gain stays — asked by the
+user whether a position correction makes the speed "fly": it moves v by ±1–2 m/s typically, ≤ 10 m/s on 300–500 m corrections);
+a self-unlock of rejected centripetal readings (hand rotations fake turns with a_lat ≈ 0, which would zero the speed).
+Consequences: in the hand the accelerometer speed is used only briefly after an anchor, so speed is mostly the random walk around
+the last anchored value; it can be low (5–12 m/s at a true 20 in some windows), and without GNSS within68 fell 0.64 → 0.47 on this
+drive (the old radius was large only because the speed was absurd). Hand detection needs a minute of driving.
+Tests: `UnsteadyMountTest` (bias walking −1.5 → +1.0 m/s² over 180 s with hand tilt rate: max speed error 0.1 m/s vs 11.9 before;
+a holder tilt rate leaves the result bit-identical).
+
+## D-074: A questionable GNSS run keeps its "after an outage" status when another reason interrupts it — Accepted (2026-10-04)
+Context: drive 20261003-140822, probe window 1781–1800 s: real GPS came back with the estimate ~400 m off (innovation gate only,
+NIS 19–27). A wrong network fix made 4 fixes `NETWORK_DISAGREEMENT`, which restarted the D-038 questionable stream; the restarted
+stream measured its outage from the previous fix (1 s), so it never qualified and GPS stayed QUESTIONABLE until the window ended.
+Decision: `SourceState.runAfterOutage` is set by a fix that follows ≥ 30 s without fixes of the source and cleared by a TRUSTED fix;
+a restarted questionable stream takes its outage status from it. The 10 s wait restarts with the stream (no shortcut).
+Alternatives: keep the stream timer through the interruption (accepts 7 s sooner, but counts fixes the network contradicted);
+let network disagreement not interrupt (it is independent evidence against a spoofer).
+Consequences: a spoofer that appears after an outage and is contradicted by the network only intermittently is accepted 10 s after
+the last contradiction, as one that is never contradicted already was (D-038). Tests: `QuestionableResetTest` (fails without it).

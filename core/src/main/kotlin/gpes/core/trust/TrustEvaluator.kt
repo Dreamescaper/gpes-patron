@@ -140,6 +140,23 @@ data class TrustConfig(
      * heading comes from GNSS, so a spoofer could steer it and get honest coarse fixes rejected.
      */
     val coarseOdoVectorNoGnssS: Double = 180.0,
+    /**
+     * A fix this close (m) to the estimator's own prediction, with hAcc ≤ [accQuestionableM], is trusted
+     * even if the innovation gate, implied acceleration or a "moving while stationary" verdict says
+     * otherwise, and it skips the post-rejection recovery count (D-069). It never overrides hard
+     * evidence (impossible speed or place, OBD or network disagreement, velocity–position or course
+     * mismatch). null disables.
+     */
+    val agreeWithEstimateM: Double? = 100.0,
+    /** The agreement rule is off while vehicle speed (OBD) is this fresh (s): the estimate is then precise enough to gate strictly. */
+    val agreeObdFreshS: Double = 10.0,
+    /**
+     * The innovation gate REJECTS (NIS > [gateRejectNis]) only a fix at least this far (m) from the prediction; closer
+     * ones are QUESTIONABLE, so the D-038 stream rule can accept GNSS that returns after an outage within 10 s (D-071).
+     * A drifted dead-reckoned estimate is often 0.3–1.3 km off (drive 20261003-140822), and a window of the GNSS
+     * probe lasts at most 20 s, less than the 120 s a REJECTED stream needs. null: always REJECTED.
+     */
+    val gateRejectMinDistM: Double? = 5000.0,
 )
 
 /**
@@ -167,6 +184,12 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
         val qStreamStart: LocationMeasurement? = null,
         val qStreamLast: LocationMeasurement? = null,
         val qStreamAfterOutage: Boolean = false,
+        /**
+         * The current run of fixes (no gap ≥ [TrustConfig.questionableResetOutageS]) began after an outage and has had no
+         * TRUSTED fix yet. A questionable stream interrupted by another reason (a wrong network fix) and restarted keeps its
+         * outage status through this; otherwise the restarted stream never qualified (drive 20261003-140822, 1781–1800 s).
+         */
+        val runAfterOutage: Boolean = false,
     )
 
     private data class Snap(
@@ -176,6 +199,13 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
         val overridden: Set<String>,
         val lastObd: VehicleSpeedMeasurement?,
     )
+
+    private companion object {
+        /** Checks that closeness to our own estimate outweighs (D-069). */
+        val AGREEMENT_OVERRIDES = setOf(
+            TrustReason.INNOVATION_GATE, TrustReason.IMPOSSIBLE_ACCELERATION, TrustReason.MOVING_WHILE_STATIONARY,
+        )
+    }
 
     private data class Hit(val reason: TrustReason, val severity: TrustState, val factor: Double = 1.0)
 
@@ -204,9 +234,16 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
         var nis: Double? = null
         var impliedSpeed: Double? = null
         var networkAgrees = false
+        var agreed = false
 
         if (m.isSynthetic) hits += Hit(TrustReason.SYNTHETIC_INPUT, TrustState.REJECTED)
         if (m.provider in overridden) hits += Hit(TrustReason.SOURCE_OVERRIDDEN, TrustState.UNAVAILABLE)
+        if (hits.isNotEmpty()) {
+            // Our own output (or a replaced provider's fixes) must not touch this source's history: the
+            // first real fix of a GNSS probe window would be compared with our mock track (D-069).
+            val worst = TrustState.entries[hits.maxOf { it.severity.ordinal }]
+            return TrustAssessment(m.tNs, m.source, m.provider, worst, 0.0, hits.map { it.reason }.toSet())
+        }
 
         val latencyS = (m.receivedNs - m.tNs) / 1e9
         when (m.source) {
@@ -234,6 +271,8 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
                 checkStationary(m, ctx.motion, hits)
                 networkAgrees = checkNetwork(m, hits)
                 if (m.source == LocSource.GNSS) checkRawGnss(m, hits)
+                agreed = agreesWithEstimate(m, ctx.predicted)
+                if (agreed && hits.removeAll { it.reason in AGREEMENT_OVERRIDES }) hits += Hit(TrustReason.AGREES_WITH_ESTIMATE, TrustState.TRUSTED)
             }
             else -> Unit
         }
@@ -241,7 +280,9 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
         var state = hits.maxOfOrNull { it.severity.ordinal }?.let { TrustState.entries[it] } ?: TrustState.TRUSTED
         var reasons = hits.map { it.reason }.toMutableSet()
         val cutoff = m.tNs - (cfg.velocityWindowS * 1.5 * 1e9).toLong()
-        var newSt = st.copy(prev = m, recent = (st.recent + m).filter { it.tNs >= cutoff })
+        val gapBefore = st.prev?.let { (m.tNs - it.tNs) / 1e9 } ?: Double.MAX_VALUE
+        val runAfterOutage = gapBefore >= cfg.questionableResetOutageS || st.runAfterOutage
+        var newSt = st.copy(prev = m, recent = (st.recent + m).filter { it.tNs >= cutoff }, runAfterOutage = runAfterOutage)
 
         // Hysteresis and reset-after-consistent-stream (GNSS-like sources only).
         if (m.source == LocSource.GNSS || m.source == LocSource.FUSED) {
@@ -267,16 +308,23 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
                 }
                 TrustState.QUESTIONABLE -> {
                     val gateOnly = reasons == setOf(TrustReason.INNOVATION_GATE)
+                    // Would have been REJECTED before D-071 (NIS > reject gate, but nearer than gateRejectMinDistM): such a
+                    // stream keeps the old 120 s / 15 s (network agrees) reset when it did not follow an outage.
+                    val gateDowngraded = gateOnly && nis != null && nis > cfg.gateRejectNis
                     val limit = cfg.questionableResetS
                     if (!gateOnly || limit == null) {
                         newSt = newSt.copy(qStreamStart = null, qStreamLast = null, qStreamAfterOutage = false)
                     } else {
                         val consistent = st.qStreamLast != null && isConsistent(st.qStreamLast, m)
                         val start = if (consistent) st.qStreamStart!! else m
-                        val gapBefore = st.prev?.let { (m.tNs - it.tNs) / 1e9 } ?: Double.MAX_VALUE
-                        val afterOutage = if (consistent) st.qStreamAfterOutage else gapBefore >= cfg.questionableResetOutageS
+                        val afterOutage = if (consistent) st.qStreamAfterOutage else runAfterOutage
                         newSt = newSt.copy(qStreamStart = start, qStreamLast = m, qStreamAfterOutage = afterOutage)
-                        if (afterOutage && (m.tNs - start.tNs) / 1e9 >= limit) {
+                        val wait = when {
+                            afterOutage -> limit
+                            gateDowngraded -> if (networkAgrees) cfg.resetWithNetworkS else cfg.resetAfterConsistentS
+                            else -> null
+                        }
+                        if (wait != null && (m.tNs - start.tNs) / 1e9 >= wait) {
                             state = TrustState.TRUSTED
                             reasons = mutableSetOf(TrustReason.RESET_AFTER_CONSISTENT_STREAM)
                             newSt = newSt.copy(qStreamStart = null, qStreamLast = null, qStreamAfterOutage = false)
@@ -285,7 +333,10 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
                 }
                 TrustState.TRUSTED -> {
                     newSt = newSt.copy(streamStart = null, streamLast = null, qStreamStart = null, qStreamLast = null, qStreamAfterOutage = false)
-                    if (st.recoveryNeeded > 0) {
+                    if (st.recoveryNeeded > 0 && agreed) {
+                        newSt = newSt.copy(recoveryNeeded = 0)
+                        reasons += TrustReason.AGREES_WITH_ESTIMATE
+                    } else if (st.recoveryNeeded > 0) {
                         state = TrustState.QUESTIONABLE
                         reasons += TrustReason.RECOVERING
                         newSt = newSt.copy(recoveryNeeded = st.recoveryNeeded - 1)
@@ -295,7 +346,7 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
             }
         }
 
-        if (state == TrustState.TRUSTED) newSt = newSt.copy(lastTrusted = m, trustedRecent = (st.trustedRecent + m).takeLast(cfg.coarseOdoVoters))
+        if (state == TrustState.TRUSTED) newSt = newSt.copy(lastTrusted = m, trustedRecent = (st.trustedRecent + m).takeLast(cfg.coarseOdoVoters), runAfterOutage = false)
         newSt = newSt.copy(lastState = state)
         sources[m.source] = newSt
         if (m.source == LocSource.NETWORK && state != TrustState.REJECTED && !m.isSynthetic) lastNetwork = m
@@ -357,8 +408,11 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
         val det = a * c - b * b
         if (det <= 0) return null
         val nis = (c * v.e * v.e - 2 * b * v.e * v.n + a * v.n * v.n) / det
-        if (nis > cfg.gateRejectNis) hits += Hit(TrustReason.INNOVATION_GATE, TrustState.REJECTED)
-        else if (nis > cfg.gateQuestionableNis) hits += Hit(TrustReason.INNOVATION_GATE, TrustState.QUESTIONABLE, 0.6)
+        if (nis > cfg.gateRejectNis && (cfg.gateRejectMinDistM == null || hypot(v.e, v.n) >= cfg.gateRejectMinDistM)) {
+            hits += Hit(TrustReason.INNOVATION_GATE, TrustState.REJECTED)
+        } else if (nis > cfg.gateQuestionableNis) {
+            hits += Hit(TrustReason.INNOVATION_GATE, TrustState.QUESTIONABLE, 0.6)
+        }
         return nis
     }
 
@@ -499,6 +553,18 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
         if (d > allow + cfg.networkImpossibleM) hits += Hit(TrustReason.GEOGRAPHICALLY_IMPOSSIBLE, TrustState.REJECTED)
         else if (d > allow) hits += Hit(TrustReason.NETWORK_DISAGREEMENT, TrustState.QUESTIONABLE, 0.5)
         return d <= allow
+    }
+
+    /** D-069: the fix lies within [TrustConfig.agreeWithEstimateM] of the estimator's prediction and claims a usable accuracy. */
+    private fun agreesWithEstimate(m: LocationMeasurement, pred: PositionEstimate?): Boolean {
+        val radius = cfg.agreeWithEstimateM ?: return false
+        val acc = m.hAccM ?: return false
+        if (pred == null || acc > cfg.accQuestionableM) return false
+        // With a fresh vehicle speed the estimate is a precise reference and the innovation gate is the
+        // defence against a Doppler-consistent drift (R-002), so the strict rules stay.
+        val obd = lastObd
+        if (obd != null && abs(m.tNs - obd.tNs) / 1e9 <= cfg.agreeObdFreshS) return false
+        return Geo.haversineM(pred.lat, pred.lon, m.lat, m.lon) <= radius
     }
 
     private fun checkRawGnss(m: LocationMeasurement, hits: MutableList<Hit>) {

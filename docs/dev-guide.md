@@ -217,6 +217,20 @@ adb pull /storage/emulated/0/Android/data/gpes.patron/files/drives/<id>.db   # p
   (R-007). Recordings go to `recordings/` (not in git). A second drive under jamming (no GNSS fix at
   all) was recorded the same day (R-008). Kyiv has persistent GNSS jamming, so real jammed data is
   easy to get.
+- **P37 A confident wrong measurement teaches the state, then the gate locks the truth out.** Hand-held centripetal speeds
+  (30–38 m/s at a true 18, σ 3.5) pulled v and the accelerometer bias; afterwards true readings failed the χ² gate (NIS 43–90).
+  When a model's σ comes from a holder, ask what the same formula gives in the hand (D-073). Print per-update innovations with the
+  throwaway `GPES_DBG` println pattern and match them to `ticks.csv` (t_s = (tNs − first IMU t_ns) / 1e9).
+- **P38 A restart must not forget why a stream qualified.** The D-038 "after an outage" flag lived on the stream, so one
+  interrupting reason (a wrong network fix) turned it off for good (D-074). Keep such facts on the run of fixes.
+- **P36 Check the gravity ("up") estimate at stops before blaming the speed model.** At a stop the accelerometer is gravity: the
+  angle between `MotionUpdate.up` and the accelerometer there is the up error; 5° gives 0.85 m/s² of fake longitudinal acceleration,
+  50 m/s of speed in a minute. Hand-held phones drift 4–15° between stops (drive 20261003-140822). The simulator has no vibration,
+  so the real-car stop rule fires while cruising there: new "at a stop" logic needs a speed hint and a steady-force guard.
+- **P35 Per-source state must not see our own output.** `DefaultTrustEvaluator` keeps `prev`/`recent`/stream state per source.
+  Mock fixes (provider overridden, `isMock`) used to be stored there too (UNAVAILABLE, but stored), so after every GNSS probe
+  window the first real fixes were compared with our mock track for ~10 s (velocity–position mismatch, no "outage" for D-038)
+  and stayed QUESTIONABLE (drive 20261003-140822). Any new per-source state must be skipped for overridden/synthetic fixes.
 - **P34 A mock location provider outlives its app.** After `adb shell am force-stop gpes.patron` (or a crash, or the
   system killing the process) `dumpsys location` still shows `gps provider [mock]:` with the last mock location, and
   every app sees a frozen position. `removeTestProvider` only works from a running app that is the mock-location app, so

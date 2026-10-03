@@ -364,8 +364,14 @@ private class Session(
                 }
                 ProbeAction.CLOSE -> {
                     publisher?.resume(MockTarget.GPS)
-                    sink.emit(gpes.core.model.Annotation(now, if (c.lastResult == ProbeResult.RECOVERED) "gps_probe_recovered" else "gps_probe_failed"))
+                    sink.emit(gpes.core.model.Annotation(now, when (c.lastResult) {
+                        ProbeResult.RECOVERED -> "gps_probe_recovered"
+                        ProbeResult.LOST -> "gps_passthrough_off"
+                        else -> "gps_probe_failed"
+                    }))
                 }
+                // The window stays open: other apps keep the real GPS (D-070). Nothing to do for the provider.
+                ProbeAction.HOLD -> sink.emit(gpes.core.model.Annotation(now, "gps_passthrough_on"))
                 ProbeAction.NONE -> Unit
             }
             probeStatus = c.status(now)

@@ -162,6 +162,21 @@ data class AccelSpeedConfig(
     /** σ of a centripetal speed as a fraction of it, plus an absolute part (R-026: |v_c − v_OBD| median 0.32 m/s). */
     val centripetalRelStd: Double = 0.1,
     val centripetalAbsStd: Double = 0.5,
+    /**
+     * An unsteady mount (a hand-held phone) moves the up vector and the forward axis, so the "bias" of the longitudinal
+     * force wanders much faster than on a holder (drive 20261003-140822: −1.8 → +1.0 m/s² in 3 min). The bias random walk
+     * is scaled by max(1, r / this), where r is the horizontal-axis angular rate RMS ([MotionUpdate.tiltRateRms]) low-passed
+     * over [unsteadyTauS] while moving: moving medians 0.13 rad/s in the hand, 0.045–0.067 on holders. null = off.
+     */
+    val unsteadyTiltRate: Double? = 0.07,
+    val unsteadyTauS: Double = 60.0,
+    val unsteadyMaxScale: Double = 4.0,
+    /**
+     * On an unsteady mount the up vector's tilt error leaks g·θ into a_lat, i.e. g·θ/|ω| of centripetal speed (hand-held:
+     * 30–38 m/s at a true ~18 in gentle turns). The centripetal σ gets that term with θ = this × (scale − 1) degrees,
+     * scale from [unsteadyTiltRate]; on a holder (scale 1) nothing changes (a fixed 2° cost holder drives 15 % of p95).
+     */
+    val unsteadyCentripetalTiltDeg: Double = 2.0,
 )
 
 class BaselineDrEstimator(
@@ -188,7 +203,7 @@ class BaselineDrEstimator(
         val gyroHist: List<Pair<Double, Double>>, val cumGyro: Double, val lastRoadAlongOdo: Double,
         val heldOffset: Double?, val heldT: Long, val obdHist: List<Pair<Long, Double>>, val lastCornerOdo: Double,
         val lastALong: Double?, val lastObdT: Long, val centLat: Double, val centYaw: Double, val centN: Int, val centT: Long,
-        val stillSinceT: Long, val lastFixT: Long,
+        val stillSinceT: Long, val lastFixT: Long, val tiltRateLp: Double?,
     )
 
     /** A coarse fix that disagreed strongly with the prediction. */
@@ -216,6 +231,8 @@ class BaselineDrEstimator(
     private var centN = 0
     private var centT = Long.MIN_VALUE
     private var stillSinceT = Long.MIN_VALUE
+    /** [MotionUpdate.tiltRateRms] low-passed over [AccelSpeedConfig.unsteadyTauS] while moving (null until the first). */
+    private var tiltRateLp: Double? = null
     /** Last position fix (coarse or GNSS) the estimator used. */
     private var lastFixT = Long.MIN_VALUE
     private var stationary = false
@@ -278,6 +295,7 @@ class BaselineDrEstimator(
         propagateTo(u.tNs, lastYawRate)
         lastYawRate = u.yawRateUp
         lastALong = u.longitudinalAccel
+        if (!stationary && !u.stillLoose) tiltRateLp = tiltRateLp?.let { it + (u.tiltRateRms - it) * (u.dtS / cfg.accelSpeed.unsteadyTauS).coerceAtMost(1.0) } ?: u.tiltRateRms
         val accelMode = accelReady(u.tNs)
         // The real-car stop rule only where a stop is plausible: a car cannot be at 15 m/s one moment and stopped
         // the next; braking shows in the specific force first (also keeps the quiet simulator from "stopping").
@@ -437,6 +455,13 @@ class BaselineDrEstimator(
             // the accelerometer speed drifted and its σ was optimistic; the random-walk model is the honest one).
             lastFixT != Long.MIN_VALUE && (tNs - lastFixT) / 1e9 <= cfg.accelSpeed.maxNoFixS
 
+    /** Bias random-walk scale for an unsteady mount (see [AccelSpeedConfig.unsteadyTiltRate]). */
+    private fun unsteadyScale(): Double {
+        val ref = cfg.accelSpeed.unsteadyTiltRate ?: return 1.0
+        val r = tiltRateLp ?: return 1.0
+        return (r / ref).coerceIn(1.0, cfg.accelSpeed.unsteadyMaxScale)
+    }
+
     /** Centripetal speed |a_lat| / |ω| over [AccelSpeedConfig.centripetalPeriodS], as a speed measurement. */
     private fun centripetal(u: MotionUpdate, accelMode: Boolean) {
         val ac = cfg.accelSpeed
@@ -451,7 +476,8 @@ class BaselineDrEstimator(
         // Left turn: ω > 0 (CCW) and the centripetal force points left (a_lat > 0), so v = a_lat / ω > 0.
         val z = a / w
         if (z < 1.0 || z > 40.0) return
-        val sd = ac.centripetalRelStd * z + ac.centripetalAbsStd
+        val tilt = Math.toRadians(ac.unsteadyCentripetalTiltDeg * (unsteadyScale() - 1))
+        val sd = ac.centripetalRelStd * z + ac.centripetalAbsStd + GRAVITY * tilt / abs(w)
         val r = sd * sd
         val innov = z - x[IDX_V]
         if (innov * innov / (p[IDX_V, IDX_V] + r) <= 9.0) update1(IDX_V, z, r)
@@ -788,7 +814,8 @@ class BaselineDrEstimator(
             x[IDX_V] = v + (aL - x[IDX_BA]) * dt
             f[IDX_V, IDX_BA] = -dt
             q[IDX_V, IDX_V] = cfg.accelSpeed.accelNoise * cfg.accelSpeed.accelNoise * dt
-            q[IDX_BA, IDX_BA] = cfg.accelSpeed.biasRandomWalk * cfg.accelSpeed.biasRandomWalk * dt
+            val rw = cfg.accelSpeed.biasRandomWalk * unsteadyScale()
+            q[IDX_BA, IDX_BA] = rw * rw * dt
         } else {
             q[IDX_V, IDX_V] = cfg.speedRandomWalk * cfg.speedRandomWalk * dt
         }
@@ -955,7 +982,7 @@ class BaselineDrEstimator(
         matcher?.copy(), lastRoadOdo, gyroTurn, recentTurns, lastRoadHeadingOdo, lastRoadCrossOdo,
         roadSteps, seenFreeSteps, roadRejects, free?.snapshot(), gyroHist, cumGyro, lastRoadAlongOdo,
         heldOffset, heldT, obdHist, lastCornerOdo,
-        lastALong, lastObdT, centLat, centYaw, centN, centT, stillSinceT, lastFixT,
+        lastALong, lastObdT, centLat, centYaw, centN, centT, stillSinceT, lastFixT, tiltRateLp,
     )
 
     override fun restore(snapshot: Any) {
@@ -974,7 +1001,7 @@ class BaselineDrEstimator(
         gyroHist = s.gyroHist; cumGyro = s.cumGyro; lastRoadAlongOdo = s.lastRoadAlongOdo
         heldOffset = s.heldOffset; heldT = s.heldT; obdHist = s.obdHist; lastCornerOdo = s.lastCornerOdo
         lastALong = s.lastALong; lastObdT = s.lastObdT; centLat = s.centLat; centYaw = s.centYaw; centN = s.centN; centT = s.centT
-        stillSinceT = s.stillSinceT; lastFixT = s.lastFixT
+        stillSinceT = s.stillSinceT; lastFixT = s.lastFixT; tiltRateLp = s.tiltRateLp
         if (free != null && s.free != null) free.restore(s.free)
     }
 
@@ -986,5 +1013,6 @@ class BaselineDrEstimator(
         const val IDX_S = 5
         /** Bias of the longitudinal specific force (m/s²), used only in accelerometer-speed mode. */
         const val IDX_BA = 6
+        const val GRAVITY = 9.80665
     }
 }

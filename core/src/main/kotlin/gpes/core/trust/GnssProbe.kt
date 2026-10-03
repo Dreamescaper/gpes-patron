@@ -47,13 +47,25 @@ data class GnssProbeConfig(
     val noFixAbortS: Double = 12.0,
     /** `GnssStatus` older than this does not count as healthy. */
     val statusMaxAgeS: Double = 3.0,
+    /**
+     * Passthrough (D-070): after this many RECOVERED windows in a row the test provider stays removed, so other apps
+     * get the real GPS while it is TRUSTED, healthy and agrees with us. 0 disables (every window ends with the mock
+     * back).
+     */
+    val passthroughAfterRecovered: Int = 2,
+    /** Leave passthrough when no TRUSTED real fix arrived for this long (tunnel, jamming, rejected or doubtful fixes). */
+    val passthroughLossS: Double = 5.0,
+    /** Leave passthrough when the chip stops looking healthy (few satellites, uniform signals) for this long. */
+    val passthroughUnhealthyS: Double = 5.0,
 )
 
-enum class ProbePhase { IDLE, WINDOW }
+enum class ProbePhase { IDLE, WINDOW, PASSTHROUGH }
 
-enum class ProbeResult { NONE, RECOVERED, FAILED }
+/** LOST: a passthrough ended because real GPS stopped being trusted. */
+enum class ProbeResult { NONE, RECOVERED, FAILED, LOST }
 
-enum class ProbeAction { NONE, OPEN, CLOSE }
+/** HOLD: the open window becomes passthrough (the provider stays removed). */
+enum class ProbeAction { NONE, OPEN, CLOSE, HOLD }
 
 /** What the GNSS chip says about itself; independent of the Location fixes we replace. */
 data class ChipHealth(val used: Int, val meanCn0DbHz: Double?, val stdCn0Db: Double?, val healthy: Boolean)
@@ -82,6 +94,9 @@ class GnssProbeController(private val cfg: GnssProbeConfig = GnssProbeConfig()) 
     private var windowStartNs = 0L
     private var firstFixNs: Long? = null
     private var pending: ProbeResult? = null
+    private var recoveredStreak = 0
+    private var lastTrustedNs = 0L
+    private var unhealthySinceNs: Long? = null
     private val recentStd = ArrayDeque<Double>()
 
     fun onStatus(s: GnssStatusSnapshot) {
@@ -99,6 +114,13 @@ class GnssProbeController(private val cfg: GnssProbeConfig = GnssProbeConfig()) 
 
     /** Feed every GNSS trust assessment; only those of fixes delivered inside the open window count. */
     fun onAssessment(a: TrustAssessment) {
+        if (phase == ProbePhase.PASSTHROUGH) {
+            if (a.source != LocSource.GNSS || TrustReason.SOURCE_OVERRIDDEN in a.reasons || TrustReason.SYNTHETIC_INPUT in a.reasons) return
+            if (a.state == TrustState.TRUSTED) lastTrustedNs = a.tNs
+            // Hard evidence against the real GPS ends passthrough at once; ambiguous doubt waits for the loss timer.
+            else if (a.state == TrustState.REJECTED && !a.reasons.all { it in AMBIGUOUS }) pending = ProbeResult.LOST
+            return
+        }
         if (phase != ProbePhase.WINDOW || a.source != LocSource.GNSS || a.tNs < windowStartNs) return
         if (TrustReason.SOURCE_OVERRIDDEN in a.reasons || TrustReason.SYNTHETIC_INPUT in a.reasons) return
         if (firstFixNs == null) firstFixNs = a.tNs
@@ -133,12 +155,43 @@ class GnssProbeController(private val cfg: GnssProbeConfig = GnssProbeConfig()) 
                     firstFixNs == null && elapsed >= cfg.noFixAbortS -> ProbeResult.FAILED
                     else -> null
                 }
+                if (result == ProbeResult.RECOVERED && cfg.passthroughAfterRecovered > 0 &&
+                    recoveredStreak + 1 >= cfg.passthroughAfterRecovered
+                ) {
+                    phase = ProbePhase.PASSTHROUGH
+                    recoveredStreak = 0
+                    lastTrustedNs = tNs
+                    unhealthySinceNs = null
+                    pending = null
+                    lastResult = ProbeResult.RECOVERED
+                    lastResultNs = tNs
+                    return ProbeAction.HOLD
+                }
                 if (result != null) {
+                    recoveredStreak = if (result == ProbeResult.RECOVERED) recoveredStreak + 1 else 0
                     phase = ProbePhase.IDLE
                     lastResult = result
                     lastResultNs = tNs
                     lastEndNs = tNs
                     intervalS = if (result == ProbeResult.RECOVERED) cfg.intervalS else min(intervalS * 2, cfg.maxIntervalS)
+                    return ProbeAction.CLOSE
+                }
+            }
+            ProbePhase.PASSTHROUGH -> {
+                val chip = health
+                if (chip != null && !chip.healthy) unhealthySinceNs = unhealthySinceNs ?: tNs else unhealthySinceNs = null
+                val result = pending ?: when {
+                    (tNs - lastTrustedNs) / 1e9 >= cfg.passthroughLossS -> ProbeResult.LOST
+                    unhealthySinceNs?.let { (tNs - it) / 1e9 >= cfg.passthroughUnhealthyS } == true -> ProbeResult.LOST
+                    else -> null
+                }
+                if (result != null) {
+                    phase = ProbePhase.IDLE
+                    lastResult = result
+                    lastResultNs = tNs
+                    lastEndNs = tNs
+                    intervalS = cfg.intervalS
+                    recoveredStreak = 0
                     return ProbeAction.CLOSE
                 }
             }

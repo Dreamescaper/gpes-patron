@@ -184,12 +184,16 @@
     <string name="reason_few_satellites">Замало супутників.</string>
     <string name="reason_recovering">Сигнал відновлюється, ще перевіряю.</string>
     <string name="reason_reset_after_consistent_stream">Сигнал знову стабільний, повертаю довіру.</string>
+    <string name="reason_agrees_with_estimate">Позиція близька до очікуваної, тому їй довіряю.</string>
     <string name="reason_coarse_odometry_mismatch">Грубий фікс не збігається з пройденою відстанню.</string>
 
     <!-- GNSS recovery probe while the platform gps is replaced (D-052) -->
     <string name="mock_targets_hint">Поки канал GPS підмінений, справжні GNSS-фікси до застосунку не доходять, а дані про супутники доходять. Щоб дізнатись, чи GPS повернувся, застосунок може на кілька секунд віддати канал назад.</string>
     <string name="probe_use">Перевіряти, чи повернувся GPS</string>
     <string name="probe_hint">Приблизно раз на хвилину, коли GPS-чип виглядає здоровим, інші застосунки до 20 с бачать справжній GPS. Якщо сигнал підроблений, вони в цей час побачать підроблену позицію.</string>
+    <string name="hero_passthrough">Віддаю справжній GPS</string>
+    <string name="hero_passthrough_sub">Справжній GPS надійний і збігається з нашою позицією, тож інші застосунки отримують його напряму. Якщо він зіпсується, підхоплю своєю позицією.</string>
+    <string name="probe_last_lost">Остання передача GPS закінчилась: сигнал зник або йому не довіряю (%1$d с тому).</string>
     <string name="hero_probing">Перевіряю справжній GPS…</string>
     <string name="hero_probing_sub">Інші застосунки на мить бачать справжній GPS-сигнал.</string>
     <string name="hero_own">Веду за датчиками</string>

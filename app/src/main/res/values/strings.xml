@@ -183,12 +183,16 @@
     <string name="reason_few_satellites">Too few satellites.</string>
     <string name="reason_recovering">The signal is coming back; still checking it.</string>
     <string name="reason_reset_after_consistent_stream">The signal is stable again; trust is being restored.</string>
+    <string name="reason_agrees_with_estimate">The fix is close to where we expected to be, so it is trusted.</string>
     <string name="reason_coarse_odometry_mismatch">The coarse fix does not match the distance driven.</string>
 
     <!-- GNSS recovery probe while the platform gps is replaced (D-052) -->
     <string name="mock_targets_hint">While the GPS channel is replaced, real GNSS fixes do not reach the app; satellite data still does. To tell whether GPS is back, the app can give the channel back for a few seconds.</string>
     <string name="probe_use">Check whether GPS is back</string>
     <string name="probe_hint">About once a minute, when the GPS chip looks healthy, the real GPS is shown to other apps for up to 20 s. If the signal is spoofed, they see the spoofed position during that time.</string>
+    <string name="hero_passthrough">Real GPS passed through</string>
+    <string name="hero_passthrough_sub">Real GPS is trusted and agrees with our position, so other apps get it directly. If it goes bad, our own position takes over.</string>
+    <string name="probe_last_lost">Last passthrough ended: real GPS was lost or not trusted (%1$d s ago).</string>
     <string name="hero_probing">Checking real GPS…</string>
     <string name="hero_probing_sub">Other apps briefly see the real GPS signal.</string>
     <string name="hero_own">Tracking by sensors</string>

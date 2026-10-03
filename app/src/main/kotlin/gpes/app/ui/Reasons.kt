@@ -28,6 +28,7 @@ fun reasonText(r: TrustReason): Int = when (r) {
     TrustReason.FEW_SATELLITES -> R.string.reason_few_satellites
     TrustReason.RECOVERING -> R.string.reason_recovering
     TrustReason.RESET_AFTER_CONSISTENT_STREAM -> R.string.reason_reset_after_consistent_stream
+    TrustReason.AGREES_WITH_ESTIMATE -> R.string.reason_agrees_with_estimate
     TrustReason.COARSE_ODOMETRY_MISMATCH -> R.string.reason_coarse_odometry_mismatch
 }
 

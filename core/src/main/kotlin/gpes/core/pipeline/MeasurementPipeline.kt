@@ -136,6 +136,7 @@ class MeasurementPipeline(
         stats.ticks++
         estimator?.estimate(t)?.let {
             latestEstimate = it
+            motion.speedHintMps = it.speedMps
             listener.onEstimate(it)
         }
         listener.onTick(t, LocSource.entries.associateWith { trust.sourceState(t, it) })
