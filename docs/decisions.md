@@ -877,3 +877,13 @@ download radius are not refreshed until the car comes near them. The route map o
 Verified on the emulator with a one-minute threshold in a temporary build (set back to 90 days): the tiles near the position were rewritten (new time, same
 size, no temporary file left) and tiles farther away were left alone; the file's date could not be set back on the emulator's storage, hence the
 temporary threshold. Not verified: a real 90-day-old file, a failed refresh offline (by reading the code only), the Pixel 8.
+
+## D-066: Launcher icon artwork 20 % smaller — Accepted (2026-10-03)
+Context: the owner found the icon too large inside its mask. D-055/D-057 had scaled the artwork to 0.82 about the centre (pin 69 dp tall of the 108 dp canvas, at the
+edge of the 66 dp safe zone).
+Decision: the `<group>` scale in `ic_launcher_foreground.xml` and `ic_launcher_monochrome.xml` is 0.656 (0.82 × 0.8): the pin is about 55 dp tall, inside the safe zone with
+margin, so no mask cuts it. The Play store icon is made from the same vector (`tools/play-assets/make_icon_svg.py`), so it shrinks with it; the feature graphic keeps
+the dog at its earlier size through its own crop (`icon-feature.svg`, which follows the group's scale).
+Alternatives: changing only the Play icon (the store and the phone would show different sizes); shrinking the artwork itself in the source (the vector files are the source).
+Consequences: with 0.656 the pin fills about half of the canvas, a little less than most launcher icons do, which was the owner's choice; if it looks too small on a
+real launcher, raise the scale (0.72 is a 12 % reduction).

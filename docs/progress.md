@@ -81,6 +81,12 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
   201). CI run (2026-10-02, after the push): green, APK `gpes-patron-main-0.1.2-05321b1-238.apk`, height 2 as expected.
 
 
+### 2026-10-03 — Launcher icon 20 % smaller (D-066)
+- Group scale in `ic_launcher_foreground.xml` and `ic_launcher_monochrome.xml` 0.82 → 0.656; Play icon and feature graphics regenerated (the feature graphic keeps the dog's size through
+  `icon-feature.svg`).
+- Verified: build and lint pass; the new icon in the emulator's launcher is clearly smaller with a wider margin; the 512 px icon and the feature graphic were viewed. **Not verified**: the
+  Pixel 8 launcher, the themed (monochrome) icon, other masks.
+
 ### 2026-10-03 — Road tiles are refreshed after 90 days (D-065)
 - `RoadTileFiles.isStale` (core, 3 tests), `RoadMapManager` downloads missing and stale tiles, writes through a temporary file and rebuilds the network after each.
 - Verified: tests and lint pass; on the emulator a temporary one-minute threshold made the nearby tiles download again (new time, same size, no `.tmp`),

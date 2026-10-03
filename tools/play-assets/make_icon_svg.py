@@ -47,7 +47,12 @@ def vector_to_svg_body(xml):
 bg = re.search(r'name="ic_launcher_background">([^<]*)<', (RES / "values/colors.xml").read_text()).group(1)
 art = vector_to_svg_body((RES / "drawable/ic_launcher_foreground.xml").read_text())
 OUT.mkdir(parents=True, exist_ok=True)
-for name, box in (("icon-full.svg", "0 0 108 108"), ("icon-store.svg", "12 12 84 84")):
+# The feature graphic wants the dog at one fixed size whatever the launcher scaling is, so its crop follows the group's scale
+# (0.82 was the size when the graphic was designed): a tighter window around the centre makes the artwork look as before.
+scale = float(re.search(r'android:scaleX="([^"]*)"', (RES / "drawable/ic_launcher_foreground.xml").read_text()).group(1))
+half = 84 * scale / 0.82 / 2
+feature_box = "%.2f %.2f %.2f %.2f" % (54 - half, 54 - half, 2 * half, 2 * half)
+for name, box in (("icon-full.svg", "0 0 108 108"), ("icon-store.svg", "12 12 84 84"), ("icon-feature.svg", feature_box)):
     (OUT / name).write_text(
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="%s">\n  <rect x="0" y="0" width="108" height="108" fill="%s"/>\n  %s\n</svg>\n' % (box, bg, art))
     print("wrote", OUT / name)

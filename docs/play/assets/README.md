@@ -5,7 +5,7 @@ Grow → Store presence → Main store listing (and the Ukrainian custom listing
 
 | File | For | Spec |
 |---|---|---|
-| `icon-512.png` | App icon | 512×512 PNG, full square (Play rounds the corners itself). The icon artwork on the app's blue, with more margin than the launcher crop. |
+| `icon-512.png` | App icon | 512×512 PNG, full square (Play rounds the corners itself). The launcher artwork (scaled 0.656, D-066) on the app's blue, with more margin than the launcher crop. |
 | `feature-graphic-en.png`, `feature-graphic-uk.png` | Feature graphic | 1024×500 PNG, English and Ukrainian. |
 | `screenshots/en/*.png`, `screenshots/uk/*.png` | Phone screenshots | 1080×2160 PNG (2:1, the tallest ratio Play accepts), 4 each: `01-drive` (verdict while tracking), `02-map`, `03-spoofing`, `04-settings`. Emulator, demo status bar (12:00, full battery). |
 
@@ -15,7 +15,7 @@ that is the situation the app is for, but they are not photos of a real drive. R
 ## Regenerating
 
 ```bash
-python3 tools/play-assets/make_icon_svg.py          # icon-store.svg / icon-full.svg from the vector drawables
+python3 tools/play-assets/make_icon_svg.py          # icon-store.svg / icon-full.svg / icon-feature.svg from the vector drawables
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 # icon (a page that shows icon-store.svg at 512×512)
 "$CHROME" --headless=new --hide-scrollbars --window-size=512,512 --screenshot=icon-512.png file:///path/to/page-with-icon.html
