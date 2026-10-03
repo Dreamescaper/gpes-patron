@@ -81,6 +81,15 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
   201). CI run (2026-10-02, after the push): green, APK `gpes-patron-main-0.1.2-05321b1-238.apk`, height 2 as expected.
 
 
+### 2026-10-03 — Route preview of recordings (D-064)
+- `RoutePreview` (core, 6 tests: straight line, corner, jitter versus detour, length, cap, short input), `DriveReader.route()` (recording, 3 tests:
+  estimate wins, fixes without our mock output and vague fixes, empty), `TripSummaries`, `RoadCache`, `RouteThumb`, `TripMapScreen`, shared map parts
+  (`MapParts.kt`), strings en/uk. The Recordings rows now show the thumbnail, the duration and the length; a tap opens the route map.
+- Verified: tests and lint pass; on the emulator, with one real recording and three synthetic ones, the list showed the thumbnails and stats (the
+  record-only one dropped our mock fixes and the vague ones), the route map fitted each route and drew roads from the cached tiles with start/end markers
+  and the attribution, system Back returned to the list, a long press still selected. Found and fixed on the way: the map painted over its header (no clip),
+  a parked recording drew its dot in the corner. **Not verified**: a real long drive, a 100+ MB recording (time to read), the Pixel 8, TalkBack.
+
 ### 2026-10-02 — Play graphics (D-063)
 - `docs/play/assets/`: `icon-512.png`, `feature-graphic-{en,uk}.png` (1024×500), and 4 screenshots per language (1080×2160), plus the generator
   (`tools/play-assets/make_icon_svg.py`), `feature-graphic.html` and a README with the steps.

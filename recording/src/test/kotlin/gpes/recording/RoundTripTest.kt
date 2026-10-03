@@ -42,6 +42,43 @@ class RoundTripTest {
     }
 
     @Test
+    fun `route comes from the estimate when there is one`() {
+        val db = newDb()
+        val w = DriveWriter(db)
+        val sim = DriveSimulator.generate(SimConfig()).records.filterIsInstance<gpes.core.model.LocationMeasurement>().take(5)
+        sim.forEach { w.write(it) } // fixes exist too: the estimate must win
+        for (i in 0 until 4) {
+            w.write(PositionEstimate(1_000L * (4 - i), "baseline", 50.0 + i * 1e-4, 30.0, Cov2.isotropic(5.0), null, null, null, null, EstimatorMode.GNSS_TRACKING, 0.9))
+        }
+        w.flush()
+        val route = DriveReader(db).route()
+        assertTrue(route.fromEstimates)
+        assertEquals(4, route.points.size)
+        // Sorted by time, whatever the insertion order.
+        assertEquals(listOf(1_000L, 2_000L, 3_000L, 4_000L), route.points.map { it.tNs })
+    }
+
+    @Test
+    fun `without an estimate the route is the real fixes, not our own mock output`() {
+        val db = newDb()
+        val w = DriveWriter(db)
+        val fixes = DriveSimulator.generate(SimConfig()).records.filterIsInstance<gpes.core.model.LocationMeasurement>()
+            .filter { it.source == LocSource.GNSS }.take(10)
+        fixes.forEach { w.write(it) }
+        fixes.take(3).forEach { w.write(it.copy(tNs = it.tNs + 1, isMock = true)) } // our own output coming back
+        w.write(fixes[0].copy(tNs = fixes[0].tNs + 2, hAccM = 500.0))                 // too vague to draw
+        w.flush()
+        val route = DriveReader(db).route()
+        assertTrue(!route.fromEstimates)
+        assertEquals(10, route.points.size)
+    }
+
+    @Test
+    fun `an empty recording has an empty route`() {
+        assertTrue(DriveReader(newDb()).route().points.isEmpty())
+    }
+
+    @Test
     fun `measurements and outputs survive a sqlite round trip`() {
         val db = newDb()
         val w = DriveWriter(db)

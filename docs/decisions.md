@@ -841,3 +841,22 @@ Alternatives: exporting from a design tool (no source in the repository, and the
 (the launcher crop, with little margin); taking screenshots on the Pixel 8 (better, but it was not connected, and a real drive is needed for a real verdict).
 Consequences: the screenshots show the emulator's simulated GNSS (the verdict reads "GPS is not trusted"), so they are a placeholder for real-drive
 ones. The icon PNG is RGB, not RGBA; Play accepts that for a full-square icon, but check on upload. If the icon or the UI changes, regenerate.
+
+## D-064: Route preview of a recording: a thumbnail in the list and a route map on a tap — Accepted (2026-10-03)
+Context: the recordings list showed a date and a size only, so a drive could not be told from another, and the owner wanted the route of a
+recording on the map. A recording can be 100+ MB, so loading it to draw a line is not acceptable on a phone.
+Decision: `DriveReader.route()` (recording module) reads three columns of one table (`estimate`, else the real GNSS and fused fixes with an accuracy of at
+most 100 m, which excludes our own mock output and vague fixes) and `RoutePreview` (core) thins the line with Douglas–Peucker (3 m, at most 1500
+points) and measures its length and duration. The app reads a recording lazily when its row scrolls into view, on an IO thread, and remembers the result
+until the file changes (`TripSummaries`); the recording in progress is skipped. Each row shows a 56 dp thumbnail (the shape, a green start and a red end;
+one dot when parked), the duration and the length. A tap opens the route on a full map (`TripMapScreen`): the route fitted to the screen, start and end
+markers, pan, zoom, a button to fit again, a scale bar, and roads from the tiles already on the phone (`RoadCache`; it never downloads for an old route) with
+the OpenStreetMap attribution; a record-only recording says that its route is made of raw fixes. A long press still selects, and the system Back returns
+from the map to the list. The pieces shared with the live map (roads, scale bar, buttons, attribution) moved to `MapParts.kt`.
+Alternatives: loading every recording with `DriveReader.estimates()` (the whole drive in memory); a precomputed summary file written at the end of each
+recording (only new recordings, and a second thing to keep consistent with the file); a map tile SDK for the preview (D-054); thumbnails as bitmaps cached
+on disk (more code, and the vector drawing of 1500 points is cheap).
+Consequences: opening the tab reads one query per visible recording (a drive of 100+ MB takes a moment; the result is cached per file version); roads appear
+on the route map only where the road tiles were cached by an earlier drive; the distance is that of the thinned line (it slightly underestimates a winding road).
+Verified on the emulator with one real recording and three synthetic ones (a loop, a 25-minute trip and a record-only recording with fixes), not on a real
+phone or a real long drive.

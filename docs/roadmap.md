@@ -336,7 +336,6 @@ Road-constraint follow-ups (R-020):
 - **P1 In-app map** (own Canvas over the OSM segments from `RoadMapManager`): estimate with its uncertainty circle,
   recent track and raw GNSS track side by side, so "the GPS is lying" is visible.
 - **P2 Onboarding wizard**: location, notifications, Bluetooth, mock-location app, road download as checked steps.
-- **P2 Trips**: duration, distance and mini-track per drive (needs reading the estimate table).
 - **P3** App icon and a real notification small icon; spoken or haptic alert when the GNSS verdict changes; lock
   settings above 5 km/h; dark-mode and TalkBack pass.
 
@@ -385,3 +384,8 @@ Road-constraint follow-ups (R-020):
 - **P1** Check the rights to the name and the dog, and keep the listing free of any suggestion of an official affiliation.
 - **P2** Closed test (12 testers, 14 days) if the account is a personal one created after 2023-11-13.
 - **P3** An in-app consent screen the first time recording is turned on, naming what a file holds.
+
+## Route preview of recordings (after D-064)
+- **P2** Colour the route by speed or by the GNSS verdict at each point (needs `speed_mps` and the `trust` table in the route query); show where
+  the probe windows or the jamming were.
+- **P3** Open a route in another map app (a GPX or geo link), and an overview map of all recordings.

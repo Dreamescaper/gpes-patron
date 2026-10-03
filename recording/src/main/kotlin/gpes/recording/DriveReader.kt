@@ -5,6 +5,7 @@ import gpes.core.model.AgcInfo
 import gpes.core.model.Annotation
 import gpes.core.model.CellObs
 import gpes.core.model.CellScan
+import gpes.core.geo.RoutePoint
 import gpes.core.model.Cov2
 import gpes.core.model.GeomagneticReference
 import gpes.core.model.PowerState
@@ -130,6 +131,18 @@ class DriveReader(db: DriveDatabase) {
     } catch (e: Exception) {
         if (e.message?.contains("no such table") == true || e.cause?.message?.contains("no such table") == true) emptyList() else throw e
     }
+
+    /**
+     * The route for a preview: our estimate when the recording has one, otherwise the real (not mock) GNSS and fused fixes with
+     * an accuracy of at most 100 m, which is all a record-only recording has. Only three columns are read.
+     */
+    fun route(): Route {
+        val estimated = tolerant { q.selectRouteEstimates { t, lat, lon -> RoutePoint(t, lat, lon) }.executeAsList() }
+        if (estimated.isNotEmpty()) return Route(estimated, fromEstimates = true)
+        return Route(tolerant { q.selectRouteFixes { t, lat, lon -> RoutePoint(t, lat, lon) }.executeAsList() }, fromEstimates = false)
+    }
+
+    data class Route(val points: List<RoutePoint>, val fromEstimates: Boolean)
 
     fun trust(): List<TrustAssessment> = q.selectTrust { t, src, prov, st, conf, reasons, nis, implied ->
         TrustAssessment(

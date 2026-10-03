@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -40,6 +41,10 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import gpes.app.R
 import gpes.app.service.DriveStorage
+import gpes.app.service.TripSummaries
+import gpes.app.service.TripSummary
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.DateFormat
 import java.text.SimpleDateFormat
@@ -56,6 +61,7 @@ fun TripsTab(modifier: Modifier, refresh: Int, running: Boolean) {
     var changed by remember { mutableIntStateOf(0) }
     var picked by remember { mutableStateOf(emptySet<String>()) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var openTrip by remember { mutableStateOf<Pair<File, TripSummary>?>(null) }
     val files = remember(refresh, changed, running) { DriveStorage.list(ctx) }
     val current = if (running) files.firstOrNull()?.name else null
     val selectable = files.filter { it.name != current }
@@ -63,6 +69,10 @@ fun TripsTab(modifier: Modifier, refresh: Int, running: Boolean) {
     val selected = picked.filter { n -> selectable.any { it.name == n } }.toSet()
     val selecting = selected.isNotEmpty()
     BackHandler(enabled = selecting) { picked = emptySet() }
+    openTrip?.let { (file, summary) ->
+        TripMapScreen(modifier, file, summary) { openTrip = null }
+        return
+    }
 
     Column(modifier.fillMaxSize()) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -87,22 +97,29 @@ fun TripsTab(modifier: Modifier, refresh: Int, running: Boolean) {
             items(files, key = { it.name }) { f ->
                 val isCurrent = f.name == current
                 val isSelected = f.name in selected
+                // Read lazily, as the row scrolls into view; the recording in progress has no finished route to show yet.
+                val summary by produceState<TripSummary?>(null, f.name, f.length(), f.lastModified(), isCurrent) {
+                    value = if (isCurrent) null else withContext(Dispatchers.IO) { TripSummaries.load(ctx, f) }
+                }
+                val toggle = { picked = if (isSelected) selected - f.name else selected + f.name }
                 Row(
                     Modifier.fillMaxWidth()
                         .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.background)
                         .combinedClickable(
                             enabled = !isCurrent,
-                            onClick = { if (selecting) picked = if (isSelected) selected - f.name else selected + f.name },
-                            onLongClick = { picked = if (isSelected) selected - f.name else selected + f.name },
+                            onClick = { if (selecting) toggle() else summary?.takeIf { it.hasRoute }?.let { openTrip = f to it } },
+                            onLongClick = { toggle() },
                         )
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     if (selecting) Checkbox(checked = isSelected, onCheckedChange = null, enabled = !isCurrent)
+                    RouteThumb(summary?.route)
                     Column(Modifier.weight(1f)) {
                         Text(driveTitle(f), fontSize = 15.sp, fontWeight = FontWeight.Medium)
                         if (isCurrent) Text(stringResource(R.string.drive_recording), fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                        else summary?.let { Text(tripStats(it), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                     Text(stringResource(R.string.size_mb, f.length() / 1e6), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -133,7 +150,7 @@ fun TripsTab(modifier: Modifier, refresh: Int, running: Boolean) {
 }
 
 /** "yyyyMMdd-HHmmss.db" → a localized date and time; the file name when it does not parse. */
-private fun driveTitle(f: File): String {
+internal fun driveTitle(f: File): String {
     val t = runCatching { SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).parse(f.nameWithoutExtension) }.getOrNull() ?: return f.name
     return DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(t)
 }

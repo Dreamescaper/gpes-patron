@@ -48,6 +48,13 @@ select state, reasons, count(*) from trust group by 1,2 order by 3 desc;
 select kind, count(*) from imu group by kind;
 ```
 
+## Reading a route (the app's preview)
+
+The Recordings tab draws each drive's route without loading the drive (D-064): `DriveReader.route()` reads three columns, `t_ns, lat, lon`, from
+`estimate`, and, when a recording has no estimate (record-only), from `location` rows that are real GNSS or fused fixes (`is_mock = 0`) with an accuracy
+of at most 100 m. The route is thinned with Douglas–Peucker (3 m tolerance, at most 1500 points); the length is measured on the thinned line and the
+duration is the span of the points. No schema change.
+
 ## Exports
 
 - **JSONL**: one record per line, `{"type": "...", ...}` in canonical order. Also a valid replay

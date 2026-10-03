@@ -251,4 +251,16 @@
     <string name="terms_of_use">Умови використання</string>
     <string name="privacy_url">https://dreamescaper.github.io/gpes-patron/privacy.html?lang=uk</string>
     <string name="terms_url">https://dreamescaper.github.io/gpes-patron/terms.html?lang=uk</string>
+
+    <!-- Route preview of a recording (D-064) -->
+    <string name="trip_lt_min">&lt; 1 хв</string>
+    <string name="trip_min">%1$d хв</string>
+    <string name="trip_h_min">%1$d год %2$02d хв</string>
+    <string name="trip_km">%1$.1f км</string>
+    <string name="trip_no_route">У цьому записі немає маршруту</string>
+    <string name="trip_back">Назад</string>
+    <string name="trip_fit">Показати весь маршрут</string>
+    <string name="trip_start">Початок</string>
+    <string name="trip_end">Кінець</string>
+    <string name="trip_from_fixes">Маршрут за сирими GPS-фіксами (у цьому записі немає оцінки позиції).</string>
 </resources>

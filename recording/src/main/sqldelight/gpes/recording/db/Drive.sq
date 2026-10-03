@@ -167,6 +167,11 @@ selectVehicleSpeed: SELECT * FROM vehicle_speed ORDER BY t_ns, rowid;
 selectAnnotation: SELECT * FROM annotation ORDER BY t_ns, rowid;
 selectTrust: SELECT * FROM trust ORDER BY t_ns, rowid;
 selectEstimate: SELECT * FROM estimate ORDER BY t_ns, rowid;
+-- Route preview (D-064): three columns only, so a long drive is not loaded into models.
+selectRouteEstimates: SELECT t_ns, lat, lon FROM estimate ORDER BY t_ns, rowid;
+selectRouteFixes: SELECT t_ns, lat, lon FROM location
+  WHERE is_mock = 0 AND source IN ('GNSS', 'FUSED') AND (h_acc_m IS NULL OR h_acc_m <= 100)
+  ORDER BY t_ns, rowid;
 
 countImu: SELECT count(*) FROM imu;
 countLocation: SELECT count(*) FROM location;
