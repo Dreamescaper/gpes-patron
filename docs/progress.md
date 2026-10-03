@@ -81,6 +81,12 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
   201). CI run (2026-10-02, after the push): green, APK `gpes-patron-main-0.1.2-05321b1-238.apk`, height 2 as expected.
 
 
+### 2026-10-03 — Road tiles are refreshed after 90 days (D-065)
+- `RoadTileFiles.isStale` (core, 3 tests), `RoadMapManager` downloads missing and stale tiles, writes through a temporary file and rebuilds the network after each.
+- Verified: tests and lint pass; on the emulator a temporary one-minute threshold made the nearby tiles download again (new time, same size, no `.tmp`),
+  distant tiles untouched, then the threshold was restored to 90 days (checked in the diff). **Not verified**: a real 90-day-old file, a failed refresh offline,
+  the Pixel 8.
+
 ### 2026-10-03 — Route preview of recordings (D-064)
 - `RoutePreview` (core, 6 tests: straight line, corner, jitter versus detour, length, cap, short input), `DriveReader.route()` (recording, 3 tests:
   estimate wins, fixes without our mock output and vague fixes, empty), `TripSummaries`, `RoadCache`, `RouteThumb`, `TripMapScreen`, shared map parts

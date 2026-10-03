@@ -90,6 +90,16 @@ object RoadTileCodec {
 object RoadTileFiles {
     const val EXT = ".roads"
 
+    /** A tile file older than this is downloaded again when the car is near it (roads change; D-065). */
+    const val MAX_AGE_MS = 90L * 24 * 60 * 60 * 1000
+
+    /**
+     * Whether a tile file written at [lastModifiedMs] is due for a refresh at [nowMs]. A file with an unknown time (0) is due; one dated in the
+     * future (a clock that was wrong) is not.
+     */
+    fun isStale(lastModifiedMs: Long, nowMs: Long, maxAgeMs: Long = MAX_AGE_MS): Boolean =
+        lastModifiedMs <= 0 || nowMs - lastModifiedMs > maxAgeMs
+
     /** Every tile a way passes through (vertices, and edges sampled every ~1 km). */
     fun tilesOf(w: OsmWay): Set<RoadTile> {
         val out = HashSet<RoadTile>()

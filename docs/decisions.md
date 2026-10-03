@@ -860,3 +860,20 @@ Consequences: opening the tab reads one query per visible recording (a drive of 
 on the route map only where the road tiles were cached by an earlier drive; the distance is that of the thinned line (it slightly underestimates a winding road).
 Verified on the emulator with one real recording and three synthetic ones (a loop, a 25-minute trip and a record-only recording with fixes), not on a real
 phone or a real long drive.
+
+## D-065: Cached road tiles older than 90 days are downloaded again — Accepted (2026-10-03)
+Context: road tiles (the OSM roads in a 0.05° square, D-041) were kept for ever, so new or changed roads never reached the phone and the cache could
+only grow stale.
+Decision: when the car is within the download radius (6 km) of a tile whose file is older than 90 days (`RoadTileFiles.isStale`, by the file's
+modification time; a file with an unknown time is due, one dated in the future is not), the tile is downloaded again like a missing one, nearest first.
+The old file keeps being used until the new one is in, so offline nothing is lost; the new data is written to a temporary file and renamed over the old, so
+a failure half-way cannot leave a damaged tile, and the road network is rebuilt after each refreshed tile. A failed download is retried after 5 minutes within
+a session. No setting and no clean-up button (the owner declined both).
+Alternatives: refresh on every visit (a download per tile per drive for roads that rarely change); a longer or shorter period (90 days is a compromise between
+OSM edits and the data used per year); deleting old tiles first (leaves a hole when offline); an automatic size limit (not asked for; the cache is about
+100–360 KB per 5.6 km square).
+Consequences: the first drive after 90 days near a tile downloads it again (the privacy policy already says what a road download sends). Tiles outside the
+download radius are not refreshed until the car comes near them. The route map of an old recording (D-064) uses whatever is cached, fresh or not.
+Verified on the emulator with a one-minute threshold in a temporary build (set back to 90 days): the tiles near the position were rewritten (new time, same
+size, no temporary file left) and tiles farther away were left alone; the file's date could not be set back on the emulator's storage, hence the
+temporary threshold. Not verified: a real 90-day-old file, a failed refresh offline (by reading the code only), the Pixel 8.

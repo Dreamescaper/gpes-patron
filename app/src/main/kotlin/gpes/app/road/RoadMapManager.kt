@@ -69,12 +69,20 @@ class RoadMapManager(
         var err: String? = status.lastError
         // Tiles already on disk first, so the estimator gets roads before any (slow) download.
         rebuild(lat, lon, err, 0)
-        val missing = want.filter { !file(it).exists() && (failedAt[it]?.let { t -> nowMs - t > RETRY_MS } ?: true) }
+        // Missing tiles, and tiles older than 90 days: the old file keeps being used until the new one is in (offline, it stays).
+        val missing = want.filter {
+            val f = file(it)
+            (!f.exists() || RoadTileFiles.isStale(f.lastModified(), nowMs)) && (failedAt[it]?.let { t -> nowMs - t > RETRY_MS } ?: true)
+        }
         for ((i, t) in missing.withIndex()) {
             status = status.copy(downloading = missing.size - i)
             try {
                 val ways = download(t)
-                file(t).outputStream().use { RoadTileCodec.write(ways, it) }
+                // Written aside and renamed: a failure half-way must not leave a damaged tile in place of a good old one.
+                val tmp = File(dir, t.key + ".tmp")
+                tmp.outputStream().use { RoadTileCodec.write(ways, it) }
+                if (!tmp.renameTo(file(t))) { tmp.delete(); error("could not replace the tile file") }
+                builtFrom = emptySet() // the set of tiles may be the same, but its content is new
                 failedAt.remove(t)
                 err = null
                 // Nearest tiles come first: publish the network after each one (a build takes ~0.1 s).
