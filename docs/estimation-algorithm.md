@@ -91,6 +91,11 @@ unless the **coarse-odometry check** rejects them (D-031, `COARSE_ODOMETRY_MISMA
   (rejected) fix. Each vote weighs 1/(σ₁²+σ₂²) with σ floored at 50 m (D-040,
   `coarseOdoWeightMinSigmaM`): a voter with hAcc 700 m agrees with almost anything, so it counts little,
   but no single fix claiming a small hAcc can outvote the rest. Voting keeps one bad but accepted reference from rejecting the good fixes after it.
+- **Unconfirmed voters only dispute (D-085).** A trusted fix is *confirmed* once a vote agreed with it (either side), or
+  it was accepted through the previous-fix rule. When every voter against a fix is unconfirmed (the first fix of a drive,
+  fixes taken before vehicle speed was known), the fix is QUESTIONABLE (`COARSE_ODOMETRY_DISPUTED`, confidence ×0.5)
+  instead of REJECTED: fused like any QUESTIONABLE coarse fix, not a voter, and the next fix decides.
+  `coarseOdoUnconfirmedRejects = true` restores the old rule.
 - It catches fixes that jump much further than the car drove, and fixes that stay put while it
   drives. Measured effect is small (R-009).
 - **Vector form (D-039).** When the predicted heading std ≤ 15° (`coarseOdoVectorMaxHeadingStdDeg`, null

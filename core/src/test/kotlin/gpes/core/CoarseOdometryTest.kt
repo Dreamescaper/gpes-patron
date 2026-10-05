@@ -66,7 +66,8 @@ class CoarseOdometryTest {
     fun `a stale coarse fix that stays put while the car drives away is rejected`() {
         val ev = DefaultTrustEvaluator()
         val ctx = TrustContext(null, StraightRoad(15.0))
-        assertEquals(TrustState.TRUSTED, ev.assess(net(0.0, 0.0), ctx).state)
+        assertEquals(TrustState.TRUSTED, ev.assess(net(-16.0, -240.0), ctx).state)
+        assertEquals(TrustState.TRUSTED, ev.assess(net(0.0, 0.0), ctx).state) // agrees with the first: both confirmed
         // 20 s at 15 m/s = 300 m, but the fix is still 20 m from the last one.
         val stale = ev.assess(net(20.0, 20.0), ctx)
         assertEquals(TrustState.REJECTED, stale.state)
@@ -75,9 +76,23 @@ class CoarseOdometryTest {
     }
 
     @Test
+    fun `a single unconfirmed reference only disputes a stale fix, and the next fix decides`() {
+        val ev = DefaultTrustEvaluator()
+        val ctx = TrustContext(null, StraightRoad(15.0))
+        assertEquals(TrustState.TRUSTED, ev.assess(net(0.0, 0.0), ctx).state)
+        val stale = ev.assess(net(20.0, 20.0), ctx)
+        assertEquals(TrustState.QUESTIONABLE, stale.state)
+        assertEquals(setOf(TrustReason.COARSE_ODOMETRY_DISPUTED), stale.reasons)
+        // The next fix agrees with the first one, not with the disputed one: trusted, and it confirms the first.
+        assertEquals(TrustState.TRUSTED, ev.assess(net(36.0, 540.0), ctx).state)
+        assertEquals(TrustState.REJECTED, ev.assess(net(52.0, 560.0), ctx).state)
+    }
+
+    @Test
     fun `a coarse fix that jumps much further than the car drove is rejected`() {
         val ev = DefaultTrustEvaluator()
         val ctx = TrustContext(null, StraightRoad(13.0))
+        ev.assess(net(-17.0, -221.0, acc = 60.0), ctx)
         ev.assess(net(0.0, 0.0, acc = 60.0), ctx)
         // 17 s at 13 m/s = 221 m, the fix claims 1100 m.
         assertEquals(TrustState.REJECTED, ev.assess(net(17.0, 1100.0, acc = 140.0), ctx).state)
@@ -105,9 +120,45 @@ class CoarseOdometryTest {
         val ev = DefaultTrustEvaluator()
         val ctx = TrustContext(null, StraightRoad(10.0))
         ev.assess(net(0.0, 400.0), ctx) // a bad first fix: nothing to compare with, so it is trusted
-        assertEquals(TrustState.REJECTED, ev.assess(net(13.0, 130.0), ctx).state)
-        // The next good fix agrees with the previous (rejected) good one → accepted.
+        // Nothing confirmed the first fix, so it only disputes the good one (D-085); before, it rejected it.
+        assertEquals(TrustState.QUESTIONABLE, ev.assess(net(13.0, 130.0), ctx).state)
+        // The next good fix agrees with the previous (disputed) good one → accepted.
         assertEquals(TrustState.TRUSTED, ev.assess(net(26.0, 260.0), ctx).state)
+        // From now on the bad first fix is outvoted.
+        assertEquals(TrustState.TRUSTED, ev.assess(net(39.0, 390.0), ctx).state)
+    }
+
+    /**
+     * Drive 20261005-104833, 0–92 s (D-085): vehicle speed (OBD) only from 12 s, so the first fix, about 1 km off, has no
+     * odometry to vote with. The second fix (hAcc 60 m) lies about 190 m behind the car and was trusted without any vote;
+     * alone, it rejected the correct third fix (hAcc 28 m; 452 m between the fixes, 264 m driven), and the estimate stayed
+     * on it until the fourth fix at 92 s. Local offsets along a straight road, metres north of the car at 32 s.
+     */
+    private fun startOfDrive(cfg: TrustConfig): List<TrustState> {
+        val ev = DefaultTrustEvaluator(cfg)
+        val speed = 12.5
+        val ctx = TrustContext(null, object : MotionView {
+            override fun stationaryForS() = 0.0
+            override fun bearingChange(t1: Long, t2: Long) = 0.0
+            override fun odometry(t1: Long, t2: Long) =
+                if (t1 < 12_000_000_000L) null else ((t2 - t1) / 1e9 * speed).let { Odometry(it, it) }
+        })
+        val truthAt = { tS: Double -> (tS - 32.2) * speed }
+        return listOf(
+            ev.assess(net(1.7, truthAt(1.7) + 1000.0, acc = 52.0), ctx),
+            ev.assess(net(32.2, truthAt(32.2) - 190.0, acc = 60.0), ctx),
+            ev.assess(net(53.4, truthAt(53.4) + 10.0, acc = 28.0), ctx),
+            ev.assess(net(91.8, truthAt(91.8) - 10.0, acc = 17.0), ctx),
+        ).map { it.state }
+    }
+
+    @Test
+    fun `an unconfirmed early fix cannot reject the first correct one`() {
+        val q = TrustState.QUESTIONABLE
+        val t = TrustState.TRUSTED
+        // QUESTIONABLE network fixes are fused, so the estimate leaves the wrong fix at 53 s instead of 92 s.
+        assertEquals(listOf(t, t, q, t), startOfDrive(TrustConfig()))
+        assertEquals(listOf(t, t, TrustState.REJECTED, t), startOfDrive(TrustConfig(coarseOdoUnconfirmedRejects = true)))
     }
 
     /** Heading-free straight road for the vector check: the gyro frame starts at relative bearing 0. */

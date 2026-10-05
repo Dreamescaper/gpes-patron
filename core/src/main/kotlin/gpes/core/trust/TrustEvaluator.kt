@@ -141,6 +141,12 @@ data class TrustConfig(
      */
     val coarseOdoVectorNoGnssS: Double = 180.0,
     /**
+     * Whether trusted fixes that odometry never confirmed (no agreeing vote, e.g. the first fix of a drive, or one taken
+     * before vehicle speed was known) may reject a new fix on their own. false (D-085): a fix voted down only by such
+     * fixes is QUESTIONABLE (`COARSE_ODOMETRY_DISPUTED`), still fused, but not a voter; the next fix arbitrates.
+     */
+    val coarseOdoUnconfirmedRejects: Boolean = false,
+    /**
      * A fix this close (m) to the estimator's own prediction, with hAcc ≤ [accQuestionableM], is trusted
      * even if the innovation gate, implied acceleration or a "moving while stationary" verdict says
      * otherwise, and it skips the post-rejection recovery count (D-069). It never overrides hard
@@ -176,6 +182,8 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
         val recent: List<LocationMeasurement> = emptyList(),
         /** Recent TRUSTED fixes of this source, newest last (coarse odometry voting). */
         val trustedRecent: List<LocationMeasurement> = emptyList(),
+        /** Times of the [trustedRecent] fixes that odometry confirmed: some other fix's vote agreed with them (D-085). */
+        val confirmed: Set<Long> = emptySet(),
         /**
          * Questionable-stream reset (D-038), tracked separately from the rejected-stream fields above so
          * that it cannot change when the older rule fires: start, last fix, and whether the stream began
@@ -235,6 +243,7 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
         var impliedSpeed: Double? = null
         var networkAgrees = false
         var agreed = false
+        var odoConfirmed: Set<Long> = emptySet()
 
         if (m.isSynthetic) hits += Hit(TrustReason.SYNTHETIC_INPUT, TrustState.REJECTED)
         if (m.provider in overridden) hits += Hit(TrustReason.SOURCE_OVERRIDDEN, TrustState.UNAVAILABLE)
@@ -252,7 +261,7 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
                 val acc = m.hAccM
                 if (acc == null) hits += Hit(TrustReason.NO_ACCURACY, TrustState.REJECTED)
                 else if (acc > cfg.networkMaxAccM) hits += Hit(TrustReason.POOR_ACCURACY, TrustState.REJECTED)
-                checkCoarseOdometry(m, st, ctx.motion, ctx.predicted, hits)
+                odoConfirmed = checkCoarseOdometry(m, st, ctx.motion, ctx.predicted, hits)
             }
             LocSource.GNSS, LocSource.FUSED -> {
                 if (latencyS > cfg.staleRejectS) hits += Hit(TrustReason.STALE, TrustState.REJECTED)
@@ -346,7 +355,11 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
             }
         }
 
-        if (state == TrustState.TRUSTED) newSt = newSt.copy(lastTrusted = m, trustedRecent = (st.trustedRecent + m).takeLast(cfg.coarseOdoVoters), runAfterOutage = false)
+        if (state == TrustState.TRUSTED) {
+            val voters = (st.trustedRecent + m).takeLast(cfg.coarseOdoVoters)
+            val confirmed = (st.confirmed + odoConfirmed).filterTo(HashSet()) { t -> voters.any { it.tNs == t } }
+            newSt = newSt.copy(lastTrusted = m, trustedRecent = voters, confirmed = confirmed, runAfterOutage = false)
+        }
         newSt = newSt.copy(lastState = state)
         sources[m.source] = newSt
         if (m.source == LocSource.NETWORK && state != TrustState.REJECTED && !m.isSynthetic) lastNetwork = m
@@ -480,20 +493,34 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
      * only when most of them disagree, so one bad (but accepted) reference cannot reject the good fixes
      * after it. A fix that agrees with the previous, rejected fix is also accepted.
      */
+    /**
+     * Adds a hit when the trusted coarse fixes vote against [m]. Returns the times of fixes that this check confirms if [m]
+     * ends up TRUSTED: [m] itself and its agreeing voters when any vote agrees (D-085).
+     */
     private fun checkCoarseOdometry(
         m: LocationMeasurement, st: SourceState, motion: MotionView?, pred: PositionEstimate?, hits: MutableList<Hit>,
-    ) {
-        if (motion == null || cfg.coarseOdoK == null) return
+    ): Set<Long> {
+        if (motion == null || cfg.coarseOdoK == null) return emptySet()
         val votes = st.trustedRecent
             .filter { (m.tNs - it.tNs) / 1e9 <= cfg.coarseOdoMaxAgeS }
-            .mapNotNull { odometryAgrees(it, m, motion, pred) }
+            .mapNotNull { v -> odometryAgrees(v, m, motion, pred)?.let { v to it } }
+        val agreeing = votes.filter { it.second.agrees }.map { it.first.tNs }
+        val confirmed = if (agreeing.isEmpty()) emptySet() else (agreeing + m.tNs).toSet()
         // Weighted by 1/(σ₁²+σ₂²) (D-040): a vague voter (hAcc 700 m) agrees with almost anything.
-        val wFor = votes.filter { it.agrees }.sumOf { it.weight }
-        val wAgainst = votes.filter { !it.agrees }.sumOf { it.weight }
-        if (votes.isEmpty() || wAgainst <= wFor) return
+        val wFor = votes.filter { it.second.agrees }.sumOf { it.second.weight }
+        val against = votes.filter { !it.second.agrees }
+        val wAgainst = against.sumOf { it.second.weight }
+        if (votes.isEmpty() || wAgainst <= wFor) return confirmed
         val prev = st.prev
-        if (prev != null && prev !== st.lastTrusted && odometryAgrees(prev, m, motion, pred)?.agrees == true) return
-        hits += Hit(TrustReason.COARSE_ODOMETRY_MISMATCH, TrustState.REJECTED)
+        if (prev != null && prev !== st.lastTrusted && odometryAgrees(prev, m, motion, pred)?.agrees == true) return setOf(m.tNs)
+        // Two fixes that disagree say only that one of them is wrong. A voter that odometry never confirmed (the first fix
+        // of a drive, drive 20261005-104833) is no better evidence than the new fix, so it cannot reject it alone (D-085).
+        hits += if (!cfg.coarseOdoUnconfirmedRejects && against.none { it.first.tNs in st.confirmed }) {
+            Hit(TrustReason.COARSE_ODOMETRY_DISPUTED, TrustState.QUESTIONABLE, 0.5)
+        } else {
+            Hit(TrustReason.COARSE_ODOMETRY_MISMATCH, TrustState.REJECTED)
+        }
+        return emptySet()
     }
 
     /**

@@ -1315,3 +1315,25 @@ Alternatives: keep v4 zips (an extra unpack step for every install); publish eve
 the reports are several directories).
 Consequences: artifact names now change with every build instead of the fixed `apk`/`aab`; anything that downloads
 by name must use a pattern. Releases on `v*` tags are unchanged.
+
+## D-085: A coarse fix that odometry never confirmed cannot reject a new fix on its own — Accepted (2026-10-05)
+Context: drive 20261005-104833 (MOCK_OUTPUT, OBD from 12 s). The first network fix was about 1 km off and the second
+about 190 m; neither could be checked (no vehicle speed at the first fix), so both were TRUSTED. The correct third fix
+(452 m from the second, 264 m driven) was then REJECTED by the coarse-odometry check (D-031/D-040), whose only voter was
+the second fix, and the estimate stayed on the wrong fix until the fourth fix at 92 s (≈950 m error). Two fixes that
+disagree say only that one of them is wrong; the check always blamed the newcomer.
+Decision: a trusted network fix is *confirmed* when an odometry vote agreed with it (as a voter or as the new fix), or
+when it was accepted because it agrees with the previous rejected/disputed fix. If every voter against a new fix is
+unconfirmed, the fix is QUESTIONABLE with `COARSE_ODOMETRY_DISPUTED` instead of REJECTED: the EKF fuses it (as every
+QUESTIONABLE coarse fix), but it does not vote; the next fix decides (it agrees with one side, which outvotes the
+other or rescues through the existing "agrees with the previous fix" rule). A confirmed voter against still rejects.
+`TrustConfig.coarseOdoUnconfirmedRejects = true` restores the old rule.
+Alternatives: (1) keep rejecting the newcomer (the old rule; it keeps a wrong first fix for one extra interval, here
+38 s); (2) TRUSTED instead of QUESTIONABLE for a disputed fix (it would then vote and could reject the next fix as an
+unconfirmed reference itself; QUESTIONABLE says what we know); (3) not fusing the disputed fix and re-fusing it
+retroactively after the next fix agrees (rollback; it repairs the past but the live output is equally wrong until the
+next fix); (4) prefer the fix with the smaller claimed hAcc (rewards liars, P22); (5) a special rule for the first fix
+of a drive (Android's first network fix is often stale, but the same happens after any gap without odometry).
+Consequences: when the unconfirmed reference was the good one and the newcomer is stale, the estimate follows the bad
+newcomer for one interval (the symmetric cost; the next fix restores it). Only the start of a drive and runs after a
+gap without vehicle speed are affected: 104833 is the only recording where it fires (R-041).

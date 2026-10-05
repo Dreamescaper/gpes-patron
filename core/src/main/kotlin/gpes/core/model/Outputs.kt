@@ -35,6 +35,8 @@ enum class TrustReason {
     AGREES_WITH_ESTIMATE,
     /** Coarse fix displacement disagrees with the distance driven (OBD + gyro chord). */
     COARSE_ODOMETRY_MISMATCH,
+    /** Coarse fix disagrees with the distance driven, but only fixes that odometry never confirmed say so (D-085). */
+    COARSE_ODOMETRY_DISPUTED,
 }
 
 /** The trust verdict for one location measurement. Recorded for every fix, including rejected ones. */

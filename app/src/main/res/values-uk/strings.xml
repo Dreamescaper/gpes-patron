@@ -186,6 +186,7 @@
     <string name="reason_reset_after_consistent_stream">Сигнал знову стабільний, повертаю довіру.</string>
     <string name="reason_agrees_with_estimate">Позиція близька до очікуваної, тому їй довіряю.</string>
     <string name="reason_coarse_odometry_mismatch">Грубий фікс не збігається з пройденою відстанню.</string>
+    <string name="reason_coarse_odometry_disputed">Грубий фікс розходиться з попереднім непідтвердженим; вирішить наступний фікс.</string>
 
     <!-- GNSS recovery probe while the platform gps is replaced (D-052) -->
     <string name="mock_targets_hint">Поки канал GPS підмінений, справжні GNSS-фікси до застосунку не доходять, а дані про супутники доходять. Щоб дізнатись, чи GPS повернувся, застосунок може на кілька секунд віддати канал назад.</string>

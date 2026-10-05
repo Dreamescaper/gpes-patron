@@ -185,6 +185,7 @@
     <string name="reason_reset_after_consistent_stream">The signal is stable again; trust is being restored.</string>
     <string name="reason_agrees_with_estimate">The fix is close to where we expected to be, so it is trusted.</string>
     <string name="reason_coarse_odometry_mismatch">The coarse fix does not match the distance driven.</string>
+    <string name="reason_coarse_odometry_disputed">The coarse fix disagrees with an earlier unconfirmed one; the next fix decides.</string>
 
     <!-- GNSS recovery probe while the platform gps is replaced (D-052) -->
     <string name="mock_targets_hint">While the GPS channel is replaced, real GNSS fixes do not reach the app; satellite data still does. To tell whether GPS is back, the app can give the channel back for a few seconds.</string>

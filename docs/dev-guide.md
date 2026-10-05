@@ -222,6 +222,11 @@ adb pull /storage/emulated/0/Android/data/gpes.patron/files/drives/<id>.db   # p
   (2.98) unzips every artifact it downloads, and an APK is a zip, so you get a folder of `classes*.dex`. Use the web
   page or the `gh api` call.
 
+- **P42 A disagreement between two measurements is symmetric.** The coarse-odometry check blamed the new fix even when
+  its only accuser was itself unchecked (the first fixes of drive 20261005-104833: one wrong fix rejected the right one).
+  When a check compares two pieces of evidence, ask what confirmed the reference (D-085). Odometry exists only from the
+  first vehicle-speed sample, so the first fixes of a drive are compared with nothing.
+
 ## Road-heading implementation pitfalls (2026-10-04, D-077)
 
 - A veto by every road in a large circular search can make a heading cue inert even on a corridor. Use the full

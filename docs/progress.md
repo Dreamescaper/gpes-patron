@@ -95,6 +95,20 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Log
 
+### 2026-10-05 — Drive 20261005-104833: a wrong first network fix held the estimate (D-085, R-041)
+- First drive recorded in MOCK_OUTPUT by 0.1.7+f2f41b8 (Pixel 8, OBD, 13 min, platform `gps` mocked the whole drive,
+  no real GNSS fix). Analysis: the first network fix was ≈1 km off, the second ≈190 m; OBD only from 12 s. The correct
+  third fix was rejected by the coarse-odometry check on the word of the second; error ≈950 m at 92 s. The EKF itself
+  did move fully to every accepted fix (≤ 45 m); between fixes it stands still while the heading is unknown (until 144 s).
+  Current main reproduced the live decisions exactly.
+- D-085: unconfirmed voters only dispute (`COARSE_ODOMETRY_DISPUTED`, QUESTIONABLE, UI text in en/uk).
+- Verified: miniature of the real case (`CoarseOdometryTest`, fails with the old rule via the config flag); three older
+  tests rewritten (they asserted rejection by a single unconfirmed reference) with confirmed references added where the
+  rejection is the point; all JVM tests, Android build and lint. Replay R-041. Not run in a car.
+- Also found: Google Fused echoes our mock `gps` back as non-mock `fused` fixes (all 763 identical to our estimate, 81
+  TRUSTED). The EKF ignores FUSED, but trust state uses it; left for a separate change.
+- Map: local `recordings/20261005-104833-network-map.html` (network fixes, fix-pair distance vs OBD, live vs replay).
+
 ### 2026-10-05 — CI artifacts without zip (D-084)
 `android.yml` uploads the debug APK and the release AAB with `actions/upload-artifact@v7` and `archive: false`, so
 they download as the `.apk`/`.aab` file itself. Test/lint reports stay a zip (several directories). Verified: the
@@ -757,6 +771,20 @@ input exists in v7.0.1 `action.yml`; the workflow run itself is checked after pu
 - Research doc, core module, SQLDelight recording, replay CLI, 11 scenarios. 24 unit tests.
 
 ## Results log
+
+### R-041 (2026-10-05, f6e19a2 + D-085 working tree) — unconfirmed coarse voters
+
+Before = `coarseOdoUnconfirmedRejects: true`, after = default. Both with roads, FUSED dropped; rungs with and without
+recorded OBD (the check needs vehicle speed). Files: local `recordings/analysis/d085/`.
+
+| Drive / set | Result |
+|---|---|
+| 104833 (no truth), clean + OBD | the 53.4-s fix: REJECTED → QUESTIONABLE (disputed). Distance from the estimate to the next fixes: 91.8 s 945 → 498 m, 121.7 s 166 → 39 m, 151.9 s 51 → 34 m, later unchanged. Without OBD identical (no odometry) |
+| Six recordings with truth × 13 scenarios × with/without OBD (104 pairs) + two jammed drives clean (4 pairs) | all metrics and trust summaries identical; `COARSE_ODOMETRY_DISPUTED` never fires |
+| Synthetic seed-1 standard matrix (117 summaries) | identical |
+
+The remaining 498 m at 91.8 s is the unknown heading (position does not move between fixes; the car drove 480 m). No
+truth exists for 104833, so the gain is measured against later network fixes, which agree with the OBD distance.
 
 ### R-040 (2026-10-05, 110a8ec + D-077…D-082 working tree, uncommitted) — Stop-to-move transitions
 
