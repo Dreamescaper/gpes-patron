@@ -115,7 +115,10 @@ which creates no file.
    recovery. The main target is now platform `gps` (navigators such as Waze read it, D-052): it marks GNSS Location
    input UNAVAILABLE, and `GnssProbeController` periodically gives the provider back for a short window to see
    whether real GNSS has returned (estimation-algorithm.md §3f).
-5. Verified on the emulator (2026-09-28): the fused stream returned our mock and was
+5. With platform `gps` mocked, Google Fused returns our mock (or a blend with it) as **non-mock** `fused` fixes
+   (drive 20261005-104833: all 763 equal to our estimate). Trust treats FUSED as UNAVAILABLE (`ECHO_OF_OUR_OUTPUT`) while any
+   provider is overridden and for 10 s after it is restored (D-086).
+6. Verified on the emulator (2026-09-28): the fused stream returned our mock and was
    `REJECTED/SYNTHETIC_INPUT`. `PipelineTest` covers it as well.
 
 ## Rollback / delayed decisions

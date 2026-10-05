@@ -15,6 +15,8 @@ enum class TrustState { TRUSTED, QUESTIONABLE, REJECTED, UNAVAILABLE }
 enum class TrustReason {
     SYNTHETIC_INPUT,
     SOURCE_OVERRIDDEN,
+    /** A Google Fused fix while (or shortly after) we replace a platform provider: Fused mixes our mock in (D-086). */
+    ECHO_OF_OUR_OUTPUT,
     STALE,
     POOR_ACCURACY,
     NO_ACCURACY,

@@ -1337,3 +1337,20 @@ of a drive (Android's first network fix is often stale, but the same happens aft
 Consequences: when the unconfirmed reference was the good one and the newcomer is stale, the estimate follows the bad
 newcomer for one interval (the symmetric cost; the next fix restores it). Only the start of a drive and runs after a
 gap without vehicle speed are affected: 104833 is the only recording where it fires (R-041).
+
+## D-086: Google Fused is our own output while we replace a platform provider — Accepted (2026-10-05)
+Context: with the platform `gps` mocked (D-052), Google Fused takes our mock as GPS input and returns it as `fused`
+fixes that are *not* flagged mock. Drive 20261005-104833: all 763 fused fixes were at 0.0 m from our estimate, 81 of
+them TRUSTED (624–763 s), so FUSED counted as recently trusted GNSS for `gnssTrustedWithin` (D-039 vector check and
+others) and for the UI. On the 0.1.6 drives (140822, 153540) fused fixes were 43–68 m (median) from our mock: a blend,
+still not independent. The EKF never used FUSED (`useFused = false`), so this broke the no-feedback invariant in trust
+state only.
+Decision: while any platform provider is overridden, and for `fusedEchoGraceS` = 10 s after the last restore (Fused can
+return the old mock for a while), FUSED fixes are UNAVAILABLE with `ECHO_OF_OUR_OUTPUT` and leave no trace in FUSED
+history (the D-069 early return); `sourceState(FUSED)` is UNAVAILABLE in that time.
+Alternatives: (1) detect an echo by comparing each fused fix with our published estimate (exact on 104833, but a blend
+on 0.1.6 drives was 40–400 m away and would pass); (2) stop listening to Fused while mocking (loses the record of what
+Fused did; trust and replay would differ from recordings); (3) disable Fused in the sources entirely (it is useful in
+RECORD_ONLY and as a reference); (4) flag only the gps provider in the evaluator and leave FUSED as is (the problem).
+Consequences: in MOCK_OUTPUT with mock gps, Fused carries no evidence at all, including during probe windows' first
+10 s. Replay estimates are unchanged on all recordings (R-042); only FUSED verdicts change, on the three MOCK_OUTPUT drives.

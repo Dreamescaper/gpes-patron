@@ -227,6 +227,11 @@ adb pull /storage/emulated/0/Android/data/gpes.patron/files/drives/<id>.db   # p
   When a check compares two pieces of evidence, ask what confirmed the reference (D-085). Odometry exists only from the
   first vehicle-speed sample, so the first fixes of a drive are compared with nothing.
 
+- **P43 Our mock comes back through other providers without the mock flag.** Google Fused uses the platform `gps`, so with
+  `gps` mocked it returned our estimate as an ordinary `fused` fix (drive 20261005-104833, 81 TRUSTED). `isMock` guards only
+  the provider we write to; any aggregator downstream of it is ours too (D-086). Check new inputs against our output
+  (distance to `estimate`) on a MOCK_OUTPUT recording.
+
 ## Road-heading implementation pitfalls (2026-10-04, D-077)
 
 - A veto by every road in a large circular search can make a heading cue inert even on a corridor. Use the full

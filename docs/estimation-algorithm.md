@@ -111,6 +111,9 @@ unless the **coarse-odometry check** rejects them (D-031, `COARSE_ODOMETRY_MISMA
 - **Our own output is not evidence (D-069).** Fixes of an overridden provider (the mock `gps`) or with the synthetic flag are
   assessed (UNAVAILABLE / REJECTED) but do not update `prev`, `recent`, hysteresis or stream state of their source. Otherwise the
   first real fixes of a GNSS probe window are compared with our mock track.
+- **Fused echoes our mock (D-086).** While any platform provider is overridden, and for 10 s after it is given back
+  (`fusedEchoGraceS`), FUSED fixes are UNAVAILABLE (`ECHO_OF_OUR_OUTPUT`) with the same early return: Google Fused builds
+  them from the platform providers, including our mock `gps`. `sourceState(FUSED)` is UNAVAILABLE then too.
 
 - After any REJECTED fix, the next **5** clean fixes are QUESTIONABLE (`RECOVERING`) before TRUSTED
   returns.

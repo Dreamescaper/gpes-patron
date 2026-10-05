@@ -168,6 +168,7 @@
     <string name="notif_action_stop_spoof">Вимкнути</string>
     <string name="reason_synthetic_input">Це фіктивна локація (можливо, наша власна), тому її ігноруємо.</string>
     <string name="reason_source_overridden">Цей канал зараз підмінений нашим власним виводом.</string>
+    <string name="reason_echo_of_our_output">Google Fused зараз повертає наш власний вивід, тож це не доказ.</string>
     <string name="reason_stale">Дані застаріли.</string>
     <string name="reason_poor_accuracy">Заявлена точність надто погана.</string>
     <string name="reason_no_accuracy">Фікс без оцінки точності.</string>

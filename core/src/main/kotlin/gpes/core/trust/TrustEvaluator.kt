@@ -154,6 +154,12 @@ data class TrustConfig(
      * mismatch). null disables.
      */
     val agreeWithEstimateM: Double? = 100.0,
+    /**
+     * While we replace a platform provider (mock `gps`), Fused fixes are built from our own output (drive 20261005-104833:
+     * all 763 equal to our estimate, 81 TRUSTED) and are not evidence. After the provider is given back, Fused can keep
+     * returning the old mock for a while; its fixes count as ours for this long (s) (D-086).
+     */
+    val fusedEchoGraceS: Double = 10.0,
     /** The agreement rule is off while vehicle speed (OBD) is this fresh (s): the estimate is then precise enough to gate strictly. */
     val agreeObdFreshS: Double = 10.0,
     /**
@@ -206,6 +212,7 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
         val lastStatus: GnssStatusSnapshot?,
         val overridden: Set<String>,
         val lastObd: VehicleSpeedMeasurement?,
+        val lastRestoreNs: Long?,
     )
 
     private companion object {
@@ -222,6 +229,8 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
     private var lastStatus: GnssStatusSnapshot? = null
     private val overridden = HashSet<String>()
     private var lastObd: VehicleSpeedMeasurement? = null
+    /** When a provider we replaced was last given back (for [TrustConfig.fusedEchoGraceS]). */
+    private var lastRestoreNs: Long? = null
 
     override fun observe(m: Measurement) {
         when (m) {
@@ -229,7 +238,7 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
             is VehicleSpeedMeasurement -> lastObd = m
             is ProviderEvent -> when (m.event) {
                 ProviderEvent.Kind.OVERRIDDEN -> overridden += m.provider
-                ProviderEvent.Kind.RESTORED -> overridden -= m.provider
+                ProviderEvent.Kind.RESTORED -> if (overridden.remove(m.provider)) lastRestoreNs = m.tNs
                 else -> Unit
             }
             else -> Unit
@@ -247,6 +256,7 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
 
         if (m.isSynthetic) hits += Hit(TrustReason.SYNTHETIC_INPUT, TrustState.REJECTED)
         if (m.provider in overridden) hits += Hit(TrustReason.SOURCE_OVERRIDDEN, TrustState.UNAVAILABLE)
+        else if (m.source == LocSource.FUSED && isFusedEcho(m.tNs)) hits += Hit(TrustReason.ECHO_OF_OUR_OUTPUT, TrustState.UNAVAILABLE)
         if (hits.isNotEmpty()) {
             // Our own output (or a replaced provider's fixes) must not touch this source's history: the
             // first real fix of a GNSS probe window would be compared with our mock track (D-069).
@@ -378,6 +388,7 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
         val st = sources[source] ?: return TrustState.UNAVAILABLE
         val prev = st.prev ?: return TrustState.UNAVAILABLE
         if (prev.provider in overridden) return TrustState.UNAVAILABLE
+        if (source == LocSource.FUSED && isFusedEcho(tNs)) return TrustState.UNAVAILABLE
         if ((tNs - prev.tNs) / 1e9 > cfg.unavailableAfterS) return TrustState.UNAVAILABLE
         return st.lastState
     }
@@ -607,7 +618,14 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
         }
     }
 
-    override fun snapshot(): Any = Snap(HashMap(sources), lastNetwork, lastStatus, HashSet(overridden), lastObd)
+    /** D-086: Fused mixes in whatever the platform providers deliver, including our mock. */
+    private fun isFusedEcho(tNs: Long): Boolean {
+        if (overridden.isNotEmpty()) return true
+        val restored = lastRestoreNs ?: return false
+        return (tNs - restored) / 1e9 < cfg.fusedEchoGraceS
+    }
+
+    override fun snapshot(): Any = Snap(HashMap(sources), lastNetwork, lastStatus, HashSet(overridden), lastObd, lastRestoreNs)
 
     override fun restore(snapshot: Any) {
         val s = snapshot as Snap
@@ -615,5 +633,6 @@ class DefaultTrustEvaluator(private val cfg: TrustConfig = TrustConfig()) : Loca
         lastNetwork = s.lastNetwork; lastStatus = s.lastStatus
         overridden.clear(); overridden.addAll(s.overridden)
         lastObd = s.lastObd
+        lastRestoreNs = s.lastRestoreNs
     }
 }

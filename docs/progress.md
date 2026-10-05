@@ -43,6 +43,7 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
   2026-10-03 (build 0.1.6). Four have usable GPS truth for the current replay comparison; 153540 has only 50 interpolated
   truth ticks in seven windows. D-075/D-076/D-077 are verified offline; none has run in a car. D-078…D-082
   are offline experiments kept on branch `experiment/stop-motion`, not in main (D-083).
+- **Fused is ignored while we mock `gps` (D-086)**, including the first 10 s of each probe window; the grace time is a guess.
 - **Chip dead-reckoning fixes pass as GNSS.** The Pixel 8 keeps emitting `gps` fixes with hAcc
   3–10 m for ~50 s after losing all satellites (NMEA GGA quality 6). The trust evaluator TRUSTS them
   and replay truth includes them.
@@ -94,6 +95,13 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 - The GnssLogger export is a best-effort subset (no carrier-phase derived fields).
 
 ## Log
+
+### 2026-10-05 — Fused echo of our mock is not evidence (D-086, R-042)
+- `DefaultTrustEvaluator`: FUSED fixes are UNAVAILABLE (`ECHO_OF_OUR_OUTPUT`, UI text en/uk) while a platform provider is
+  overridden and 10 s after a restore; no FUSED history; `sourceState(FUSED)` UNAVAILABLE.
+- Verified: `FusedEchoTest` (miniature of drive 20261005-104833; fails with the guard disabled), all JVM tests, Android
+  build and lint; replay R-042. Not run on a device: whether Fused also echoes during a probe window's first seconds
+  (the 10-s grace is a guess) is unmeasured.
 
 ### 2026-10-05 — Drive 20261005-104833: a wrong first network fix held the estimate (D-085, R-041)
 - First drive recorded in MOCK_OUTPUT by 0.1.7+f2f41b8 (Pixel 8, OBD, 13 min, platform `gps` mocked the whole drive,
@@ -771,6 +779,17 @@ input exists in v7.0.1 `action.yml`; the workflow run itself is checked after pu
 - Research doc, core module, SQLDelight recording, replay CLI, 11 scenarios. 24 unit tests.
 
 ## Results log
+
+### R-042 (2026-10-05, 4c5ef9e + D-086 working tree) — Fused echo guard
+
+Before = 4c5ef9e (git worktree build), after = working tree. Variants keep FUSED (the standard ladder drops it), roads
+on, with and without recorded OBD; seven recordings, 13 scenarios on the GNSS drives, clean on the jammed ones
+(134 runs). Files: local `recordings/analysis/d086/`.
+
+- `ticks.csv` (every estimate) byte-identical in all 134 runs; p50/p95/max/within95 unchanged.
+- FUSED verdicts change only on the three MOCK_OUTPUT drives: 104833 clean+OBD TRUSTED 81 / QUESTIONABLE 486 /
+  REJECTED 196 → UNAVAILABLE 763; 140822 2152 of 2183 fixes → UNAVAILABLE (31 TRUSTED before the first override); 153540
+  970 of 986. The four RECORD_ONLY drives are identical.
 
 ### R-041 (2026-10-05, f6e19a2 + D-085 working tree) — unconfirmed coarse voters
 

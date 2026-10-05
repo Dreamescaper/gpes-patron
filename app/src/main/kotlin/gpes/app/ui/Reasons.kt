@@ -12,6 +12,7 @@ import gpes.core.model.TrustState
 fun reasonText(r: TrustReason): Int = when (r) {
     TrustReason.SYNTHETIC_INPUT -> R.string.reason_synthetic_input
     TrustReason.SOURCE_OVERRIDDEN -> R.string.reason_source_overridden
+    TrustReason.ECHO_OF_OUR_OUTPUT -> R.string.reason_echo_of_our_output
     TrustReason.STALE -> R.string.reason_stale
     TrustReason.POOR_ACCURACY -> R.string.reason_poor_accuracy
     TrustReason.NO_ACCURACY -> R.string.reason_no_accuracy

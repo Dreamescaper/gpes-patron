@@ -167,6 +167,7 @@
     <string name="notif_action_stop_spoof">Turn off</string>
     <string name="reason_synthetic_input">It is a mock location (possibly our own), so it is ignored.</string>
     <string name="reason_source_overridden">This channel is currently replaced by our own output.</string>
+    <string name="reason_echo_of_our_output">Google Fused currently returns our own output, so it is not evidence.</string>
     <string name="reason_stale">The data is out of date.</string>
     <string name="reason_poor_accuracy">The reported accuracy is too poor.</string>
     <string name="reason_no_accuracy">The fix has no accuracy estimate.</string>
