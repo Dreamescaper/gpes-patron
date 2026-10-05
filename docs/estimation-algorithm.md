@@ -310,6 +310,14 @@ otherwise the random walk. Each second with |ω| > 0.07 rad/s, the centripetal s
 holders 1). The bias random walk is ×k and the centripetal σ gets g·θ/|ω| with θ = 2°·(k − 1): in the hand the up vector and the
 forward axis move, so the apparent bias wanders ±1–2 m/s² in minutes and a_lat carries gravity. On a holder nothing changes.
 
+### Stop/motion mode experiments (D-078…D-082, not in main)
+
+Stop continuation without a forward axis, a conditional stopped trajectory beside navigation, an exclusive
+moving trajectory with NETWORK leg comparison, and stop-to-move reinitialization were built and measured
+offline (R-035…R-040). Against the default estimator the full stack worsens p95 on 153540 and 085946 and
+misses more stops than D-080, so the code lives on branch `experiment/stop-motion` and main keeps the
+stop rules above unchanged (D-083). The design and measurements are in decisions.md and progress.md.
+
 ## 3d. Road constraint (Phase 2, D-041…D-044; plan in road-constraint.md)
 
 Active only when the estimator gets a road network (`BaselineDrEstimator(cfg, roads = { network })`;
@@ -338,7 +346,25 @@ replay rungs `+osm`).
 - **Output**: position from the constrained EKF; covariance = the twin's when larger (honest radius);
   `PositionEstimate.road` = the matcher's best state with probability, P(off-road), confident distance,
   street name.
-- Without OBD the speed σ condition switches the updates off (except with GNSS speed): measured neutral.
+- **Uncertain-speed heading (D-077)**: with roads enabled and `uncertainSpeedHeading = true`, a separate geometry
+  cue works when the twin's speed σ > 1.5 m/s, nominal |v| ≥ 4.2 m/s, and it is not stationary. No fresh OBD
+  (≤ 2 s) or trusted GNSS (≤ 3 s); an accepted position anchor must be ≤ 45 s old. Over the last 3 s the
+  gyro net turn must be ≤ 3°, total absolute turn ≤ 9°, mean tilt-rate RMS ≤ 0.2 rad/s; gaps > 1.5 s
+  restart this window. This uses elapsed time, never the uncertain odometry distance or HMM confidence.
+  Query the twin's 3σ position ellipse including road width and OSM geometry, with maximum pose σ 150 m.
+  For each road projection choose the axis direction nearest the twin's heading; spatial and heading NIS
+  must each be ≤ 9. Score = exp(−(spatial NIS + heading NIS)/2), with heading variance = twin variance + 10°².
+  Group bearings within 10°, take the maximum score per axis (duplicates do not add evidence), and require
+  the best axis score / (sum of axis scores + off-road score 0.05) ≥ 0.9. This is heuristic support, not a
+  calibrated posterior. Every locally plausible piece of the winning axis must be straight within 5°
+  over clipped ±40 m; check every polyline edge so a short S bend is not missed.
+  Attempt at most every 10 s, including failed geometry queries. Apply a χ²-gated local Joseph update
+  to heading with σ 6° only if prior heading variance exceeds R. Other state means and marginal variances
+  (position, speed and biases) stay unchanged at the update; subsequent propagation uses the corrected
+  course. Reported position uncertainty retains the twin floor. A road axis cannot choose a parallel
+  carriageway, resolve a 180° heading error, infer speed or identify the point along the street.
+  The odometry-based cross-track, along-track and corner updates still require speed σ ≤ 1.5 m/s.
+  R-033: this mode works in the miniature, but has little measured effect on the four real drives.
 
 ## 3f. GNSS recovery probe while the platform `gps` is replaced (D-052)
 

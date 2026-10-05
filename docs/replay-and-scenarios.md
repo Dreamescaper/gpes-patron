@@ -134,6 +134,14 @@ and `"roadEdits"` alters the map for robustness tests (M5):
 `{"type":"remove_roads_along_truth","fromS":300,"toS":480,"bufferM":30}` (a road missing from OSM) and
 `{"type":"shift_roads","eastM":15,"northM":0}` (misaligned OSM). Future rung: `+route`.
 
+With roads enabled, D-077 also allows a heading-only geometric constraint when speed is uncertain.
+For the pre-D-077 comparison set `"baseline":{"roadConstraint":{"uncertainSpeedHeading":false}}`.
+Defaults: heading σ 6°, maximum pose σ 150 m, attempts every 10 s after 3 quiet seconds, anchor age ≤ 45 s,
+axis spread 10°, minimum heuristic support 0.9 and off-road score 0.05 (`uncertainHeading*` fields in
+`RoadConstraintConfig`). These are optional JSON fields; old variant files retain compatibility. No
+recording schema change. `PositionEstimate.road` remains the odometry HMM output; this independent axis
+cue does not make that road identity reliable when speed is unknown.
+
 **Re-timing a truth** (`tools/truth/align_turns.py drive.db in.truth.json out.truth.json`): shifts the
 along-track position by the OBD latency (0.8 s) and anchors it at isolated route corners by the gyro
 (D-046). Run it after `osm_match.py`; the route stays the same.
@@ -153,3 +161,30 @@ scenarios for road-constraint numbers.
 - Trust: false-rejection rate (clean, truth-quality fixes not TRUSTED), missed-detection rate
   (fixes offset ≥ 50 m that were TRUSTED), and detection latency per manipulated window.
 - Mode fractions.
+
+
+## Hypothesis columns and stop/departure metrics
+
+`ticks.csv` appends `hyp0_weight, hyp0_lat, hyp0_lon, hyp0_r68_m` and the same `hyp1_*` columns from
+`PositionEstimate.hypotheses` (empty when absent). The default baseline emits one hypothesis, so `hyp1_*`
+stay empty; multi-hypothesis estimators fill both. The stop/motion experiments that used them (D-078…D-082,
+variant fields `accelSpeed.stopHoldS` and `stopMotion`) are on branch `experiment/stop-motion` (D-083).
+
+For stop/departure comparison use `tools/plot/compare_motion.py` (Python standard library):
+
+```bash
+python3 tools/plot/compare_motion.py --drive recordings/<id>.db \
+  --before <before-run>/ticks.csv --after <after-run>/ticks.csv --out /tmp/motion.json
+```
+
+Exclude recorded OBD/FUSED from **both** estimator variants; the script cannot verify this from ticks.
+Recorded OBD speed is used only as reference, interpolating gaps ≤2 s. Otherwise use existing clean
+GNSS truth speed where available; this is a meaningful independence comparison in GNSS-absent runs,
+not independent validation for clean GNSS tracking. The origin is replay's first measurement across
+input tables, never session wall-clock time or an output estimate. Require ordered 1-Hz ticks.
+Report near-zero estimates (<0.5 m/s) while reference >3 m/s, their longest run, missed stop ticks
+(reference ≤0.5), and predicted travel during those sampled stops. Reference gaps stay unscored.
+After ≥5 consecutive reference stop ticks, reference >2 starts a departure; a selected speed >0.5
+within 15 s measures release delay, otherwise null is censored. A zero delay with
+`estimated_stopped_before_departure=false` means the preceding stop was missed, not a successful
+departure detector. OBD quantization/latency and sparse GNSS windows limit timing precision.

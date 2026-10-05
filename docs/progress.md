@@ -32,14 +32,17 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Known limitations
 
-- Road constraint (R-020): needs OBD (or GNSS speed); a road missing from OSM next to a mapped parallel
+- Road position/turn constraints (R-020): need reliable speed (OBD or GNSS); D-077 adds a heading-only local axis cue
+  when speed is uncertain, with little real-drive effect (R-033). It cannot locate the vehicle along a street or
+  select a parallel carriageway. A road missing from OSM next to a mapped parallel
   street can still pull the track until P(off-road) rises; the reported radius is the road-free one
   (conservative); along-track error between turns is only partly corrected (M4 fires a few times per
   drive); not yet run in the app or a car.
 
 - **Limited real-world data.** Six Pixel 8 recordings, including two hand-held drives recorded with mock output on
   2026-10-03 (build 0.1.6). Four have usable GPS truth for the current replay comparison; 153540 has only 50 interpolated
-  truth ticks in seven windows. D-075/D-076 are verified offline; neither has run in a car.
+  truth ticks in seven windows. D-075/D-076/D-077 are verified offline; none has run in a car. D-078…D-082
+  are offline experiments kept on branch `experiment/stop-motion`, not in main (D-083).
 - **Chip dead-reckoning fixes pass as GNSS.** The Pixel 8 keeps emitting `gps` fixes with hAcc
   3–10 m for ~50 s after losing all satellites (NMEA GGA quality 6). The trust evaluator TRUSTS them
   and replay truth includes them.
@@ -53,6 +56,20 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
   within68 is 0.48–0.72 with D-076 on the two hand-held drives. D-076 admits heading error during non-yaw phone motion,
   but recovery takes multiple fixes, pure yaw phone rotations remain invisible, and 140822 has a new two-tick GPS
   recovery error of 391–408 m (R-032). The simulated holder cannot validate hand movement or that regression.
+- **Stop/departure flicker is unresolved in defaults (R-034/R-035).** D-078 bridges unknown-axis stops locally,
+  but regresses later outages and is disabled by default; quietness alone cannot distinguish a stop from smooth cruising.
+  D-079 retains a conditional stopped trajectory and improves the light segment without GNSS/OBD, but has
+  overly broad radii and remaining regressions (R-037). D-080 removes the two demonstrated 190523 pull-away
+  delays (R-038), but requires a usable axis/bias and stable mount; jammed 085946's +0.60 m p95 remains.
+  Its ordinary branch still uses strict ZUPT;
+  this is not an exhaustive mutually exclusive motion-mode filter. Both experiments remain default-null.
+  D-081 retains an exclusive moving path and compares motion legs (R-039), but has new missed-stop and
+  accuracy regressions; `trajectoryScoring` is false by default. Fewer false stops alone do not establish
+  stability. Its 5/10-baseline cost without/with roads has not been profiled on a phone.
+  D-082 fixes selected-stop/departure reinitialization and expired-zero traps (R-040), without p95/max
+  regressions versus D-081, but missed-stop ticks/travel still worsen on some holder runs. It does not
+  remove all D-081 regressions versus D-080 or establish stable mode detection; `motionTransitions=false`.
+  All of D-078…D-082 is on branch `experiment/stop-motion`, not in main (D-083).
 - **Pull-away assumes the phone is in a moving car.** After the engine is off and the phone is
   handled, the estimator drives off at 8 m/s (R-007: 577 m in 100 s).
 - `gnss_status` was empty on the Pixel 8 (the GnssStatus callback delivered nothing); NMEA GSA/GSV
@@ -77,6 +94,160 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 - The GnssLogger export is a best-effort subset (no carrier-phase derived fields).
 
 ## Log
+
+### 2026-10-05 — D-077 in main, stop/motion experiment parked on a branch (D-083)
+- Committed the full working tree (D-077…D-082) as `experiment/stop-motion`. Main carries only D-077
+  (`RoadHeadingConsensus`, uncertain-speed road heading), `ticks.csv` hypothesis columns and
+  `tools/plot/compare_motion.py`. D-077 counts its updates in `uncertainHeadingStats`, not `roadStats`.
+- Verified: core + recording tests exit 0. Default replay output of main and of the branch (flags off) compared
+  file by file (`summary.json`, `ticks.csv`, `trust.csv`): synthetic seed-1 matrix, all 471 files identical; six
+  recordings × 13 scenarios with `--roads`, 504 runs completed in both before a 30-min job limit (87 with roads),
+  all identical. The remaining real runs were not compared. No car/device validation (unchanged).
+
+### 2026-10-05 — Conditional reinitialization and pending departure (D-082, R-040)
+
+- Added opt-in transition from selected stop to a fresh possible moving leg at that pose, rather than
+  resuming the never-stopped trajectory. Retain broad velocity and historical position uncertainty,
+  independent moving-bias calibration and the stopped origin even without strict IMU ZUPT. Distinguish
+  axis availability from usable bias; preserve pending departure when fresh zero initially vetoes the
+  fallback. A new displaced NETWORK pair can restart broad motion. No raw acceleration odometry.
+- Ten miniature tests include 103211/190523/103343 stop/departure geometry, readiness, conditional bias,
+  fresh zero, state restore and query purity. Five corrected rules were individually disabled and their
+  reproductions failed. Final 188 core +6 recording tests, Android debug assembly/lint all exit 0.
+- Six drives ×13 scenarios: no p95 or whole-drive max increase versus D-081. Simulation three seeds
+  ×nine paired rungs ×13: all 351 summaries identical (339 scored, 12 unscored). All 429 `trust.csv`
+  pairs byte-identical; disabled transition reproduces 78/78 saved D-081 summaries. Real variants
+  exclude FUSED/OBD and use identical recorded NETWORK/road tiles; jammed truth is explicitly reconstructed.
+- 153540 absent p95 127.43→118.49 m; original 136–200-s segment near-zero ticks 35→37/64, predicted
+  travel 213.60→195.59 m. 103211 drop_10min p95 138.77→131.49; local 303.54-s error 244.80→147.55 m.
+  The latter still exceeds D-080 119.86 m. 190523 departure trap at 126–144 s was removed from the
+  intermediate prototype; final false-stop ticks 16→16 and p95 113→113 m in drop_10min.
+- Stop detection remains incomplete: 085946 absent missed-stop ticks 153→99, but 103211 103→104,
+  103343 80→85; predicted stop travel worsens there. Synthetic identity means D-081's earlier spoof/
+  outage regressions are still present. Keep default-null/off; no stable detector or global gain claim.
+  Updated 153540 v8 and 103211 D-082 map, preserving causal history and reference-source labels.
+  Reports/configs/source hashes, negative proofs and rejected intermediate runs: ignored
+  `recordings/analysis/d082/`. Nothing committed; no car/device or on-phone cost validation.
+
+### 2026-10-04 — Exclusive moving path, trajectory comparison and stop/departure evaluation (D-081, R-039)
+
+- Built an opt-in moving branch that survives quiet-IMU ZUPT, alongside the stopped path. Accepted NETWORK
+  fixes compare both predicted motion legs before fusion. Common coarse-position offset cancels; separate
+  conservative speed/heading leg-error bounds avoid fake precision. Cached exact endpoints cannot renew
+  mode evidence. A broad moving likelihood component prevents wrong heading from declaring displacement
+  a stop. This is a prototype, not a complete IMM or calibrated mode probability.
+- A separate D-080 control preserves source trust and motion/up-learning feedback. All 429 paired
+  `trust.csv` files are byte-identical; reproduction matches 78/78 saved D-080 summaries. Defaults unchanged.
+- Added nine CI miniatures: quiet cruising, pre-fix fit, covariance, common offset, wrong heading, cached/
+  synthetic fixes, outliers, rollback/query purity and control feedback. Quiet-cruising test demonstrably
+  fails with the flag false. Final 178 core +6 recording tests pass; Android debug assembly/lint exit 0.
+  Reusable `tools/plot/compare_motion.py` evaluates false/missed stops and departure release against
+  recorded OBD excluded from estimator inputs, or sparse clean GNSS truth where available.
+- Compared six drives ×13 scenarios and three synthetic seeds ×nine paired rungs ×13 scenarios.
+  Final candidate has 23/78 real and 36/339 truth-scored simulated p95 regressions (>0.01 m), with
+  12 further synthetic pairs unscored. 153540 absent p95 110.83 →127.43 m; 103211 drop_10min
+  130.72 →138.77; 085946 109.68 →118.64 against reconstructed truth. 190523 absent false-stop
+  ticks improve 98 →19, but missed stops worsen 16 →33; 103211 missed stops 17 →103.
+- Rollout rejected: `trajectoryScoring=false`, `stopMotion=null` remain defaults. Stop/departure persistence,
+  reinitialization, cached-fix observability and calibration remain open. No car/device validation or phone
+  performance measurement. Updated 153540 v7 and 103211 regression map; reports/configs/source hashes,
+  negative proof and intermediate rejected runs under ignored `recordings/analysis/d081/`. Nothing committed.
+
+### 2026-10-04 — Past stop evidence invalidated by a bounded departure pulse (D-080, R-038)
+
+- Diagnosed 190523 replay 475–487 / 547–569 s: the holder had a usable forward axis and bounded bias,
+  with sustained ~0.6–1.4 m/s² acceleration. Nearby NETWORK pairs described the previous stop but held
+  the conditional stopped output through the subsequent acceleration. This was a temporal evidence error.
+- Opt-in motion alternatives now invalidate old positive stop evidence after 0.5 s of usable forward
+  residual >0.5 m/s² and tilt RMS <0.07. A later-arriving pair that began before the pulse cannot reassert
+  a stop. No acceleration-to-speed/distance integration; selected coordinates come from the existing branch.
+- Five new miniature tests cover holder departure, straddling/later fix pairs, bumps/hand motion and
+  snapshot/restore. Pre-change stop-evidence miniature fails; final 169 core +6 recording tests pass.
+  Android debug assembly/lint both exit 0. No device/car validation.
+- All six drives ×13 scenarios and three synthetic seeds ×nine paired rungs ×13 scenarios measured:
+  no p95 or whole-drive maximum increase versus D-079 where truth exists (78 real /339 simulated pairs;
+  12 further simulated pairs have no truth-scored output); all trust
+  summaries identical. D-079 reproduction (`departureHoldS=null`) matches all 78 saved summaries.
+  190523 drop_10min p95 120.70 →113.00 m; errors at 487/569 s 45.89 →9.77 /161.42 →45.63 m.
+  153540 light interval unchanged: 37/64 near-zero ticks, estimated travel 193.53 m without GNSS/OBD.
+- Kept default `stopMotion=null`: absence of a reliable axis, slow creep, cached NETWORK, wide ambiguity
+  radii and nonexclusive ordinary ZUPT remain unresolved. Maps v6/190523 D-080, exact configs, source hashes,
+  reproduction, negative proof and reports are under ignored `recordings/analysis/d080/`.
+
+### 2026-10-04 — Retained stopped trajectory and selected-branch output (D-079, R-037)
+
+- Built opt-in stop alternative beside ordinary navigation, bounded IMU/coarse-displacement support,
+  selection hysteresis, two output hypotheses and uncertainty around the selected branch. A later switch
+  uses the already propagated alternative's coordinate; historical metrics/publications stay causal.
+- No GNSS/OBD requirement or learned-axis requirement. Without GNSS/OBD, 153540 session 136–200 s has
+  near-zero speed on 37/64 ticks versus 13; predicted speed integral 370 →194 m. Whole-drive p95/max unchanged.
+- Separated source-trust prediction from display ambiguity after a first prototype weakened spoof detection;
+  final trust summaries are identical in all 78 real and 351 synthetic pairs. Ambiguous speed cannot teach up.
+- Final six-drive matrix: most accuracy unchanged; 190523 10-min outage p95 113 →121 m, jammed 085946
+  109.08 →109.68 m. Within68 153540 absent 0.48 →0.98 is too pessimistic, not ideal calibration.
+  Keep `stopMotion=null` in app/default replay. Seventeen new miniatures, total 164 core +6 recording
+  tests and Android assembly/lint exit 0; disabled prototype fails stop miniature (0 expected, 8 actual).
+  All 78 default summaries match saved D-077; three simulated seeds' worst p95 increase <0.000001 m.
+- Local map v5 shows chosen trajectory and both branch positions at the slider time, with absent-GNSS
+  as default and the stop interval selected. Evidence/config/hash/negative proof/report under
+  `recordings/analysis/d079/`. No car validation, no global accuracy improvement claim.
+
+### 2026-10-04 — Holder stops with OBD removed (R-036)
+- Checked all four holder recordings through the current/default pipeline (D-078 disabled), recorded NETWORK,
+  no FUSED/OBD. Recorded `obd:elm327` speed is reference only. On 103211/190523 also compared GNSS present/absent.
+- Same failure exists: during stable OBD stops the no-GNSS runs assign 8 m/s 8/2/1/1 times on
+  103211/190523/085946/103343. Estimate exceeds 3 m/s for 6.3/4.0/18.4/17.7 s of scored stops respectively.
+  With recorded GNSS the first two have only 4.4/0.9 s above 3 m/s, though detector flicker remains.
+- Before axis learning, loose stops are unavailable; after learning, holder vibration and a nominal speed ≥3
+  can still block them. A mount alone does not solve stop/departure inference. No algorithm/default changed.
+- Verified observer matches all 7342 overlapping saved replay tick positions/speeds. Reference uses OBD <0.5
+  for ≥8 s, trimming 2 s at each edge. Detailed local report `recordings/analysis/d078/holders/report.md`.
+
+### 2026-10-04 — Stop/departure experiment tested and left disabled (D-078, R-035)
+- Built stop continuation without a forward axis, bounded 1.5-s gap holding, and immediate release on measured
+  moving speed/available acceleration. Held gaps do not teach biases or apply zero-speed measurements.
+- R-034 interval recognizes stops for 25.7/64.0 s vs 12.0, exits 7 vs 12. Removing the moving-car prior altogether
+  trapped departures; extending holds to expired anchors with known axes also regressed. Retained narrow opt-in.
+- Final six-recording/13-scenario comparison finds regressions: 153540 absent p95 111 → 178 m; 140822 absent
+  407 → 418 m; 103211 consistent spoof ramp 349 → 400 m; jammed 085946 109 → 123 m. Default remains `stopHoldS=null`.
+- Verified: 147 core + 6 recording tests, Android debug assembly/lint, exit 0. Ten stop miniatures cover cruising,
+  pull-away, GNSS/OBD evidence, gyro bias and rollback. Disabling the candidate makes the light-stop test fail.
+  All 78 real default/null summaries match the saved D-077 candidate exactly (variant name excluded); 117
+  synthetic pairs also measured for the opt-in candidate. No car verification or accepted global improvement.
+- Updated local `20261003-153540-map-v4.html`: current vs experimental, traffic-light button and later regression
+  button, three scenarios, explicit disabled banner. Saved reproducible evidence under `recordings/analysis/d078/`.
+
+### 2026-10-04 — Diagnosed intermittent stops on 153540, session 136–200 s (R-034)
+- Diagnostic replay of the current D-077 candidate found 12.0 s of recognized stops out of 64.0 s and 12
+  `stationary → moving` transitions that assign the unmeasured pull-away prior of 8 m/s. No estimator change.
+- Forward axis is unknown until session 189.287 s: `accelReady` is false, which disables loose ZUPT despite
+  8.18 s of `stillLoose` evidence. The strict rule flickers under hand motion/vibration. GNSS at 176.254 s
+  reports 0.749 m/s; the estimator accepts it, but after another detector interruption resets to 8 m/s again.
+- Verified with a Java observer around the existing estimator through the same `MeasurementPipeline`, using
+  recorded NETWORK, dropping FUSED/OBD, roads enabled. All 199 overlapping tick positions/speeds match the saved
+  clean replay exactly. Local evidence: `recordings/analysis/d077/stop-136-200/`. No production source changes
+  or new driving verification; sparse fixes do not prove complete standstill throughout the user's interval.
+
+### 2026-10-04 — Road-axis heading without OBD or reliable odometry (D-077)
+- Built `RoadHeadingConsensus`: nearby parallel roads can provide a shared travel axis without choosing a road
+  identity. Scores use the road-free twin's pose ellipse and heading uncertainty; competing axes and an off-road
+  alternative reduce support. No HMM odometry/confident-distance requirement for this separate cue.
+- Apply only after a recent accepted position anchor and quiet motion; correct heading locally, leaving speed,
+  biases and position untouched at the observation. Existing reliable-speed position/turn gates remain.
+- Verified: 137 core + 6 recording tests, Android debug build and lint (exit 0). `RoadWithoutSpeedTest` has 11
+  cases; correction fails with the cue disabled. Four real drives × three scenarios × three variants; two bad-map
+  comparisons; full standard simulation and 13 synthetic road scenarios without/with OBD (R-033).
+- Visualization follow-up: `recordings/20261003-140822-map-v3.html`, six conditions, per-tick GPS error and
+  a shortcut to the worst spoof-regression tick (session 298.8 s, error 19.6 → 25.1 m). Replay/session shift
+  +33.200184324 s verified from SQLite against `trust.csv`; original GPS remains a visual reference under spoofing.
+- Uncertain: no useful correction of the original 153540 detour; essentially unchanged real p95. A modest 190523
+  median improvement is insufficient to validate full road localization without OBD. No driving validation on device.
+  Local evidence retained under `recordings/analysis/d077/`; joint road/speed hypotheses remain in the roadmap.
+- Follow-up (same date): updated and browser-checked `recordings/20261003-153540-map-v3.html`, with before/after/free
+  layers, three scenario choices and a largest-change shortcut (4.6 m separation at session 125.1 s). Extended
+  comparison to all six recordings and all 13 scenarios: 140822 has three p95 regressions under injected spoofing,
+  worst 37.7 → 41.9 m (+11.4%). Two originally jammed recordings improve against reconstructed OSM/OBD truth;
+  this evidence is not independent of the map. Details in R-033 below; no algorithm retuning in this follow-up.
 
 ### 2026-10-04 — Hand movement contributes heading process noise (D-076)
 - Diagnosed the left detour on 20261003-153540: the gyro integrated phone movement as a vehicle turn, while its heading
@@ -581,6 +752,312 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 - Research doc, core module, SQLDelight recording, replay CLI, 11 scenarios. 24 unit tests.
 
 ## Results log
+
+### R-040 (2026-10-05, 110a8ec + D-077…D-082 working tree, uncommitted) — Stop-to-move transitions
+
+Compare D-081 `{trajectoryScoring:true,motionTransitions:false}` → D-082 with `motionTransitions:true`;
+D-078 off. Both real variants exclude recorded OBD/FUSED, keep identical NETWORK, road tiles and faults.
+Four GNSS-bearing recordings have sparse/recorded position reference; 085946/103343 truth is OSM/OBD
+reconstruction, not independent position validation. Six ×13 real pairs and three seeds ×nine rungs
+×13 synthetic pairs. All 78 real p95/max pairs non-worsening versus D-081; all 351 synthetic summaries
+identical, 339 scored and 12 unscored. D-081's R-039 regressions versus D-080 are therefore not removed.
+
+| Drive | Scenario | p95 before → after, m | max before → after, m |
+|---|---|---:|---:|
+| 153540, hand | GNSS absent | 127.43 →118.49 | 157.03 →157.03 |
+| 153540, hand | drop_10min | 87.23 →87.23 | 157.03 →157.03 |
+| 140822, hand | GNSS absent | 407.32 →407.32 | 443.02 →443.02 |
+| 103211, holder | GNSS absent | 342.79 →342.79 | 627.96 →627.96 |
+| 103211, holder | drop_10min | 138.77 →131.49 | 294.01 →294.01 |
+| 190523, holder | GNSS absent | 472.44 →468.85 | 1544.31 →1544.31 |
+| 190523, holder | drop_10min | 113.00 →113.00 | 455.23 →453.26 |
+| 085946, holder, reconstructed | GNSS absent | 118.64 →116.34 | 304.37 →304.37 |
+| 103343, holder, reconstructed | GNSS absent | 164.47 →164.47 | 696.04 →696.04 |
+
+Recorded OBD is reference only, excluded from estimator. Sampled at 1 Hz: reference moving >3 m/s,
+stopped ≤0.5, estimated near-zero <0.5. No inferred precise standstill from sparse hand-drive GNSS.
+
+| Holder, GNSS absent | False-stop ticks | Longest false-stop run, s | Missed-stop ticks | Predicted travel during reference stops, m |
+|---|---:|---:|---:|---:|
+| 103211 | 52 →52 | 36 →36 | 103 →104 | 632.7 →715.5 |
+| 190523 | 19 →19 | 15 →15 | 33 →34 | 197.2 →203.8 |
+| 085946 | 50 →45 | 13 →13 | 153 →99 | 648.4 →576.5 |
+| 103343 | 3 →3 | 1 →1 | 80 →85 | 378.6 →425.0 |
+
+190523 drop_10min: false-stop ticks 16→16, missed 22→23, predicted stop travel 109.3→116.0 m.
+An intermediate candidate added 19 false-stop ticks and censored the departure at 125.24 s; a fresh
+zero temporarily prevented fallback, then the stopped origin had been forgotten. Final pending-state
+correction removes those additional false stops; reference departure has zero sampled delay but
+neither final variant had near-zero speed on the final preceding stop tick, so this is not a successful
+detector claim. Keep all censored/non-detected entries in `motion-metrics.json`.
+
+103211 absent at replay 303.54 s: error 244.80→147.55 m, selected speed 8.96→8.00 m/s; GNSS
+reference ≈0.83 m/s and delayed OBD reference 0. A bounded departure pulse may already indicate real
+motion near the end of the stop. The fix relocates the origin of possible departure; it does not measure
+8 m/s or fully resolve that stop. D-080 error was 119.86 m at the same tick. 153540 session 136–200 s:
+near-zero ticks 35→37/64 and predicted speed integral 213.60→195.59 m without GNSS, not true travel.
+
+Calibration is still pessimistic: 190523 absent within68 0.986→0.963, 103211 0.867→0.861;
+103343 within95 0.992→0.980. Individual ticks and stop travel can worsen despite non-worsening p95/max.
+All 429 per-fix trust files byte-identical; baseline reproduction matches 78/78 D-081 summaries.
+Ten new tests, five negative proofs; 194 JVM tests, Android assembly/lint exit 0. No car/device
+verification or cost profiling. `motionTransitions=false`, `trajectoryScoring=false`, `stopMotion=null`
+remain defaults. Local evidence/maps in `recordings/analysis/d082/` (ignored).
+
+### R-039 (2026-10-04, 110a8ec + D-077…D-081 working tree, uncommitted) — Moving-path likelihood prototype
+
+Compare D-080 `stopMotion={}` → D-081 `{trajectoryScoring:true}`; D-078 off, recorded OBD/FUSED
+excluded, recorded NETWORK and identical road tiles/faults. Four GNSS-bearing drives have sparse/recorded
+position truth; 085946/103343 use explicit OSM/OBD reconstructions, not independent position truth.
+Simulation: three seeds ×nine paired rungs ×13 scenarios (351 pairs; 339 truth-scored).
+
+| Drive | Scenario | p95 before → after, m | max before → after, m |
+|---|---|---:|---:|
+| 153540, hand | GNSS absent | 110.83 →127.43 | 157.03 →157.03 |
+| 153540, hand | drop_10min | 81.14 →87.23 | 157.03 →157.03 |
+| 140822, hand | GNSS absent | 407.32 →407.32 | 443.02 →443.02 |
+| 103211, holder | GNSS absent | 342.79 →342.79 | 627.96 →627.96 |
+| 103211, holder | drop_10min | 130.72 →138.77 | 294.01 →294.01 |
+| 190523, holder | GNSS absent | 469.79 →472.44 | 1544.31 →1544.31 |
+| 190523, holder | drop_10min | 113.00 →113.00 | 459.11 →455.23 |
+| 085946, holder, reconstructed | GNSS absent | 109.68 →118.64 | 304.37 →304.37 |
+| 103343, holder, reconstructed | GNSS absent | 164.47 →164.47 | 696.04 →696.04 |
+
+Separate motion metrics on GNSS-absent runs, using recorded OBD solely as reference. These are 1-Hz
+sample counts, not exact event durations. Reference moving >3 m/s, stopped ≤0.5, estimated near-zero <0.5:
+
+| Holder drive | False-stop ticks | Longest false-stop run, s | Missed-stop ticks | Predicted travel during reference stops, m |
+|---|---:|---:|---:|---:|
+| 103211 | 40 →52 | 29 →36 | 17 →103 | 84 →633 |
+| 190523 | 98 →19 | 83 →15 | 16 →33 | 93 →197 |
+| 085946 | 39 →50 | 9 →13 | 28 →153 | 143 →648 |
+| 103343 | 2 →3 | 2 →1 | 41 →80 | 176 →379 |
+
+The unchanged 103211 p95 hides a standstill regression at replay 303.54 s: OBD reference 0 m/s,
+ordinary selected speed 0.59 m/s versus new 8.95; position error 119.86 →244.80 m. The map opens
+280–308 s and has a second button for local improvement around 840 s. 153540's later window at
+session ≈833 s worsens 74.83 →128.14 m. On its original session 136–200 s, near-zero ticks
+37/64 →35/64; predicted speed integral 193.53 →213.60 m, not measured distance. Sparse GNSS truth
+cannot establish the whole 64-s standstill or score all departures.
+
+Departure metric: reference >2 after ≥5 consecutive stop ticks, estimate >0.5 within 15 s. Keep censored
+nulls and whether the estimate actually stopped beforehand. For example, 190523 absent at 125.24 s
+changes 0 →5 s release delay, but the old zero-delay estimate had missed the preceding stop. At 103211
+96.54 s the new release is censored beyond 15 s; 103343 at 46.93 s delay 2 →5 s. Do not present
+zero delay after a missed stop as a successful detector. OBD is quantized and delayed (~0.8 s); these
+are coarse offline diagnostics, not subsecond timing accuracy.
+
+23/78 real p95 regressions >0.01 m; simulation 36 regressions, 10 improvements among 339 scored pairs,
+largest +117.61 m (seed 1 Doppler-consistent drift, gyro/phone-only rungs: 781.19 →898.80 m).
+All 429 per-fix trust files identical; trusted spoof coordinates can still yield different position error.
+D-080 reproduction matches 78/78 saved summaries. Uncertainty remains pessimistic: 190523 absent
+within68 0.950 →0.986, 085946 0.961 →0.969. No accepted global improvement or stable mode selector;
+retain opt-in/off. 184 JVM tests, assembly/lint pass; no car/device or cost validation.
+Evidence: `recordings/analysis/d081/` (ignored), reusable evaluator under `tools/plot/`.
+
+### R-038 (2026-10-04, 110a8ec + D-077/D-078/D-079/D-080 working tree, uncommitted) — Bounded pull-away evidence
+
+Comparison: D-079 `stopMotion={departureHoldS:null}` → D-080 `stopMotion={}`, recorded NETWORK and identical
+roads, FUSED/OBD dropped, D-078 off. All six drives ×13 scenarios and three simulated seeds ×nine paired
+rungs ×13 scenarios. Four drives use interpolated accepted GNSS reference; the two jammed drives use
+OSM/OBD reconstructed truth, not independent map validation. No retrospective output correction.
+
+| Case | D-079 | D-080 |
+|---|---:|---:|
+| 190523 drop_10min p95 | 120.70 m | 113.00 m |
+| 190523 drop_10min error at 487.24 s | 45.89 m | 9.77 m |
+| 190523 drop_10min error at 569.24 s | 161.42 m | 45.63 m |
+| 153540 absent p95 / max | 110.83 /157.03 m | 110.83 /157.03 m |
+| 153540 session 136–200 s stopped ticks / predicted travel | 37/64 /193.53 m | 37/64 /193.53 m |
+| 140822 absent p95 | 407.32 m | 407.32 m |
+| 103211 drop_10min p95 | 130.72 m | 130.72 m |
+| 085946 reconstructed p95 | 109.68 m | 109.68 m |
+| 103343 reconstructed p95 | 164.47 m | 164.47 m |
+
+All 78 real and 339 truth-scored simulated p95/max comparisons non-worsening versus D-079; another
+12 simulated pairs have no scored output. Trust summaries identical in all 351 simulated pairs.
+Legacy reproduction matches all 78 saved D-079 summaries. Per-tick error can still differ in either direction:
+e.g. 190523 570.24 s 42.43 →49.22 m; this is not universal pointwise improvement. Radius calibration changes:
+153540 absent within68 0.98 →0.96, 103211 absent 0.912 →0.865. No calibrated stop probability claim;
+`stopMotion=null` remains default. Evidence/configs/source hashes: `recordings/analysis/d080/` (ignored).
+175 JVM tests and Android assembly/lint pass; pre-change miniature fails. No car validation.
+
+### R-037 (2026-10-04, 110a8ec + D-077/D-078/D-079 working tree) — Conditional stop alternative
+
+Compare `stopMotion=null` vs `{}`; D-078 off in both. FUSED/OBD removed, recorded NETWORK and identical
+road tiles. Four GNSS drives use the normal replay truth; two jammed drives use explicitly supplied
+OSM/OBD reconstructed truth (circular for road positions, not independent validation). 13 scenarios,
+78 real pairs. Source hashes/configs/report: local `recordings/analysis/d079/`.
+
+| Drive | Scenario | p95 before → after, m | max before → after, m | within68 before → after |
+|---|---|---|---|---|
+| 153540 | absent | 110.83 →110.83 | 157.03 →157.03 | 0.48 →0.98 |
+| 140822 | absent | 407.32 →407.32 | 443.02 →443.02 | 0.72 →0.87 |
+| 103211 | absent | 342.79 →342.79 | 627.96 →627.96 | 0.71 →0.91 |
+| 190523 | absent | 469.79 →469.79 | 1544.31 →1544.31 | 0.94 →0.93 |
+| 190523 | drop_10min | 113.00 →120.70 | 459.11 →459.11 | 0.88 →0.87 |
+| 085946 (reconstructed) | clean / absent | 109.08 →109.68 | 304.15 →304.37 | 0.88 →0.97 |
+| 103343 (reconstructed) | clean / absent | 164.47 →164.47 | 696.04 →696.04 | 0.91 →0.96 |
+
+At 136–200 s on 153540 absent/drop_10min: 13 →37 of 64 one-second ticks have |v|<0.5 m/s;
+predicted speed integral 370.01 →193.53 m. This is estimated movement, not known true distance:
+one GPS point at 176.254 s reports 0.749 m/s, so complete standstill for all 64 s remains uncertain.
+Clean uses 13 →36 ticks and 366.61 →198.13 m. This is not the high-rate stationary-detector count in R-034.
+
+Rejected prototypes: pure always-moving branch and permissive selection produced absent p95 ≈234 m;
+release threshold 0.6 increased later max to219 m. Release at0.85 restores whole-trip p95/max but yields
+fewer held stop ticks. Enlarged display covariance in source validation caused gradual spoof p95
+58.47 →490.50 m (false trusted fixes 1 →9). Separate ordinary trust prediction restores **identical trust
+summaries in all 78 real pairs**, including spoof scenarios; all four GNSS drives' final clean p95/max
+also match baseline. Synthetic standard ladder: 117 pairs ×3 seeds, all trust summaries identical and
+maximum p95 increase <0.000001 m. Simulated cruising is quiet, not a real engine-vibration reference.
+
+Default summaries match saved D-077 for78/78 pairs, excluding variant name. 164 core +6 recording tests,
+Android build/lint exit0. Seventeen new miniatures cover coarse movement/coarseness, quiet cruising,
+phone motion, selected endpoints, uncertainty, snapshots, mock/trusted inputs and separate trust/up hints.
+Disabling the candidate makes the stop miniature fail (expected0, actual8 m/s); restored suite passes.
+Keep candidate **disabled by default**: holder accuracy slightly regresses, ambiguity radii are too broad,
+support weights are uncalibrated, and ordinary strict ZUPT still does not preserve an exclusive moving
+mode. No car verification and no retrospective metric correction. Map v5 is the experiment, not app default.
+
+### R-036 (2026-10-04, 110a8ec + D-077/D-078 working tree) — Holder stop flicker without OBD
+
+D-078 disabled/default-null; recorded NETWORK and identical road tiles; FUSED and OBD removed from estimator.
+Use recorded `obd:elm327` as an independent speed reference only: contiguous speed <0.5 m/s for ≥8 s, no gaps
+>1.5 s, trim 2 s at either edge for IMU window/OBD delay, score initialized estimator motion updates only.
+For the GPS drives run both recorded GNSS and GNSS absent; the other two originally have no GNSS fix.
+
+| Holder recording, GNSS absent | Scored stopped seconds | Recognized stopped seconds | Estimated speed >3 m/s, seconds | False assignments to 8 m/s |
+|---|---:|---:|---:|---:|
+| 20260928-103211 | 185.6 | 131.6 (71%) | 6.3 | 8 |
+| 20260929-190523 | 115.7 | 94.4 (82%) | 4.0 | 2 |
+| 20260928-085946 | 157.3 | 131.8 (84%) | 18.4 | 1 |
+| 20260929-103343 | 130.1 | 99.9 (77%) | 17.7 | 1 |
+
+Recorded-GNSS runs without OBD: 103211/190523 still assign 8 m/s 8/2 times at real stops, but speed >3
+lasts only 4.4/0.9 s because GNSS brings it down. Their internal stopped fractions are 42%/18%; that is not
+position/speed failure by itself because trusted GNSS already bounds speed and intentionally suppresses loose
+ZUPT. Published GNSS_TRACKING mode takes precedence over STATIONARY; counts above use the private stop state.
+
+Concrete holder cases: 103211 session 3.70–30.22 s has 22.56 scored stopped seconds, axis unknown, six false
+8 m/s assignments; 190523 107.04–124.30 s has 13.31 scored seconds, strict evidence 10.45 s vs loose 13.31 s,
+unknown axis and false assignments at 114.90/121.10 s. After axis learning the problem can remain: 085946
+79.84–90.84 s, scored 6.98 s, estimated speed 4.94 m/s throughout despite stopped OBD; accel-norm std median
+0.306 (0.287–0.323) exceeds both 0.12 strict and often 0.3 loose thresholds. Loose evidence exists for 2.21 s
+but nominal speed ≥3 rejects it even though its σ is 5.81–7.03 m/s and includes zero. 103343 end stop also has
+large IMU excursions, so a holder is not asserted to have been perfectly motionless for every stop.
+
+Verified observer/current replay equality for 7342 overlapping tick positions/speeds (103211 clean/absent
+1608/1606, 190523 909/891, 085946 1368, 103343 960). No real coordinates added to CI, no estimator changes
+for this diagnosis. Existing D-078 stop miniature covers the unknown-axis flicker mechanism; it is still
+experimental/default-disabled after R-035. Local observer, analysis, per-stop detail and report under
+`recordings/analysis/d078/holders/`. Do not attribute the stop problem solely to user hand movement.
+
+### R-035 (2026-10-04, 110a8ec + D-077/D-078 working tree) — Stop experiment, disabled
+
+Before = D-077 with `accelSpeed.stopHoldS=null` (also the new default); candidate = 1.5 s. Same road tiles,
+recorded NETWORK, no recorded OBD/FUSED. Four GPS-window drives × 13 scenarios plus two jammed drives × 13
+formal scenarios with explicit reconstructed OSM/OBD truth (two effective cases; truth is circular).
+
+| Drive/scenario | p95 before → candidate, m | within68 | within95 |
+|---|---:|---:|---:|
+| 153540 clean | 3.26 → 3.27 | 0.88 → 0.86 | 1.00 → 1.00 |
+| 153540 absent | 110.83 → 178.27 | 0.48 → 0.34 | 1.00 → 0.86 |
+| 153540 drop_10min | 81.14 → 178.27 | 0.88 → 0.76 | 1.00 → 0.88 |
+| 140822 absent | 407.32 → 418.15 | 0.723 → 0.713 | 0.979 → 0.979 |
+| 140822 drop_10min | 125.99 → 107.85 | 0.947 → 0.979 | 0.979 → 0.979 |
+| 103211 absent | 342.79 → 342.54 | 0.710 → 0.721 | 0.858 → 0.885 |
+| 103211 consistent spoof ramp | 349.05 → 400.26 | see local CSV | 0.828 → 0.804 |
+| 190523 drop_10min | 113.00 → 103.89 | 0.877 → 0.884 | 0.956 → 0.956 |
+| 085946 reconstructed truth | 109.08 → 122.91 | 0.884 → 0.810 | 0.966 → 0.966 |
+| 103343 reconstructed truth | 164.47 → 165.03 | 0.914 → 0.876 | 0.981 → 0.981 |
+
+153540 session 136–200 s: 1072 updates / 63.985 s; recognized stopped 11.997 → 25.666 s, exits 12 → 7;
+integral of estimated speed 370.134 → 280.659 m. Those are diagnostics, not independently measured travelled
+distance or proof of full standstill. Observer matches all 964 overlapping clean tick positions/speeds exactly.
+The later absent window (session 684–689 s) has near-zero candidate speed while GPS truth indicates driving;
+maximum error rises 157.03 → 218.88 m. 153540 truth has only 50 interpolated ticks, but the regression is large.
+Candidate trust summaries differ in one pair (140822 gradual drift); default/null summaries match D-077 exactly
+in all 78 pairs. Seed-1 standard synthetic matrix: 117 pairs, worst p95 increase +14.27 m (drop_2min gyro-only,
+phone-only and phone+obd: 198.35 → 212.63 m). These last rungs have no recorded OBD in the synthetic drive.
+Opt-in results do not justify changing defaults. Artifacts: `recordings/analysis/d078/comparison-final.md`,
+`all-recordings-deltas.csv`, `baseline-identity.json`, source hashes, observer, matrices and map generator.
+
+### R-034 (2026-10-04, 110a8ec + D-077 working tree) — Stop flicker on 153540
+
+Times below are session/map seconds (replay +6.00999952 s). Observer logs original `MotionUpdate` values and
+estimator state through the existing pipeline; reflection only reads state, no sensor/decision changes. Compared
+all 199 overlapping output ticks with R-033 clean/after: zero numerical difference in lat/lon/speed.
+
+136–200 s: 1072 motion updates, 63.985 s total, strict/stopped 11.997 s; loose stop evidence 8.177 s, all with
+`accelReady = false`. Forward axis first available at 189.287 s. Strict gates are accel-norm std < 0.12 m/s² and
+mean gyro norm < 0.03 rad/s over 1 s. Window medians are 0.181 m/s² and 0.048 rad/s, so the phone is seldom
+quiet enough; values do not establish whether the *vehicle* is moving. The alternate loose rule (<0.3 m/s²,
+<0.02 rad/s) also needs `accelReady`, low predicted speed, old trusted GNSS and no longitudinal acceleration.
+
+The estimator recognized twelve short stop intervals (longest 2.51 s). Every exit had unavailable accelerometer
+speed readiness, so its pull-away branch assigned v = 8 m/s, σ_v = 10 m/s. Two examples: 145.894 s accel std
+0.127 crosses 0.12 while gyro 0.022 stays below 0.03; 164.934 s gyro 0.039 crosses 0.03 while accel std 0.094
+stays below 0.12. Both reset speed to 8. GNSS at 176.254 s gives 0.749 m/s, accepted with predicted speed
+near zero; interruptions at 176.514 and 179.140 s again take the unmeasured pull-away branch. Network fixes
+at 139.352/151.859 s reduce speed 13.575 → 8.600 / 8.000 → 4.278 m/s, but do not measure speed or explicitly
+declare a stop. This diagnoses loss of a stopped state, not proof of a completely stationary 64-s vehicle leg.
+Follow-ups and future miniature are in the roadmap. Evidence files: local `motion.csv`, `fixes.csv`, `ticks.csv`
+and `TraceStop.java` under `recordings/analysis/d077/stop-136-200/`.
+
+### R-033 (2026-10-04, 110a8ec + working tree) — D-077 road axis with uncertain speed
+
+Before/after both use roads, recorded NETWORK, no FUSED or recorded OBD, default D-075/D-076 configuration;
+only `roadConstraint.uncertainSpeedHeading` changes from false to true. A third road-free rung is retained.
+Truth is existing GPS-window truth, not OSM-matched truth. The 153540 drive has only 50 interpolated truth ticks.
+
+| Drive | Scenario | p50 before → after (m) | p95 before → after (m) | within68 before → after |
+|---|---|---|---|---|
+| 153540 (hand) | absent | 58.6 → 58.6 | 110.8 → 110.8 | 0.480 → 0.480 |
+| 140822 (hand) | absent | 84.1 → 84.3 | 407.3 → 407.3 | 0.723 → 0.723 |
+| 103211 (holder) | absent | 53.2 → 53.3 | 342.7 → 342.8 | 0.710 → 0.710 |
+| 190523 (holder) | absent | 22.3 → 19.8 | 469.8 → 469.8 | 0.922 → 0.937 |
+| 103211 | drop_10min | 0.6 → 0.6 | 130.7 → 130.7 | 0.850 → 0.850 |
+| 190523 | drop_10min | 13.2 → 13.2 | 113.0 → 113.0 | 0.876 → 0.877 |
+
+Clean p95/max are unchanged at reported precision on all four drives (including the existing 140822 408.4 m
+recovery regression). The initial 153540 false heading remains. These are neutral results with a small median
+gain on one drive, not evidence of a general accuracy improvement.
+
+Bad maps: shift all roads 25 m east, or remove segments within 30 m of available truth over 0–4000 s.
+Again compare enabled/disabled on each edited map. p95/max mostly unchanged; 103211 removed-road drop_10min
+p95 130.7 → 128.3 m, max 294.0 → 293.7 m. Sparse truth only removes roads near the recorded GPS windows on
+the hand drives, so this does not verify an entirely missing route. The miniature separately rejects a distant
+parallel road and prevents duplicated geometry from overriding a crossing-road ambiguity.
+
+Synthetic seed 1: all 13 scenarios × two road rungs (without/with synthetic OBD), 26 before/after summary pairs
+identical. The road graph is derived from simulator truth; this checks consistency and known-speed compatibility,
+not independent road accuracy. Standard non-road matrix: all 117 summaries exactly match 110a8ec/D-076.
+The miniature supplies the active-case evidence: 20° residual heading becomes < 8° with speed and speed σ
+unchanged and reported r68 retaining the road-free floor. All 143 JVM tests, Android build and lint pass.
+Full runs/variant files: local `recordings/analysis/d077/`. None of this candidate code has run in a car.
+
+Extended check (2026-10-04): all six recordings × 13 scenarios, same recorded-network/no-OBD before/after variants.
+52 pairs use GNSS-window truth; the two jammed drives explicitly use their existing `.truth.json` reconstruction.
+Their 26 formal scenario pairs repeat two effective cases, since no recorded GNSS is available to perturb.
+The first full-matrix pass had zero truth ticks on these drives; it is retained under `full-real/`, but only
+the explicit-truth reruns under `jammed-real-*` are used for accuracy conclusions.
+
+| Other recording | Scenario | p95 before → after (m) | Note |
+|---|---|---|---|
+| 140822 | absent | 407.3 → 407.3 | GNSS-window truth |
+| 103211 | absent | 342.7 → 342.8 | GNSS-window truth |
+| 190523 | absent | 469.8 → 469.8 | Median 22.3 → 19.8 m |
+| 085946 | as recorded, already jammed | 112.2 → 109.1 | OSM/OBD reconstructed truth |
+| 103343 | as recorded, already jammed | 179.4 → 164.5 | Max 798.9 → 696.0 m; OSM/OBD reconstructed truth |
+
+Regressions on 140822: naive ramp p95 36.95 → 38.20 m; Doppler-consistent ramp 37.65 → 41.94 m
+(+4.28 m / 11.4%); teleport 42.85 → 43.86 m. These were not covered by the previous three real-drive
+scenarios; the synthetic matrix's neutral result did not establish neutrality on real data.
+Across the 78 formal pairs, trust summaries are identical and within68/within95 do not decrease. Largest max-error
+increase is 0.004 m; worst RMSE increase 0.111 m; worst heading-p95 increase 0.228° on 103343. The original 153540
+detour remains. Do not claim the change is regression-free. Per-pair full-precision deltas and the report are local
+`recordings/analysis/d077/all-recordings-deltas.csv` and `extended-comparison.md`.
 
 ### R-032 (2026-10-04, 80ab792 + working tree) — D-076 heading noise during hand movement, vs D-075
 Same inputs, timestamps, default trust, no FUSED or recorded OBD; before sets `handYawNoise = 0`, after uses 0.5 / floor 0.2.

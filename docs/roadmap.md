@@ -54,7 +54,8 @@ Found on the jammed drive (R-008, 2026-09-28):
   window cannot follow complex paths. Prerequisites if resumed: reverse detection (longitudinal accel
   at pull-away, or a gear PID if the car has one), shorter/adaptive windows or per-segment rotation.
 - **P1 Speed without OBD (D-036).** *Done 2026-10-02 (D-050, R-026): no-OBD p95 ×0.56–0.93 on all four drives.
-  Open: realistic simulator vibration; road constraint without OBD (needs speed σ ≤ 1.5 m/s); reverse detection;
+  Open: realistic simulator vibration; road position/turn constraints without OBD (heading-only mode D-077 implemented,
+  but little real-drive effect); reverse detection;
   the compass FORWARD_ALIGNED heading start now available on all drives helps R-007 and hurts A (+osm ×1.19).*
   *Signal study 2026-10-02 (R-025): centripetal speed usable in turns,
   accelerometer bridges only seconds, stop detection needs the retune below, wheel harmonics dropped. Next:
@@ -273,7 +274,20 @@ Road-constraint follow-ups (R-020):
 - **P1** live drive with the road constraint (download path verified on the emulator 2026-10-02) and
   real-drive calibration of the radius (it is the
   road-free one now).
-- **P1** road constraint without OBD: speed from the accelerometer (D-036) would let the matcher work.
+- **P1** road localization without OBD: D-077 (2026-10-04) implements a local heading-only axis cue independent of
+  odometry, with little real-drive effect (R-033); it does not repair the 153540 hand-induced detour. Next: maintain
+  joint road/speed/along-distance hypotheses, compare turn order/angles and network fixes without fixing distance
+  to a poor speed estimate. Test missing roads and parallel carriageways before using these hypotheses for position
+  or speed. Existing HMM distance/position updates retain their speed σ ≤ 1.5 m/s gate.
+- **P1** road-hypothesis bank (2026-10-05 discussion): instead of committing to the HMM's best road, keep a few
+  road-conditioned EKF trajectories plus the road-free one until a gyro turn vs intersection geometry rejects
+  the others (D-048 locked onto parallel streets when it committed early). First a cheap oracle check: how often
+  the true road is in the matcher's top-1/3/5 and how long ambiguity lasts. Build it as a separate
+  `PositionEstimator`, merge hypotheses on the same segment or ≤ 25 m parallel carriageways, cap N ≤ 5, weight
+  by innovations counted once, publish one hypothesis with covariance covering the rest. See the multi-hypothesis
+  pitfalls in dev-guide.md.
+- **P1** attribute GNSS-absent error to sources (stops, heading drift, hand motion, recovery) per drive before
+  choosing the next estimator work.
 - **P1 (tried 2026-10-02, D-048: the decisive resets are parallel-road ambiguities on straight road, not
   the corner; carrying through them fixes the case but locks onto parallel streets when the real road is
   missing)** road confidence resets at every corner (2026-09-28 +5:30–6:16): `confidentM` drops to 0 whenever
@@ -376,6 +390,11 @@ Road-constraint follow-ups (R-020):
 - D-076 mitigates the false hand-held gyro turn on 20261003-153540 and unlocks its 295 s GPS window in replay (R-032).
   It does not prevent the turn: several coarse fixes are needed to bend the heading back. Detecting phone rotations purely
   about up, without a non-yaw tilt signal, remains open; do not discard gyro turns without independent vehicle evidence.
+  Stop follow-up (R-034…R-040): D-078…D-082 explored stop retention and conditional stopped/moving trajectories;
+  none is a clear improvement over the default, so the code is parked on branch `experiment/stop-motion` (D-083). Coarse NETWORK displacement
+  carries too little information to separate a stop from smooth cruising. Before resuming: attribute no-GNSS
+  error to its sources (stops vs heading vs hand motion); if stops matter, use a proper two-mode IMM with Markov
+  transitions and innovation likelihoods, compared against the default, not the previous step. OBD removes the issue.
 - Diagnose the D-076 regression on 20261003-140822 at replay 1782.6–1783.6 s: 391–408 m before returning GPS is accepted,
   versus ≤ 2.1 m over all truth ticks with D-075 alone. Pre-window median 74 → 72 m conceals this recovery failure. Absent
   p95 also worsens 380 → 407 m; validate the heading noise on more hand-held drives before treating it as a general gain.

@@ -95,7 +95,7 @@ private fun writeResult(r: ReplayResult, s: ReplaySummary, dir: File, roadsIn: g
     val rows = Metrics.rows(r)
     File(dir, "summary.json").writeText(pretty.encodeToString(ReplaySummary.serializer(), s))
     File(dir, "ticks.csv").bufferedWriter().use { w ->
-        w.write("t_s,est_lat,est_lon,r68_m,mode,truth_lat,truth_lon,err_m,heading_err_deg,degraded,since_degraded_s,est_speed_mps,est_heading_deg,truth_speed_mps,truth_heading_deg,road_p_off,road_prob,road_confident_m,road_lat,road_lon,road_name,road_truth_dist_m,road_right\n")
+        w.write("t_s,est_lat,est_lon,r68_m,mode,truth_lat,truth_lon,err_m,heading_err_deg,degraded,since_degraded_s,est_speed_mps,est_heading_deg,truth_speed_mps,truth_heading_deg,road_p_off,road_prob,road_confident_m,road_lat,road_lon,road_name,road_truth_dist_m,road_right,hyp0_weight,hyp0_lat,hyp0_lon,hyp0_r68_m,hyp1_weight,hyp1_lat,hyp1_lon,hyp1_r68_m\n")
         for ((x, e) in rows.zip(r.estimates)) {
             val tr = r.truth.at(e.tNs)
             w.write(
@@ -121,6 +121,10 @@ private fun writeResult(r: ReplayResult, s: ReplaySummary, dir: File, roadsIn: g
                                         kotlin.math.abs(gpes.core.geo.Geo.wrapDeg(p.bearingDeg - segBearing)) % 180.0 < 30.0)
                             }) 1 else 0
                     } else null,
+                    e.hypotheses.getOrNull(0)?.weight, e.hypotheses.getOrNull(0)?.lat,
+                    e.hypotheses.getOrNull(0)?.lon, e.hypotheses.getOrNull(0)?.cov?.r68,
+                    e.hypotheses.getOrNull(1)?.weight, e.hypotheses.getOrNull(1)?.lat,
+                    e.hypotheses.getOrNull(1)?.lon, e.hypotheses.getOrNull(1)?.cov?.r68,
                 ).joinToString(",") { it?.toString() ?: "" } + "\n",
             )
         }

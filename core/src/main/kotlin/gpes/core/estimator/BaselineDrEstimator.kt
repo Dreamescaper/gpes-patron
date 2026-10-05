@@ -221,6 +221,7 @@ class BaselineDrEstimator(
         val heldOffset: Double?, val heldT: Long, val obdHist: List<Pair<Long, Double>>, val lastCornerOdo: Double,
         val lastALong: Double?, val lastObdT: Long, val centLat: Double, val centYaw: Double, val centN: Int, val centT: Long,
         val stillSinceT: Long, val lastFixT: Long, val tiltRateLp: Double?, val lastGnssSeenT: Long, val lastTiltRate: Double,
+        val roadMotion: List<RoadMotion>, val lastUncertainRoadHeadingT: Long,
     )
 
     /** A coarse fix that disagreed strongly with the prediction. */
@@ -250,6 +251,10 @@ class BaselineDrEstimator(
     private var stillSinceT = Long.MIN_VALUE
     /** Latest [MotionUpdate.tiltRateRms] (rad/s): a phone moving in the hand (D-076). */
     private var lastTiltRate = 0.0
+    /** Recent gyro turn and tilt over [RoadConstraintConfig.uncertainHeadingQuietS], on the road-free twin (D-077). */
+    private data class RoadMotion(val tNs: Long, val dtS: Double, val turnRad: Double, val tiltRate: Double)
+    private var roadMotion: List<RoadMotion> = emptyList()
+    private var lastUncertainRoadHeadingT = Long.MIN_VALUE
     /** [MotionUpdate.tiltRateRms] low-passed over [AccelSpeedConfig.unsteadyTauS] while moving (null until the first). */
     private var tiltRateLp: Double? = null
     /** Last position fix (coarse or GNSS) the estimator used. */
@@ -308,6 +313,9 @@ class BaselineDrEstimator(
     /** Road updates applied / gated out, for diagnostics. */
     var roadStats = IntArray(4)
         private set
+    /** Road-axis heading updates with uncertain speed (D-077): applied / gated out, for diagnostics. */
+    var uncertainHeadingStats = IntArray(2)
+        private set
 
     // ------------------------------------------------------------------------------------------
 
@@ -317,6 +325,12 @@ class BaselineDrEstimator(
         lastYawRate = u.yawRateUp
         lastALong = u.longitudinalAccel
         lastTiltRate = u.tiltRateRms
+        if (isFreeTwin && cfg.roadConstraint.uncertainSpeedHeading) {
+            val windowNs = (cfg.roadConstraint.uncertainHeadingQuietS * 1e9).toLong()
+            roadMotion = if (u.dtS > 1.5) emptyList() else
+                (roadMotion + RoadMotion(u.tNs, u.dtS, -u.yawRateUp * u.dtS, u.tiltRateRms))
+                    .filter { it.tNs > u.tNs - windowNs }
+        }
         if (!stationary && !u.stillLoose) tiltRateLp = tiltRateLp?.let { it + (u.tiltRateRms - it) * (u.dtS / cfg.accelSpeed.unsteadyTauS).coerceAtMost(1.0) } ?: u.tiltRateRms
         val accelMode = accelReady(u.tNs)
         // The real-car stop rule only where a stop is plausible: a car cannot be at 15 m/s one moment and stopped
@@ -509,6 +523,7 @@ class BaselineDrEstimator(
     private fun roadStep() {
         val f = free
         if (f != null) {
+            applyUncertainRoadHeading(f)
             val fm = f.matcher
             if (f.roadSteps != seenFreeSteps && fm != null) {
                 seenFreeSteps = f.roadSteps
@@ -534,6 +549,39 @@ class BaselineDrEstimator(
         gyroHist = (gyroHist + (odoM to cumGyro)).takeLast(cfg.road.trailSteps)
         lastRoadOdo = odoM; gyroTurn = 0.0
         roadSteps++
+    }
+
+    /** No speed measurement: only an unambiguous local road axis, with a recent independent position anchor. */
+    private fun applyUncertainRoadHeading(f: BaselineDrEstimator) {
+        val rc = cfg.roadConstraint
+        if (!rc.heading || !rc.uncertainSpeedHeading || !initialized || !headingKnown || !f.headingKnown || f.stationary) return
+        if (abs(f.x[IDX_V]) < rc.minSpeedMps || sqrt(f.p[IDX_V, IDX_V]) <= rc.maxSpeedStdMps) return
+        if (f.lastObdT != Long.MIN_VALUE && (lastT - f.lastObdT) / 1e9 <= cfg.accelSpeed.obdFreshS) return
+        if (f.lastGnssT != Long.MIN_VALUE && (lastT - f.lastGnssT) / 1e9 <= cfg.gnssTrackingWindowS) return
+        if (f.lastFixT == Long.MIN_VALUE || (lastT - f.lastFixT) / 1e9 > rc.uncertainHeadingFixMaxAgeS) return
+        if (lastUncertainRoadHeadingT != Long.MIN_VALUE &&
+            (lastT - lastUncertainRoadHeadingT) / 1e9 < rc.uncertainHeadingEveryS) return
+        val motion = f.roadMotion
+        val span = motion.sumOf { it.dtS }
+        if (span < 0.95 * rc.uncertainHeadingQuietS || motion.isEmpty()) return
+        if (abs(Math.toDegrees(motion.sumOf { it.turnRad })) > rc.gyroMaxDeg ||
+            Math.toDegrees(motion.sumOf { abs(it.turnRad) }) > 3 * rc.gyroMaxDeg ||
+            motion.sumOf { it.tiltRate * it.dtS } / span > cfg.handTiltRateFloor) return
+        val r = Math.toRadians(rc.uncertainHeadingStdDeg).let { it * it }
+        if (p[IDX_PSI, IDX_PSI] <= r) return
+        val net = roads?.invoke() ?: return
+        // Rate-limit failed searches too: map queries must not run at IMU frequency in ambiguous areas.
+        lastUncertainRoadHeadingT = lastT
+        val ll = f.frame!!.toLatLon(f.x[0], f.x[1])
+        val bearing = gpes.core.road.RoadHeadingConsensus.bearing(net, ll.lat, ll.lon,
+            Cov2(f.p[0, 0], f.p[0, 1], f.p[1, 1]), f.x[IDX_PSI], sqrt(f.p[IDX_PSI, IDX_PSI]), cfg.road, rc) ?: return
+        val innovation = Geo.wrapRad(bearing - x[IDX_PSI])
+        if (innovation * innovation / (p[IDX_PSI, IDX_PSI] + r) > rc.gateNis) { uncertainHeadingStats[1]++; return }
+        // A road axis says nothing about speed, accelerometer bias, along-track position or gyro bias.
+        // A local Joseph update preserves their values and marginal variances.
+        updateLocal(IDX_PSI, x[IDX_PSI] + innovation, r)
+        x[IDX_PSI] = Geo.wrapRad(x[IDX_PSI])
+        uncertainHeadingStats[0]++
     }
 
     /**
@@ -1009,6 +1057,7 @@ class BaselineDrEstimator(
         roadSteps, seenFreeSteps, roadRejects, free?.snapshot(), gyroHist, cumGyro, lastRoadAlongOdo,
         heldOffset, heldT, obdHist, lastCornerOdo,
         lastALong, lastObdT, centLat, centYaw, centN, centT, stillSinceT, lastFixT, tiltRateLp, lastGnssSeenT, lastTiltRate,
+        roadMotion, lastUncertainRoadHeadingT,
     )
 
     override fun restore(snapshot: Any) {
@@ -1028,6 +1077,7 @@ class BaselineDrEstimator(
         heldOffset = s.heldOffset; heldT = s.heldT; obdHist = s.obdHist; lastCornerOdo = s.lastCornerOdo
         lastALong = s.lastALong; lastObdT = s.lastObdT; centLat = s.centLat; centYaw = s.centYaw; centN = s.centN; centT = s.centT
         stillSinceT = s.stillSinceT; lastFixT = s.lastFixT; tiltRateLp = s.tiltRateLp; lastGnssSeenT = s.lastGnssSeenT; lastTiltRate = s.lastTiltRate
+        roadMotion = s.roadMotion; lastUncertainRoadHeadingT = s.lastUncertainRoadHeadingT
         if (free != null && s.free != null) free.restore(s.free)
     }
 

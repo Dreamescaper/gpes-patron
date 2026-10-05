@@ -63,6 +63,8 @@ class RoadNetwork private constructor(
 
     val size: Int get() = segs.size
     val segments: List<RoadSegment> get() = segs
+    /** Search bound for covariance-aware road geometry constraints, including unusually wide mapped carriageways. */
+    val maxHalfWidthM: Double = segs.maxOfOrNull { RoadWidth.halfWidthM(it) } ?: 0.0
 
     override fun segment(id: Long): RoadSegment? = segs.getOrNull(id.toInt())
 
@@ -101,6 +103,18 @@ class RoadNetwork private constructor(
         val i = segmentId.toInt(); val c = cum[i]
         val k = piece(c, distanceAlongM)
         return bearing(xs[i][k + 1] - xs[i][k], ys[i][k + 1] - ys[i][k])
+    }
+
+    /** Largest bearing deviation on every geometry piece overlapping a distance window (including short S bends). */
+    fun maxBearingDeviationDeg(segmentId: Long, fromM: Double, toM: Double, referenceDeg: Double): Double {
+        val i = segmentId.toInt(); val c = cum[i]
+        var result = 0.0
+        for (k in 0 until c.size - 1) {
+            if (c[k + 1] <= fromM || c[k] >= toM || c[k + 1] <= c[k]) continue
+            val b = bearing(xs[i][k + 1] - xs[i][k], ys[i][k + 1] - ys[i][k])
+            result = maxOf(result, kotlin.math.abs(Geo.wrapDeg(b - referenceDeg)))
+        }
+        return result
     }
 
     override fun toLatLon(state: RoadState): LatLon {

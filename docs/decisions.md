@@ -1080,3 +1080,226 @@ with noise on/off for seeds 1, 2 and 3 (117 scenario/variant pairs per seed). Si
 Tests: `HandYawTest` (70° false phone turn corrected by coarse fixes, exact identity below the floor, snapshot/restore during
 the turn); the correction test fails with noise disabled. No car validation of D-075/D-076 yet. Pure yaw-only hand movement
 is not detected; further diagnosis of the 140822 window is deferred.
+
+
+## D-077: Local road-axis heading when speed is uncertain — Accepted (2026-10-04)
+Context: the user asked for roads without OBD after the hand-induced detour on 20261003-153540 (R-032).
+The current HMM compares road distance against uncertain odometry; its σ_v ≤ 1.5 m/s update gate correctly
+prevents an unreliable match from moving position, but also prevents useful heading evidence on straight corridors.
+Decision: a separate geometry-only axis cue on the road-free twin. Require a recent accepted position anchor,
+three quiet seconds of gyro/tilt and dominant axis support against other axes and an explicit off-road score.
+Group nearby parallel bearings, using maximum score per axis so duplicates and shared names cannot raise support.
+Use the full position ellipse and heading uncertainty, all projections within 3σ, and exact polyline straightness.
+A local Joseph update changes only heading (σ 6°); no speed, bias, position or along-distance observation.
+Rate-limit attempts, including failures, to 10 s; preserve quiet-window/cadence state in rollback. Enabled by
+`uncertainSpeedHeading` when roads are enabled; existing odometry-based position gates remain unchanged.
+Alternatives: simply relax the speed gate (D-043 clean GNSS regression 35 → 164 m; current four-drive prototype
+largely neutral, and no independent basis for distance); require every spatially possible road to agree, with
+pose σ ≤ 50 m and segment-end vetoes (inert on the hand drives); include heading consistency and allow pose σ
+150 m but still veto every road in the ellipse (still little effect); count every parallel OSM piece as an
+independent vote (duplicates can fake confidence); use a full EKF heading gain (would also teach speed/biases
+from a map that did not observe them). Joint road/speed hypotheses are deferred, not replaced by this cue.
+Consequences (R-033): the miniature corrects a 20° residual course to < 8° without changing speed or its σ,
+while retaining the road-free position radius. Four real drives show essentially unchanged p95; 190523 absent
+p50 22.3 → 19.8 m, within68 0.922 → 0.937. The original 153540 detour remains. No significant accuracy gain is
+claimed; this is a limited capability, enabled conservatively pending joint distance/speed work. The support
+ratio is a heuristic, not a calibrated probability. A missing road, poor anchor or confidently wrong course can
+still mislead geometry; 180° direction and parallel-carriageway identity are not observable from an axis.
+Tests: `RoadWithoutSpeedTest` (11 cases: correction, crossing ambiguity, duplicate geometry, parallel roads,
+large along uncertainty, missing road, short S bend, motion/anchor guards and rollback). The correction test
+fails with the cue disabled. 143 JVM tests and Android assembly/lint pass; all 13 synthetic scenarios with/without
+OBD unchanged, standard non-road matrix identical to 110a8ec. No on-device driving validation.
+Extended real-recording check on the same date: all six recordings and 13 scenarios. 140822 injected spoofing
+p95 regresses in three cases, worst Doppler-consistent ramp 37.65 → 41.94 m (+11.4%), with unchanged trust
+decisions and calibration. Two already-jammed recordings improve (112.2 → 109.1 m and 179.4 → 164.5 m p95),
+but their reconstructed OSM/OBD truth shares map assumptions. The original detour still remains; full road
+localization without OBD and a regression-free accuracy claim are not established (R-033).
+
+
+## D-078: Stop continuation without a forward axis — Experimental, disabled by default (2026-10-04)
+*Code not in main: kept on branch `experiment/stop-motion` (D-083).*
+Context: R-034, 20261003-153540 session 136–200 s. Strict IMU stop evidence flickered under phone movement;
+only 12/64 s were recognized, with twelve transitions assigning the unmeasured 8 m/s moving-car prior.
+The forward axis was unknown until 189.287 s, disabling loose ZUPT although the magnitude rule needs no axis.
+Decision: retain an opt-in experiment (`accelSpeed.stopHoldS = 1.5`); default `null` preserves D-077 exactly.
+Loose magnitude evidence may continue an already recognized low-speed stop without a forward axis, with the
+existing v < 3, v − 2σ < 1.5, no-trusted-GNSS-for-5-s and not-accelerating guards. It cannot create a new
+stop from loose quietness alone. Bridge up to 1.5 s without fresh evidence only while the forward axis remains
+unknown and low speed is plausible; held gaps do not apply ZUPT or learn biases. Their covariance grows normally.
+Fresh real TRUSTED GNSS or vehicle speed (age ≤ 3 s, v − 2σ > 1.5 m/s) vetoes a stop. Before fusing such a
+contradiction, decorrelate/widen speed to σ 10 so the tight ZUPT prior cannot drown it, and do not overwrite the
+result with 8 m/s on the next motion update. Available bounded longitudinal acceleration > 0.3 m/s² with tilt
+rate ≤ 0.2 rad/s also vetoes quietness. Coarse location has no direct speed observation; questionable GNSS cannot
+force departure. Loose no-axis ZUPT uses σ 1.5 m/s and does not learn gyro bias. Snapshot all evidence/timing state.
+After prolonged evidence loss with no accelerometer readiness retain D-012's v = 8 ± 10 m/s moving-car prior.
+Alternatives: leave mean near zero indefinitely and only widen covariance (153540 absent p95 111 → 198 m;
+real departures can remain trapped at zero); hold whenever `accelReady` is false (also holds when the axis is known
+but a position anchor has expired; 153540 absent p95 198 m); gap lengths 0–2 s (none removed the outage regression);
+let loose quietness start a no-axis stop, or learn gyro bias from phone yaw (no independent support); use 0.05 m/s
+for loose no-axis evidence (too strong); simply tell users not to move the phone (does not fix detector flicker).
+Consequences (R-035): final clean diagnostic stop duration 12.0 → 25.7 s, exits 12 → 7, and predicted speed
+integral 370 → 281 m in the 64-s interval. These are internal estimates, not measured standstill or distance.
+But 153540 absent p95 110.83 → 178.27 m, drop_10min 81.14 → 178.27 m; 140822 absent 407.32 → 418.15 m;
+103211 Doppler-consistent spoof ramp 349.05 → 400.26 m; jammed 085946 109.08 → 122.91 m. Some outages improve
+(140822 drop_10min 125.99 → 107.85 m), which does not justify enabling it globally. At a later GPS window the
+absent candidate again stays near zero speed while the vehicle moves. No accepted accuracy improvement.
+Tests: ten `StopTransitionTest` miniatures (flicker, delayed release, real acceleration, smooth cruising,
+TRUSTED/questionable GNSS, OBD, gyro bias and rollback); light-stop test fails with the experiment disabled.
+153 JVM tests, Android debug assembly and lint pass. All six recordings × 13 scenarios and 117 standard simulated
+pairs checked. Null/default replay summaries exactly match saved D-077 results in 78 real pairs (variant name
+excluded). No car validation. D-012 is not superseded; joint stop/departure estimation remains future work.
+
+## D-079: Retain a conditional stopped trajectory beside navigation — Experimental, disabled by default (2026-10-04)
+*Code not in main: kept on branch `experiment/stop-motion` (D-083).*
+
+**Context:** R-034/R-036 show false departures on both hand-held and holder recordings without OBD.
+D-078's single-model stop holding improved one light stop but trapped later departures. The user proposed
+keeping both possible trajectories, displaying one, and switching to the independently propagated alternative
+when later evidence contradicts the current choice. Quiet IMU cannot distinguish rest from constant velocity.
+
+**Decision:** Add opt-in `stopMotion={}` beside the ordinary baseline, default null. Keep a full conditional
+stopped/creeping model, separate road-free twins and rollback state. Bounded IMU support plus spaced accepted
+NETWORK displacement selects one coordinate with hysteresis 0.92/0.85. Retain both output hypotheses and
+include their separation in uncertainty. No GNSS/OBD requirement; a fresh usable direct source takes precedence.
+The ordinary branch retains existing ZUPT semantics: this is an experimental conditional alternative, not
+an exhaustive mutually exclusive IMM. Reseed a disfavoured stop candidate near current navigation, not trip start.
+History remains causal; switch current coordinates, never rewrite already published Android locations or metrics.
+
+**Guardrails measured:** Source trust uses ordinary navigation, separately from display covariance. Letting
+ambiguity widen D-069's agreement check changed 153540 gradual-spoof p95 58.47 → 490.50 m and trusted false
+fixes 1 → 9; separating the prediction restores identical trust summaries in all 78 real and 351 synthetic
+pairs. An ambiguous selected speed supplies no up-learning hint (std ≥3), so a speculative stop cannot teach
+its own gravity estimate. Synthetic/rejected locations cannot contribute to stop evidence.
+
+**Rejected alternatives:** IMU-only certainty (smooth cruising is identical); repeated multiplication of
+50-ms quiet windows/coarse shared endpoints (correlation); averaged output coordinates (can be between roads);
+a pure always-moving branch with initial 8±10 instead of existing navigation (153540 absent p95 ≈234 m);
+IMU-only branch selection at support 0.7 (false stops); release threshold 0.6 (later 153540 max 157 →219 m);
+using the enlarged display radius for GNSS trust (spoof regression above); global enablement before validation.
+
+**Consequences:** R-037: 153540 session 136–200 s without GNSS/OBD has 37/64 ticks near zero instead of 13,
+and predicted speed integral 370 →194 m. Whole-drive absent p95/max remain 110.83/157.03 m. Four GNSS drives
+plus two reconstructed jammed truths and three simulated seeds measured. 190523 drop_10min p95 worsens
+113.00 →120.70 m; jammed 085946 109.08 →109.68 m. Display calibration is too pessimistic (153540 within68
+0.48 →0.98), so retain default null, not a global accuracy claim. Seventeen CI miniatures; stop test fails
+without opt-in; full 170 JVM tests, Android build/lint pass. No car validation.
+
+## D-080: Invalidate past stop evidence on a sustained bounded departure — Accepted within the opt-in experiment (2026-10-04)
+*Code not in main: kept on branch `experiment/stop-motion` (D-083).*
+Context: D-079/R-037, 190523 replay 475–487 and 547–569 s. The holder's forward axis and bias were usable,
+with sustained ~0.6–1.4 m/s² acceleration, but prior nearby NETWORK fixes continued to support a stop.
+At 569 s selected speed was zero while recorded GNSS reference speed was 11.16 m/s; errors 45.63 →161.42 m.
+Decision: a usable forward residual >0.5 m/s² on a stable phone (tilt RMS <0.07) for 0.5 s invalidates
+past positive stop evidence. Do not integrate that pulse into speed/distance. Retain the propagated
+navigation alternative and select it through the existing thresholds. A positive NETWORK pair starting
+before the last departure cannot establish a current stop; displacement against a stop still counts,
+and a wholly later pair may confirm another stop. Reset the hold on a failed sample or gap >0.25 s;
+snapshot pulse duration/departure timestamp. `departureHoldS=null` reproduces D-079 exactly; ordinary
+`stopMotion=null` remains the default. This supplements D-079, not a full branch-innovation/IMM implementation.
+Alternatives: lower stop-selection/release thresholds globally (would alter unrelated quiet/hand ambiguity);
+shorten all positive NETWORK memory (would lose actual stops without a usable axis); integrate raw acceleration
+(open-loop drift violates R-014); implement a full IMM immediately (ordinary ZUPT and correlated branch updates
+need separate design/validation). These were rejected/deferred by scope and observability, not measured prototypes.
+Consequences (R-038): 190523 errors at 487/569 s 45.89 →9.77 /161.42 →45.63 m, drop_10min p95
+120.70 →113.00 m. 153540 light interval retains 37/64 stopped ticks and estimated travel 193.53 m.
+No p95 or whole-drive max increase versus D-079 across 78 real /339 truth-scored simulated pairs;
+12 further simulated pairs have no scored output. Trust summaries all
+identical; disabled departure correction matches all 78 saved D-079 summaries. Overall ambiguity calibration
+remains pessimistic, 085946's +0.60 m regression versus ordinary D-077 remains, and unknown-axis/hand departures
+remain unresolved. Five miniatures, one demonstrated failing before correction; 175 JVM tests, Android
+assembly/lint pass. No car verification. Experimental motion bank remains disabled by default.
+
+## D-081: Retain a genuine moving trajectory and compare predicted NETWORK legs — Prototype, rollout rejected (2026-10-04)
+*Code not in main: kept on branch `experiment/stop-motion` (D-083).*
+
+**Context:** D-079/D-080 ordinary navigation still performs strict ZUPT. Thus both displayed alternatives
+can lose a genuine constant-velocity trajectory when the IMU becomes quiet. The user requested trajectory
+comparison and separate stop/departure validation before considering the bank stable.
+
+**Decision:** Add opt-in `stopMotion.trajectoryScoring=true`, default false. Retain a moving EKF without
+quiet velocity ZUPT or quiet-derived bias learning beside the conditional stopped path. Preserve ordinary
+navigation for seeding/fresh direct sources and a separate D-080 control for trust/up-learning feedback.
+Before fusing a NETWORK fix, compare the two predicted displacements from their corrected previous-fix
+poses, adding these increments to the previous NETWORK coordinate. Use a conservative separately tracked
+speed/heading leg-error bound, both hAcc values with inflation 1.5, Gaussian determinant plus innovation,
+and an 80/20 moving-path/broad-moving-prior likelihood mixture. Clip/replace evidence as before, never
+multiply shared endpoints. Exact cached coordinates/accuracy cannot renew evidence. Reseeding clears leg
+anchors; no later measurement rewrites recorded history. Five baselines without roads, ten with twins.
+
+**Rejected alternatives:** Absolute endpoint comparison let common coarse-position offset select the
+wrong mode (153540 absent p95 111 →145 m in the initial prototype). Feeding new selected speed back to
+gravity learning changed source trust in three real scenario pairs; a D-080 control restores identical
+per-fix trust. Summing independent endpoint covariances both double-counted common position uncertainty
+and masked motion (153540 light stop only 7/64 near-zero ticks, predicted travel 416 m). Subtracting
+endpoint covariances is invalid without cross-covariance. A fixed-direction moving likelihood alone
+mistook real displacement for a stop when its heading was wrong (103343 false-stop ticks 2 →49 in an
+intermediate run); the broad mixture restores 2 →3. Global threshold lowering/full default enablement
+are rejected: they do not resolve the measured mode-transition/calibration trade-off. These intermediate
+numbers are diagnostics, not final results.
+
+**Consequences (R-039):** Quiet-cruising miniature retains 12 m/s and >200 m branch separation after
+20 s of quietness; it fails with this flag false. Nine new miniatures, 184 JVM tests total, debug assembly
+and lint pass. All six recordings ×13 scenarios and three simulation seeds ×nine paired rungs ×13
+scenarios compared; D-080 reproduction matches 78/78 saved summaries. Final 190523 absent false-stop
+ticks 98 →19, but missed stops 16 →33; 103211 absent missed stops 17 →103. 153540 absent p95
+110.83 →127.43 m; 103211 drop_10min 130.72 →138.77; jammed 085946 109.68 →118.64 (reconstructed
+truth). Simulation has 36/339 scored p95 regressions, maximum +117.61 m; 12 further pairs unscored.
+Trust remains identical; this does not imply identical spoofed-position error. No accepted global accuracy
+gain or stable stop detector. Keep both flags off/default-null, retain the prototype for comparison.
+Next research: mode-transition persistence, braking/departure evidence, cached-fix information limits,
+proper conditional reinitialization and uncertainty calibration. No device/car validation or cost profiling.
+
+## D-082: Start subsequent motion at a selected stop and preserve pending departure — Accepted for opt-in prototype (2026-10-05)
+*Code not in main: kept on branch `experiment/stop-motion` (D-083).*
+
+**Context:** D-081's moving path survives quiet cruising, but after choosing a stop it can later resume
+the path that ignored the stop. At 103211 replay 303.54 s this gave 244.80 m error. Reinitializing speed
+to zero also exposed traps: a known axis with unbounded bias, NETWORK-selected stops without strict IMU
+stationary, and a fresh zero speed that expired after the first nonquiet sample (190523 drop_10min).
+
+**Decision:** Add default-false `motionTransitions`, requiring `trajectoryScoring`. Use selection
+support 0.90/release 0.85 while keeping independent confirmation at 0.92; IMU alone remains capped 0.80.
+On entering selected stop, birth a possible moving leg at its pose with unknown-speed variance, explicit
+stopped origin, old position-disagreement uncertainty and invalidated trajectory/centripetal history.
+Keep the moving branch's own accelerometer bias mean/variance, decorrelating them from the transplanted
+state. A fresh direct zero still vetoes the broad moving prior, but retain pending departure when it
+temporarily prevents the first fallback; reconsider unsupported zero after expiration. Snapshot this state.
+Use the existing bounded acceleration prerequisites, not just available axis, and allow a new accepted
+displaced NETWORK pair to restart broad movement. Keep the D-080 trust/feedback control unchanged.
+
+**Rejected alternatives:** Continuing the never-stopped counterfactual cannot represent departure from
+the chosen stop. Zero speed with narrow covariance pretends selection measured velocity. Blindly copying
+stop-conditional accelerometer calibration imports evidence conditional on the disputed mode. Clearing
+departure eligibility on the first noisy sample made a temporary direct zero permanent. Lower 0.85/0.80
+selection in an intermediate run added false stops (103211 52→67, 085946 50→73); do not enable it.
+Simply seeding zero before handling readiness/origin/fresh-source state added a 19-s false-stop run on
+190523 drop_10min and p95 113→124 m; final pending-state correction removes it. Raising uncertainty alone,
+rewriting past outputs and default rollout are not justified. Intermediate runs are retained as diagnostics.
+
+**Consequences (R-040):** Final 78 real pairs have no p95 or whole-drive maximum increase versus D-081;
+all 351 synthetic summaries reproduce D-081 exactly (339 scored, 12 unscored), preserving its existing
+regressions versus D-080. All 429 per-fix trust files are identical; disabled D-082 matches 78/78 saved
+D-081 summaries. 153540 absent p95 127.43→118.49 m; 103211 drop_10min 138.77→131.49; local 303.54-s
+error 244.80→147.55 m, still worse than D-080's 119.86 m. 085946 missed-stop ticks 153→99, but
+103211 absent 103→104 and 103343 80→85; predicted travel during those stops also increases.
+This fixes demonstrated transition-state bugs, not general stop detection or calibrated IMM stability.
+Ten new miniatures and five demonstrated negative proofs; 194 JVM tests and Android assembly/lint pass.
+Outer `stopMotion=null`, both experimental flags false remain defaults. No car/device validation.
+
+## D-083: Keep the stop/motion experiment out of main — Accepted (2026-10-05)
+Context: D-078…D-082 built stop continuation and conditional stopped/moving trajectories inside
+`BaselineDrEstimator` behind default-off flags. Against the default estimator (not the previous step) the
+best real result is D-080; the full stack worsens p95 on 153540 absent (110.8 → 118.5 m), 153540 drop_10min
+(81.1 → 87.2 m) and jammed 085946 (109.1 → 116.3 m), and missed-stop ticks versus D-080 rise on all four
+holder drives (e.g. 103211 17 → 104) (R-037…R-040). It adds up to ten EKF instances, recursive snapshots
+on every estimate, and seven-flag conditions in the stop rules of the core estimator.
+Decision: main keeps D-077 only. The experiment, its tests and its exact source are committed on
+`experiment/stop-motion`; its decisions, results and pitfalls stay documented in main and are marked as such.
+`ticks.csv` hypothesis columns and `tools/plot/compare_motion.py` stay in main as general tools.
+D-077's diagnostics move from the shared `roadStats` to `uncertainHeadingStats`.
+Alternatives: merge with flags off (default output identical, but a large untested-in-car surface inside
+the hot estimator class and no measured benefit); delete the work (loses a reproducible negative result);
+move it into a wrapper estimator now (a refactor of code with no accepted use; do it if the idea returns).
+Consequences: default replay output of main equals the branch with flags off (2026-10-05: all 471 synthetic
+matrix files and all 504 real runs completed in both, 87 with roads, byte-identical). Future multi-trajectory work (roadmap:
+road-hypothesis bank, IMM) should be a separate `PositionEstimator`, compared against the default.

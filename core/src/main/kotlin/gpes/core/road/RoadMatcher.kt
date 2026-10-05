@@ -80,8 +80,23 @@ data class RoadConstraintConfig(
     /** … and the EKF pose σ (largest axis) at most this; a pose far off picks wrong roads (M1, R-020). */
     val maxPoseSigmaM: Double = 50.0,
     val minSpeedMps: Double = 4.2,
-    /** Road updates need a known speed (OBD or GNSS): without it the driven distance, hence the match, is unreliable (R-020). */
+    /** Odometry-based road updates need known speed: otherwise the driven distance, hence the match, is unreliable (R-020). */
     val maxSpeedStdMps: Double = 1.5,
+    /** Without measured speed, use consensus of nearby straight road axes, never an odometry-based road choice (D-077). */
+    val uncertainSpeedHeading: Boolean = true,
+    val uncertainHeadingStdDeg: Double = 6.0,
+    /** Along-track uncertainty does not prevent an axis constraint on several parallel straight streets. */
+    val uncertainHeadingMaxPoseSigmaM: Double = 150.0,
+    val uncertainHeadingEveryS: Double = 10.0,
+    val uncertainHeadingQuietS: Double = 3.0,
+    /** A position anchor is required: a map alone cannot locate the car. */
+    val uncertainHeadingFixMaxAgeS: Double = 45.0,
+    /** Group parallel road bearings within this angle (degrees); competing axes reduce support. */
+    val uncertainHeadingSpreadDeg: Double = 10.0,
+    /** Relative likelihood support for one axis vs other axes and the explicit off-road alternative. */
+    val uncertainHeadingMinSupport: Double = 0.9,
+    /** Off-road score relative to a perfectly agreeing position/heading candidate (whose score is 1). */
+    val uncertainHeadingOffRoadScore: Double = 0.05,
     /** At most one road update per this much driving: consecutive road updates are the same evidence (P5). */
     val everyM: Double = 40.0,
     /** Road heading σ: OSM bearing error ⊕ lane changes (degrees). */

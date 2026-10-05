@@ -5,6 +5,14 @@ emulator (tiles, network, status; matcher not exercised there), not yet in a car
 Differences from the plan below: the matcher runs on a road-free twin estimator (D-042); updates need a
 known speed and ≥ 150 m of confident matching; the reported radius stays the road-free one (D-043).
 
+Update 2026-10-04 (D-077, R-033): a separate heading-only mode uses nearby road axes without OBD or
+reliable odometry. Its evidence is the road-free pose ellipse, heading uncertainty, a recent position
+anchor and three quiet seconds of gyro/tilt. Competing axes and an off-road alternative can veto it;
+parallel roads can agree on heading without selecting a carriageway. It never moves the current position
+or measures speed. The existing HMM-based position/turn constraints still need reliable speed. The
+miniature reproduces a useful correction; real-drive p95 is essentially unchanged, so this is the first
+limited capability, not validation of full localization without OBD. Exact conditions: algorithm §3d.
+
 ## Why
 
 Without road knowledge the EKF cannot tell that a road is straight. With network fixes of ~30–40 m

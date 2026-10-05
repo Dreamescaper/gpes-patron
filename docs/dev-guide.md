@@ -218,6 +218,17 @@ adb pull /storage/emulated/0/Android/data/gpes.patron/files/drives/<id>.db   # p
   recorded location and `trust.csv`, rather than assuming the first IMU is the first input. Truth exists only in short
   GPS windows; an error just before a window compared with its first GPS point also includes about one tick of motion.
 
+## Road-heading implementation pitfalls (2026-10-04, D-077)
+
+- A veto by every road in a large circular search can make a heading cue inert even on a corridor. Use the full
+  position ellipse, account for competing axes, and log before/after on real drives; passing a toy test alone
+  does not establish a useful real correction. Along-track position uncertainty need not forbid a shared axis.
+- Rate-limit failed map queries too; otherwise an ambiguous junction repeats a spatial search at IMU frequency.
+- Equal road bearings at the ends of a window do not prove straightness: check all polyline edges for short S bends.
+- A common road name or many duplicated OSM pieces do not provide independent evidence for one direction.
+- Heading-only evidence must not teach speed or biases through the full EKF gain; use a local gain and retain
+  snapshot state for the quiet window and cadence. The existing road-free covariance floor still applies.
+
 ## User context
 
 - The user writes in Ukrainian. Replies are in Ukrainian; code, docs and commits are in English.
@@ -255,3 +266,55 @@ adb pull /storage/emulated/0/Android/data/gpes.patron/files/drives/<id>.db   # p
   exist as an android style: use `Theme.DeviceDefault.DayNight`. `adb emu geo fix` needs a few repeats before the
   estimator gets a position. A `Row` of three outlined buttons silently squeezes the last one to zero width on a
   narrow screen: use `FlowRow`.
+
+
+## Multi-hypothesis pitfalls (stop/motion experiment, 2026-10-04/05)
+
+The code is on branch `experiment/stop-motion` (D-083); the lessons apply to any estimator that keeps several
+trajectories (for example a road-hypothesis bank). Names such as `trustPrediction` exist only on that branch.
+
+- **Stop evidence and accelerometer readiness (D-078/R-034/R-035, 2026-10-04).** A magnitude stop test needs no
+  learned forward axis; accelerometer speed does. Distinguish an unknown axis from a known axis with an expired
+  position anchor (`!accelReady` includes both). Stop retention can change pipeline speed hints and subsequent up/
+  speed behavior, so replay the entire drive, including later departures, rather than just the light-stop segment.
+  Held evidence must not be used to learn phone yaw as gyro bias or counted as fresh independent ZUPT evidence.
+  A fresh moving speed contradicting tight ZUPT needs speed covariance widened before fusion; do not overwrite
+  the measurement with the 8 m/s prior on the next motion update. Candidate is opt-in/default-null due regression.
+
+- **D-080 evidence has a time interval.** A new NETWORK endpoint can describe a stop that ended before
+  it arrived. After a sustained bounded departure pulse, a positive pair beginning before departure
+  must not restore that old stop. Preserve both the unfinished pulse and last departure in snapshots.
+  Compare acceleration evidence against existing axis/bias readiness; motion of a hand-held phone is
+  not a usable vehicle departure. A posterior weight for past displacement is not current motion probability.
+- **D-079 ambiguity must not become evidence.** A large display covariance around two trajectories let
+  the D-069 agreement override accept gradual spoofing (153540 p95 58 →491 m). Pipeline trust now calls
+  `trustPrediction`, while publication calls `estimate`; wrappers must delegate both and `motionSpeedHint`.
+  Do not feed a speculative zero speed back into up learning when speed std ≥3. A quiet IMU can be a
+  smoothly cruising car. A network pair describes the preceding leg, not continued motion after braking;
+  shared endpoints/overlapping IMU windows are correlated. Validate the whole trip and spoof matrix.
+- **D-079 conditional trajectories have a start.** A stationary model anchored at trip start cannot
+  explain a stop a kilometre later. Reseed when disfavoured; snapshot cadence, support and selection.
+  Keep causal metrics: correcting today's coordinate is valid, rewriting yesterday's estimate using a
+  future fix is hindsight. Current model support is heuristic; within68 near 0.98 is pessimism, not ideal calibration.
+- **D-081 compare a fix before consuming it.** A corrected trajectory can fit the very measurement that
+  corrected it; score its pre-update motion leg, then save the corrected start of the next leg. Common
+  coarse-position offset must cancel in displacement comparison. Do not subtract endpoint covariances
+  without their cross-covariance or let absolute-position uncertainty conceal speed/heading leg error.
+  Reseeding a branch invalidates its leg anchor. Exact repeated NETWORK endpoints may be cached: they
+  cannot manufacture fresh information, but ignoring them also limits evidence during genuine stops.
+- **A different output can change the sensors' interpretation.** D-081 initially changed gravity/speed
+  learning and source trust even with a separate trust query. Its control lane preserves D-080 feedback;
+  compare per-fix `trust.csv`, not only summary counts. Snapshot all control/branch/leg state. Validate
+  missed stops and false stops separately: 103211 absent p95 stayed 343 m while missed stops rose
+  17 →103 ticks. A zero departure delay after a missed stop is not successful detection. See
+  `tools/plot/compare_motion.py`; exclude OBD from replay and use it only as offline reference.
+- **D-082 conditional calibration is not an unconditional measurement.** Starting a moving leg at a
+  selected stopped pose must remember that origin even if strict IMU ZUPT never fired. A known axis
+  with unbounded bias still cannot update speed. Do not copy the stop-conditional bias precision into
+  the moving leg: that produced new zero-speed traps at 190523 drop_10min 126–144 s. Retain its own
+  bias mean/variance and decorrelate on reinitialization. Position disagreement must use offsets from
+  the selected pose in the current local frame, not absolute ENU coordinates. Validate departures and
+  negative proofs after the entire transition, including covariance/readiness, not only the chosen pose.
+  A fresh measured zero can veto a broad departure prior through the first nonquiet sample; retain
+  pending departure until movement is established so expiration does not pin the branch to zero forever.
+  Snapshot that pending state and test both the immediate veto and later expiration/restore.

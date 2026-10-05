@@ -73,6 +73,12 @@ Offline, `ReplayRunner` feeds recorded measurements, transformed by a `Scenario`
   snapshot and restore.
 - `PositionEstimator`: `onMeasurement(m, trust)`, `onMotion(u)`, `estimate(t)` (a pure
   prediction), snapshot and restore.
+- The stop/motion mode experiment (D-078…D-082: conditional stopped and moving trajectories, a
+  separate trust control lane) is kept on branch `experiment/stop-motion`, not in main (D-083).
+- Roads: the odometry HMM observes a road-free twin. When speed is uncertain, `RoadHeadingConsensus`
+  instead compares nearby geometric axes using that twin's position and heading uncertainty (D-077).
+  It supplies only a heading observation; no road identity, distance, speed or position observation.
+  The quiet-motion window and update cadence are included in snapshots and rollback.
 - `future/`: `RoadGraph`, `RoadSegment`, `RoutePrior`, `RoadStateEstimator`, `VehicleSpeedSource`.
 
 ## Operating modes (app)
@@ -130,3 +136,4 @@ implemented and tested but not yet triggered automatically (see roadmap).
 - More vehicle-speed sources (BLE OBD, CAN wheel speeds) emit `VehicleSpeedMeasurement`, as
   `ObdSource` (ELM327 over Bluetooth SPP) does today. The estimator and trust check need no
   change.
+
