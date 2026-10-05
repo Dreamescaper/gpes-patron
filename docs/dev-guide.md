@@ -217,6 +217,10 @@ adb pull /storage/emulated/0/Android/data/gpes.patron/files/drives/<id>.db   # p
   session anchor. For 20261003-153540 the shift is +6.00999952 s: replay 295.1 s is map 301.1 s. Derive it from a matching
   recorded location and `trust.csv`, rather than assuming the first IMU is the first input. Truth exists only in short
   GPS windows; an error just before a window compared with its first GPS point also includes about one tick of motion.
+- **P41 `gh run download` unpacks a CI APK into a directory (D-084).** The APK artifact is uploaded with `archive: false`,
+  so the browser download and `gh api repos/<owner>/<repo>/actions/artifacts/<id>/zip > app.apk` give the APK itself. `gh run download`
+  (2.98) unzips every artifact it downloads, and an APK is a zip, so you get a folder of `classes*.dex`. Use the web
+  page or the `gh api` call.
 
 ## Road-heading implementation pitfalls (2026-10-04, D-077)
 
