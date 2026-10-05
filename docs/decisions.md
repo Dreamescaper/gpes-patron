@@ -1303,3 +1303,15 @@ move it into a wrapper estimator now (a refactor of code with no accepted use; d
 Consequences: default replay output of main equals the branch with flags off (2026-10-05: all 471 synthetic
 matrix files and all 504 real runs completed in both, 87 with roads, byte-identical). Future multi-trajectory work (roadmap:
 road-hypothesis bank, IMM) should be a separate `PositionEstimator`, compared against the default.
+
+## D-084: CI uploads the APK and AAB as bare files, not zips — Accepted (2026-10-05)
+Context: `actions/upload-artifact@v4` always zipped artifacts, so every CI APK had to be downloaded as `apk.zip`
+and unpacked before `adb install`. Since v7 (2026-02) the action takes `archive: false`.
+Decision: `android.yml` uploads the APK and the AAB with `upload-artifact@v7`, `archive: false`; the artifact is
+named after the file (`gpes-patron-<ref>-<version>.apk`, `gpes-patron-<version>-signed|unsigned.aab`). `reports`
+also moves to v7 but stays a zip.
+Alternatives: keep v4 zips (an extra unpack step for every install); publish every build as a pre-release
+(clutters Releases, needs tag management); unzip `reports` too (`archive: false` accepts a single file only, and
+the reports are several directories).
+Consequences: artifact names now change with every build instead of the fixed `apk`/`aab`; anything that downloads
+by name must use a pattern. Releases on `v*` tags are unchanged.

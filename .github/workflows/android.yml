@@ -87,20 +87,23 @@ jobs:
           cp app/build/outputs/bundle/release/app-release.aab "$name"
           echo "name=$name" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      # Uploaded as the bare file, not a zip (archive: false, upload-artifact v7); the file name is the artifact name.
+      - uses: actions/upload-artifact@v7
         with:
-          name: aab
           path: ${{ steps.aab.outputs.name }}
+          archive: false
 
       - name: Show signing certificate
         run: $ANDROID_HOME/build-tools/37.0.0/apksigner verify --print-certs "${{ steps.apk.outputs.name }}" | grep SHA-256
 
-      - uses: actions/upload-artifact@v4
+      # Uploaded as the bare file, not a zip (archive: false, upload-artifact v7); the file name is the artifact name.
+      - uses: actions/upload-artifact@v7
         with:
-          name: apk
           path: ${{ steps.apk.outputs.name }}
+          archive: false
 
-      - uses: actions/upload-artifact@v4
+      # Several directories: archive: false takes a single file only, so this one stays a zip.
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: reports

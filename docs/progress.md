@@ -95,6 +95,11 @@ Tests: 42 JVM tests (core + recording) as of 2026-09-28.
 
 ## Log
 
+### 2026-10-05 — CI artifacts without zip (D-084)
+`android.yml` uploads the debug APK and the release AAB with `actions/upload-artifact@v7` and `archive: false`, so
+they download as the `.apk`/`.aab` file itself. Test/lint reports stay a zip (several directories). Verified: the
+input exists in v7.0.1 `action.yml`; the workflow run itself is checked after push.
+
 ### 2026-10-05 — D-077 in main, stop/motion experiment parked on a branch (D-083)
 - Committed the full working tree (D-077…D-082) as `experiment/stop-motion`. Main carries only D-077
   (`RoadHeadingConsensus`, uncertain-speed road heading), `ticks.csv` hypothesis columns and
